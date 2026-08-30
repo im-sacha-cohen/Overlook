@@ -1,0 +1,8 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>Overlook — grid eye mark</title>
+<path d="M64,256 C160,110 352,110 448,256 C352,402 160,402 64,256 Z" fill="none" stroke="#3275b4" stroke-width="28" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="178" y="178" width="64" height="64" rx="14" fill="#3275b4"/>
+<rect x="270" y="178" width="64" height="64" rx="14" fill="#3275b4"/>
+<rect x="178" y="270" width="64" height="64" rx="14" fill="#3275b4"/>
+<rect x="270" y="270" width="64" height="64" rx="14" fill="#3275b4"/>
+</svg>

@@ -1,0 +1,47 @@
+<svg width="880" height="380" viewBox="0 0 880 380" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>Overlook — trois concepts de logo</title>
+<desc>Trois pistes de logo pour Overlook : A grid eye, B signal grid, C horizon, plus un exemple de lockup avec le nom.</desc>
+
+<g transform="translate(70,40) scale(0.3125)">
+  <path d="M64,256 C160,110 352,110 448,256 C352,402 160,402 64,256 Z" fill="none" stroke="#3275b4" stroke-width="28" stroke-linejoin="round" stroke-linecap="round"/>
+  <rect x="178" y="178" width="64" height="64" rx="14" fill="#3275b4"/>
+  <rect x="270" y="178" width="64" height="64" rx="14" fill="#3275b4"/>
+  <rect x="178" y="270" width="64" height="64" rx="14" fill="#3275b4"/>
+  <rect x="270" y="270" width="64" height="64" rx="14" fill="#3275b4"/>
+</g>
+<text x="200" y="245" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#26241f">A — grid eye</text>
+
+<g transform="translate(350,40) scale(0.3125)">
+  <rect x="96" y="96" width="320" height="320" rx="72" fill="none" stroke="#3275b4" stroke-width="28"/>
+  <rect x="160" y="160" width="48" height="48" rx="10" fill="none" stroke="#3275b4" stroke-width="10"/>
+  <rect x="232" y="160" width="48" height="48" rx="10" fill="none" stroke="#3275b4" stroke-width="10"/>
+  <rect x="304" y="160" width="48" height="48" rx="10" fill="#3275b4"/>
+  <rect x="160" y="232" width="48" height="48" rx="10" fill="none" stroke="#3275b4" stroke-width="10"/>
+  <rect x="232" y="232" width="48" height="48" rx="10" fill="none" stroke="#3275b4" stroke-width="10"/>
+  <rect x="304" y="232" width="48" height="48" rx="10" fill="none" stroke="#3275b4" stroke-width="10"/>
+  <rect x="160" y="304" width="48" height="48" rx="10" fill="none" stroke="#3275b4" stroke-width="10"/>
+  <rect x="232" y="304" width="48" height="48" rx="10" fill="none" stroke="#3275b4" stroke-width="10"/>
+  <rect x="304" y="304" width="48" height="48" rx="10" fill="none" stroke="#3275b4" stroke-width="10"/>
+</g>
+<text x="480" y="245" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#26241f">B — signal grid</text>
+
+<g transform="translate(630,40) scale(0.3125)">
+  <circle cx="256" cy="256" r="176" fill="none" stroke="#3275b4" stroke-width="28"/>
+  <line x1="112" y1="300" x2="400" y2="300" stroke="#3275b4" stroke-width="20" stroke-linecap="round"/>
+  <line x1="160" y1="340" x2="352" y2="340" stroke="#3275b4" stroke-width="16" stroke-linecap="round"/>
+  <line x1="190" y1="380" x2="322" y2="380" stroke="#3275b4" stroke-width="16" stroke-linecap="round"/>
+</g>
+<text x="760" y="245" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#26241f">C — horizon</text>
+
+<line x1="40" y1="280" x2="840" y2="280" stroke="#e8e5df" stroke-width="1"/>
+
+<g transform="translate(70,300) scale(0.15625)">
+  <path d="M64,256 C160,110 352,110 448,256 C352,402 160,402 64,256 Z" fill="none" stroke="#3275b4" stroke-width="28" stroke-linejoin="round" stroke-linecap="round"/>
+  <rect x="178" y="178" width="64" height="64" rx="14" fill="#3275b4"/>
+  <rect x="270" y="178" width="64" height="64" rx="14" fill="#3275b4"/>
+  <rect x="178" y="270" width="64" height="64" rx="14" fill="#3275b4"/>
+  <rect x="270" y="270" width="64" height="64" rx="14" fill="#3275b4"/>
+</g>
+<text x="150" y="335" font-family="Arial, sans-serif" font-size="30" font-weight="600" fill="#26241f">Overlook</text>
+<text x="40" y="365" font-family="Arial, sans-serif" font-size="14" fill="#8b877e">exemple de lockup — mark A + wordmark</text>
+</svg>

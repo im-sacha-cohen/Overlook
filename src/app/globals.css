@@ -1,0 +1,124 @@
+:root {
+  --bg: #fbfbfa;
+  --fg: #26241f;
+  --border: #efedE8;
+  --border-2: #eceae4;
+  --border-3: #e8e5df;
+  --muted: #8b877e;
+  --muted-2: #a8a39a;
+  --muted-3: #b4afa5;
+  --muted-4: #bdb8ae;
+  --hover-bg: #f4f2ed;
+  --panel-bg: #fff;
+  --accent: oklch(0.55 0.12 250);
+  --accent-hover: oklch(0.5 0.13 250);
+  --accent-bg: oklch(0.97 0.02 250);
+  --accent-border: oklch(0.9 0.04 250);
+
+  --env-local-bg: oklch(0.95 0.035 150);
+  --env-local-fg: oklch(0.4 0.1 150);
+  --env-local-border: oklch(0.85 0.06 150);
+  --env-local-strong: oklch(0.5 0.13 150);
+
+  --env-dev-bg: oklch(0.95 0.035 250);
+  --env-dev-fg: oklch(0.42 0.1 250);
+  --env-dev-border: oklch(0.85 0.06 250);
+  --env-dev-strong: oklch(0.55 0.12 250);
+
+  --env-staging-bg: oklch(0.95 0.045 60);
+  --env-staging-fg: oklch(0.45 0.1 60);
+  --env-staging-border: oklch(0.85 0.07 60);
+  --env-staging-strong: oklch(0.6 0.14 60);
+
+  --env-prod-bg: oklch(0.93 0.06 25);
+  --env-prod-fg: oklch(0.42 0.16 25);
+  --env-prod-border: oklch(0.8 0.1 25);
+  --env-prod-strong: oklch(0.5 0.18 25);
+
+  --env-custom-bg: oklch(0.94 0.03 300);
+  --env-custom-fg: oklch(0.44 0.1 300);
+  --env-custom-border: oklch(0.85 0.05 300);
+  --env-custom-strong: oklch(0.5 0.13 300);
+
+  --font-sans: var(--font-instrument-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+
+  --shadow-pop: 0 24px 60px rgba(35, 31, 24, 0.16);
+  --shadow-card: 0 1px 2px rgba(35, 31, 24, 0.03);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--accent-hover);
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: var(--accent-border);
+}
+
+.om-sb::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.om-sb::-webkit-scrollbar-thumb {
+  background: #dcd9d2;
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.om-sb::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes om-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes om-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

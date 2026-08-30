@@ -1,0 +1,23 @@
+services:
+  postgres-dev:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: atlas
+      POSTGRES_PASSWORD: atlas
+      POSTGRES_DB: atlas_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./dev/seed-postgres.sql:/docker-entrypoint-initdb.d/seed.sql:ro
+
+  mysql-dev:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: atlas
+      MYSQL_DATABASE: atlas_dev
+      MYSQL_USER: atlas
+      MYSQL_PASSWORD: atlas
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./dev/seed-mysql.sql:/docker-entrypoint-initdb.d/seed.sql:ro
