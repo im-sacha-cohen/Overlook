@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 export interface CmdItem {
   icon: string;
@@ -17,6 +18,7 @@ interface Props {
 }
 
 export function CommandPalette({ query, onQueryChange, items, onClose }: Props) {
+  const { t } = useLang();
   const [selected, setSelected] = useState(0);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -75,7 +77,7 @@ export function CommandPalette({ query, onQueryChange, items, onClose }: Props) 
           onChange={(e) => onQueryChange(e.target.value)}
           onKeyDown={handleKeyDown}
           autoFocus
-          placeholder="Aller à une table, changer de vue, exécuter…"
+          placeholder={t("cmdPalette.placeholder")}
           style={{ border: "none", outline: "none", padding: "15px 17px", fontSize: 15, borderBottom: "1px solid #f2f0ea" }}
         />
         <div className="om-sb" style={{ overflowY: "auto", padding: 6 }}>

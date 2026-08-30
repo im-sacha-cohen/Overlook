@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { EnvPill } from "./EnvPill";
 import { ENV_COLORS } from "@/lib/client/env";
 import { ENGINE_LABELS, type Connection } from "@/lib/types";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
   connections: Connection[];
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export function ConnectionBadge({ connections, activeConnection, onSwitch, onAddNew, onEdit, onDelete }: Props) {
+  const { t } = useLang();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -44,7 +46,7 @@ export function ConnectionBadge({ connections, activeConnection, onSwitch, onAdd
           borderRadius: 8,
           cursor: "pointer",
         }}
-        title={activeConnection ? `${activeConnection.name} · ${ENGINE_LABELS[activeConnection.engine]}` : "Aucune connexion"}
+        title={activeConnection ? `${activeConnection.name} · ${ENGINE_LABELS[activeConnection.engine]}` : t("connBadge.noConnection")}
       >
         <span
           style={{
@@ -67,7 +69,7 @@ export function ConnectionBadge({ connections, activeConnection, onSwitch, onAdd
             whiteSpace: "nowrap",
           }}
         >
-          {activeConnection ? activeConnection.name : "Aucune connexion"}
+          {activeConnection ? activeConnection.name : t("connBadge.noConnection")}
         </span>
         {activeConnection && <EnvPill env={activeConnection.envType} small />}
         <span style={{ fontSize: 9, color: activeColors ? activeColors.fg : "#a8a39a" }}>▾</span>
@@ -93,10 +95,10 @@ export function ConnectionBadge({ connections, activeConnection, onSwitch, onAdd
           }}
         >
           <div style={{ padding: "6px 8px 8px", fontSize: 11.5, letterSpacing: "0.06em", textTransform: "uppercase", color: "#a8a39a", fontWeight: 600 }}>
-            Connexions
+            {t("connBadge.connections")}
           </div>
           {connections.length === 0 && (
-            <div style={{ padding: "10px 8px", fontSize: 12.5, color: "#a8a39a" }}>Aucune connexion enregistrée.</div>
+            <div style={{ padding: "10px 8px", fontSize: 12.5, color: "#a8a39a" }}>{t("connBadge.noConnectionsSaved")}</div>
           )}
           {connections.map((c) => {
             const colors = ENV_COLORS[c.envType];
@@ -141,19 +143,19 @@ export function ConnectionBadge({ connections, activeConnection, onSwitch, onAdd
                     setOpen(false);
                   }}
                   style={{ width: 22, height: 22, display: "grid", placeItems: "center", background: "transparent", border: "none", borderRadius: 5, color: "#8b877e", cursor: "pointer" }}
-                  title="Modifier"
+                  title={t("connBadge.edit")}
                 >
                   ✎
                 </button>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (window.confirm(`Supprimer la connexion « ${c.name} » ? (les données de la base ne sont pas touchées)`)) {
+                    if (window.confirm(t("connBadge.confirmDelete", { name: c.name }))) {
                       onDelete(c.id);
                     }
                   }}
                   style={{ width: 22, height: 22, display: "grid", placeItems: "center", background: "transparent", border: "none", borderRadius: 5, color: "#8b877e", cursor: "pointer" }}
-                  title="Supprimer"
+                  title={t("connBadge.delete")}
                 >
                   ✕
                 </button>
@@ -182,7 +184,7 @@ export function ConnectionBadge({ connections, activeConnection, onSwitch, onAdd
               fontSize: 13,
             }}
           >
-            + Nouvelle connexion
+            {t("connBadge.newConnection")}
           </button>
         </div>
       )}

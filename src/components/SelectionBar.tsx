@@ -1,5 +1,7 @@
 "use client";
 
+import { useLang } from "@/lib/i18n/LanguageProvider";
+
 interface Props {
   count: number;
   onClear: () => void;
@@ -8,6 +10,7 @@ interface Props {
 }
 
 export function SelectionBar({ count, onClear, onDelete, onEdit }: Props) {
+  const { t } = useLang();
   if (count === 0) return null;
   return (
     <div
@@ -29,24 +32,24 @@ export function SelectionBar({ count, onClear, onDelete, onEdit }: Props) {
         animation: "om-pop 0.14s ease",
       }}
     >
-      <span>{count} ligne{count > 1 ? "s" : ""} sélectionnée{count > 1 ? "s" : ""}</span>
+      <span>{t("selectionBar.selected", { count })}</span>
       <button
         onClick={onEdit}
         style={{ padding: "6px 12px", background: "transparent", border: "1px solid rgba(255,255,255,0.25)", borderRadius: 7, color: "#f7f6f2", cursor: "pointer", fontSize: 12.5 }}
       >
-        Modifier
+        {t("selectionBar.edit")}
       </button>
       <button
         onClick={onDelete}
         style={{ padding: "6px 12px", background: "oklch(0.5 0.18 25)", border: "none", borderRadius: 7, color: "#fff", fontWeight: 500, cursor: "pointer", fontSize: 12.5 }}
       >
-        Supprimer
+        {t("selectionBar.delete")}
       </button>
       <button
         onClick={onClear}
         style={{ padding: "6px 12px", background: "transparent", border: "1px solid rgba(255,255,255,0.25)", borderRadius: 7, color: "#f7f6f2", cursor: "pointer", fontSize: 12.5 }}
       >
-        Désélectionner
+        {t("selectionBar.deselect")}
       </button>
     </div>
   );

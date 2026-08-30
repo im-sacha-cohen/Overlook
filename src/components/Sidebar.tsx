@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { TableMeta } from "@/lib/types";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
   tables: TableMeta[];
@@ -20,6 +21,7 @@ interface Props {
   onBulkDropTables: () => void;
   onExportSelectedTables: () => void;
   onOpenCreateTable: () => void;
+  onOpenSettings: () => void;
 }
 
 export function Sidebar({
@@ -39,7 +41,9 @@ export function Sidebar({
   onOpenCreateTable,
   onBulkDropTables,
   onExportSelectedTables,
+  onOpenSettings,
 }: Props) {
+  const { t } = useLang();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [importMenuOpen, setImportMenuOpen] = useState(false);
@@ -97,10 +101,10 @@ export function Sidebar({
     >
       <div className="om-sb" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 8px 0", display: "flex", flexDirection: "column", gap: 2 }}>
         <div style={{ padding: "0 8px 8px", fontSize: 11.5, letterSpacing: "0.06em", textTransform: "uppercase", color: "#a8a39a", fontWeight: 600 }}>
-          Tables
+          {t("sidebar.tables")}
         </div>
 
-        {tables.length === 0 && <div style={{ padding: "6px 8px", fontSize: 12.5, color: "#a8a39a" }}>Aucune table</div>}
+        {tables.length === 0 && <div style={{ padding: "6px 8px", fontSize: 12.5, color: "#a8a39a" }}>{t("sidebar.noTables")}</div>}
         {tables.map((t) => {
           const active = t.name === activeTable;
           const selected = selectedTables.has(t.name);
@@ -167,19 +171,19 @@ export function Sidebar({
             e.currentTarget.style.color = "#a8a39a";
           }}
         >
-          + Nouvelle table
+          {t("sidebar.newTable")}
         </div>
         <div style={{ height: 8 }} />
       </div>
 
       <div style={{ flex: "none", padding: "10px 8px", borderTop: "1px solid #f0eeE9" }}>
         <div style={{ padding: "0 8px 6px", fontSize: 11.5, letterSpacing: "0.06em", textTransform: "uppercase", color: "#a8a39a", fontWeight: 600 }}>
-          Espace
+          {t("sidebar.space")}
         </div>
-        <SidebarAction icon="⌗" label="Schéma" onClick={onOpenSchema} />
+        <SidebarAction icon="⌗" label={t("sidebar.schema")} onClick={onOpenSchema} />
         <div style={{ position: "relative" }}>
           <div ref={importBtnRef}>
-            <SidebarAction icon="↧" label="Importer" onClick={() => setImportMenuOpen((v) => !v)} />
+            <SidebarAction icon="↧" label={t("sidebar.import")} onClick={() => setImportMenuOpen((v) => !v)} />
           </div>
           {importMenuOpen && (
             <div
@@ -199,14 +203,14 @@ export function Sidebar({
               }}
             >
               <MenuItem
-                label="Fichier CSV"
+                label={t("sidebar.importCsvFile")}
                 onClick={() => {
                   onOpenCsv();
                   setImportMenuOpen(false);
                 }}
               />
               <MenuItem
-                label="Script SQL"
+                label={t("sidebar.importSqlScript")}
                 onClick={() => {
                   onOpenSqlImport();
                   setImportMenuOpen(false);
@@ -215,16 +219,17 @@ export function Sidebar({
             </div>
           )}
         </div>
-        <SidebarAction icon="↺" label="Historique" onClick={onOpenHistory} />
-        <SidebarAction icon="↥" label="Exporter la base" onClick={onExport} />
+        <SidebarAction icon="↺" label={t("sidebar.history")} onClick={onOpenHistory} />
+        <SidebarAction icon="↥" label={t("sidebar.exportDatabase")} onClick={onExport} />
+        <SidebarAction icon="⚙" label={t("sidebar.settings")} onClick={onOpenSettings} />
       </div>
 
       <div style={{ flex: "none", padding: "10px 8px", borderTop: "1px solid #f0eeE9", fontSize: 12, color: "#a8a39a", lineHeight: 1.6 }}>
         <div>
-          <span style={{ fontFamily: "var(--font-mono)" }}>⌘K</span> commandes
+          <span style={{ fontFamily: "var(--font-mono)" }}>⌘K</span> {t("sidebar.hintCmd")}
         </div>
         <div>
-          <span style={{ fontFamily: "var(--font-mono)" }}>⌘clic</span> multi-sélection · <span style={{ fontFamily: "var(--font-mono)" }}>clic droit</span> actions
+          <span style={{ fontFamily: "var(--font-mono)" }}>⌘{t("sidebar.hintClick")}</span> {t("sidebar.hintMultiSelect")} · <span style={{ fontFamily: "var(--font-mono)" }}>{t("sidebar.hintRightClick")}</span> {t("sidebar.hintActions")}
         </div>
       </div>
 
@@ -246,17 +251,17 @@ export function Sidebar({
           }}
         >
           <div style={{ padding: "5px 10px 7px", fontSize: 11, color: "#a8a39a" }}>
-            {selectedTables.size} table{selectedTables.size > 1 ? "s" : ""} sélectionnée{selectedTables.size > 1 ? "s" : ""}
+            {selectedTables.size} {t(selectedTables.size > 1 ? "sidebar.tablesSelected_other" : "sidebar.tablesSelected_one")}
           </div>
           <MenuItem
-            label="Exporter"
+            label={t("sidebar.export")}
             onClick={() => {
               onExportSelectedTables();
               setMenu(null);
             }}
           />
           <MenuItem
-            label="Supprimer"
+            label={t("common.delete")}
             danger
             onClick={() => {
               onBulkDropTables();

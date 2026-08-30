@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import type { QueryResult } from "@/lib/types";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
   onRun: (sql: string, allowWrite: boolean) => Promise<QueryResult>;
 }
 
 export function QueryConsole({ onRun }: Props) {
+  const { t } = useLang();
   const [sql, setSql] = useState("SELECT * FROM ");
   const [allowWrite, setAllowWrite] = useState(false);
   const [result, setResult] = useState<QueryResult | null>(null);
@@ -52,16 +54,16 @@ export function QueryConsole({ onRun }: Props) {
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "#6f6b62" }}>
           <input type="checkbox" checked={allowWrite} onChange={(e) => setAllowWrite(e.target.checked)} />
-          Autoriser les requêtes d&apos;écriture
+          {t("queryConsole.allowWrite")}
         </label>
         <div style={{ flex: 1 }} />
-        <div style={{ fontSize: 11.5, color: "#a8a39a", fontFamily: "var(--font-mono)" }}>⌘↵ pour exécuter</div>
+        <div style={{ fontSize: 11.5, color: "#a8a39a", fontFamily: "var(--font-mono)" }}>{t("queryConsole.cmdEnterToRun")}</div>
         <button
           onClick={handleRun}
           disabled={running}
           style={{ padding: "7px 14px", background: "var(--accent)", border: "1px solid var(--accent-hover)", borderRadius: 8, color: "#fff", fontWeight: 500, cursor: "pointer" }}
         >
-          {running ? "Exécution…" : "Exécuter"}
+          {running ? t("queryConsole.running") : t("queryConsole.run")}
         </button>
       </div>
       {error && (
@@ -72,7 +74,7 @@ export function QueryConsole({ onRun }: Props) {
       {result && (
         <div className="om-sb" style={{ flex: 1, minHeight: 0, overflow: "auto", border: "1px solid #eceae4", borderRadius: 10 }}>
           {result.columns.length === 0 ? (
-            <div style={{ padding: 14, fontSize: 13, color: "#6f6b62" }}>{result.rowCount} ligne(s) affectée(s)</div>
+            <div style={{ padding: 14, fontSize: 13, color: "#6f6b62" }}>{t("queryConsole.rowsAffected", { count: result.rowCount })}</div>
           ) : (
             <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5 }}>
               <thead>

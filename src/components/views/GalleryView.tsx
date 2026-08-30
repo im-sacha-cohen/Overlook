@@ -2,6 +2,7 @@
 
 import type { ColumnMeta, Row } from "@/lib/types";
 import { formatValue, pillStyle } from "@/lib/client/format";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
   columns: ColumnMeta[];
@@ -10,12 +11,13 @@ interface Props {
 }
 
 export function GalleryView({ columns, rows, onRowOpen }: Props) {
+  const { t, lang } = useLang();
   const titleCol = columns.find((c) => c.logicalType === "text") ?? columns[0];
   const subCol = columns.filter((c) => c !== titleCol)[0];
   const tagCols = columns.filter((c) => c.logicalType === "select").slice(0, 2);
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(232px, 1fr))", gap: 14 }}>
+    <div data-clarity-mask="true" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(232px, 1fr))", gap: 14 }}>
       {rows.map((row, i) => (
         <div
           key={i}
@@ -52,11 +54,11 @@ export function GalleryView({ columns, rows, onRowOpen }: Props) {
               color: "#b4afa5",
             }}
           >
-            visuel
+            {t("galleryView.visual")}
           </div>
           <div style={{ padding: "11px 12px", display: "flex", flexDirection: "column", gap: 7 }}>
-            <div style={{ fontWeight: 500 }}>{titleCol ? formatValue(row[titleCol.name], titleCol) || "Sans titre" : "Sans titre"}</div>
-            {subCol && <div style={{ fontSize: 12.5, color: "#8b877e" }}>{formatValue(row[subCol.name], subCol)}</div>}
+            <div style={{ fontWeight: 500 }}>{titleCol ? formatValue(row[titleCol.name], titleCol, lang) || t("detailPanel.untitled") : t("detailPanel.untitled")}</div>
+            {subCol && <div style={{ fontSize: 12.5, color: "#8b877e" }}>{formatValue(row[subCol.name], subCol, lang)}</div>}
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
               {tagCols.map((c) =>
                 row[c.name] ? (

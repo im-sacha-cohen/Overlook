@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { TableMeta } from "@/lib/types";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 export interface ExportChoice {
   format: "sql" | "ndjson";
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export function ExportModal({ connectionName, tables, initialSelected, onExport, onClose }: Props) {
+  const { t, lang } = useLang();
   const [format, setFormat] = useState<"sql" | "ndjson">("sql");
   const [includeStructure, setIncludeStructure] = useState(true);
   const [includeData, setIncludeData] = useState(true);
@@ -44,8 +46,8 @@ export function ExportModal({ connectionName, tables, initialSelected, onExport,
 
   function handleSubmit() {
     setError(null);
-    if (!includeStructure && !includeData) return setError("Choisis structure et/ou données");
-    if (selected.size === 0) return setError("Sélectionne au moins une table");
+    if (!includeStructure && !includeData) return setError(t("export.needStructureOrData"));
+    if (selected.size === 0) return setError(t("export.needTable"));
     onExport({ format, includeStructure, includeData, tables: [...selected] });
   }
 
@@ -53,7 +55,7 @@ export function ExportModal({ connectionName, tables, initialSelected, onExport,
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(35,31,24,0.14)", display: "grid", placeItems: "center", zIndex: 60, animation: "om-fade 0.12s ease" }}>
       <div onClick={(e) => e.stopPropagation()} className="om-sb" style={{ width: 460, maxHeight: "84vh", overflowY: "auto", background: "#fff", border: "1px solid #e5e2db", borderRadius: 13, boxShadow: "var(--shadow-pop)", animation: "om-pop 0.14s ease" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "1px solid #f2f0ea" }}>
-          <div style={{ fontWeight: 600 }}>Exporter la base</div>
+          <div style={{ fontWeight: 600 }}>{t("export.title")}</div>
           <div style={{ fontSize: 12.5, color: "#a8a39a" }}>{connectionName}</div>
           <div style={{ flex: 1 }} />
           <button onClick={onClose} style={{ width: 26, height: 26, background: "transparent", border: "none", borderRadius: 6, color: "#8b877e", cursor: "pointer" }}>
@@ -63,7 +65,7 @@ export function ExportModal({ connectionName, tables, initialSelected, onExport,
 
         <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <div style={{ fontSize: 12, color: "#8b877e", marginBottom: 6 }}>Format</div>
+            <div style={{ fontSize: 12, color: "#8b877e", marginBottom: 6 }}>{t("export.format")}</div>
             <div style={{ display: "flex", gap: 8 }}>
               <FormatButton label="SQL (.sql)" active={format === "sql"} onClick={() => setFormat("sql")} />
               <FormatButton label="NDJSON (.ndjson)" active={format === "ndjson"} onClick={() => setFormat("ndjson")} />
@@ -71,25 +73,25 @@ export function ExportModal({ connectionName, tables, initialSelected, onExport,
           </div>
 
           <div>
-            <div style={{ fontSize: 12, color: "#8b877e", marginBottom: 6 }}>Contenu</div>
+            <div style={{ fontSize: 12, color: "#8b877e", marginBottom: 6 }}>{t("export.content")}</div>
             <div style={{ display: "flex", gap: 16 }}>
               <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13 }}>
                 <input type="checkbox" checked={includeStructure} onChange={(e) => setIncludeStructure(e.target.checked)} />
-                Structure (schéma)
+                {t("export.structure")}
               </label>
               <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13 }}>
                 <input type="checkbox" checked={includeData} onChange={(e) => setIncludeData(e.target.checked)} />
-                Données
+                {t("export.data")}
               </label>
             </div>
           </div>
 
           <div>
             <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
-              <div style={{ fontSize: 12, color: "#8b877e" }}>Tables ({selected.size}/{tables.length})</div>
+              <div style={{ fontSize: 12, color: "#8b877e" }}>{t("export.tables", { selected: selected.size, total: tables.length })}</div>
               <div style={{ flex: 1 }} />
               <button onClick={toggleAll} style={{ background: "transparent", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 12 }}>
-                {selected.size === tables.length ? "Tout désélectionner" : "Tout sélectionner"}
+                {selected.size === tables.length ? t("export.deselectAll") : t("export.selectAll")}
               </button>
             </div>
             <div className="om-sb" style={{ maxHeight: 180, overflowY: "auto", border: "1px solid #f0eeE9", borderRadius: 8, padding: 6 }}>
@@ -104,7 +106,7 @@ export function ExportModal({ connectionName, tables, initialSelected, onExport,
           </div>
 
           <div style={{ fontSize: 12, color: "#a8a39a" }}>
-            {includeData ? `≈ ${totalRows.toLocaleString("fr-FR")} ligne(s) à exporter` : "Structure uniquement, sans les lignes"}
+            {includeData ? t("export.estimateRows", { count: totalRows.toLocaleString(lang === "fr" ? "fr-FR" : "en-US") }) : t("export.structureOnly")}
           </div>
 
           {error && (
@@ -115,13 +117,13 @@ export function ExportModal({ connectionName, tables, initialSelected, onExport,
 
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button onClick={onClose} style={{ padding: "7px 12px", background: "#fff", border: "1px solid #e8e5df", borderRadius: 8, cursor: "pointer", color: "#4b473f" }}>
-              Annuler
+              {t("common.cancel")}
             </button>
             <button
               onClick={handleSubmit}
               style={{ padding: "7px 13px", background: "var(--accent)", border: "1px solid var(--accent-hover)", borderRadius: 8, color: "#fff", fontWeight: 500, cursor: "pointer" }}
             >
-              Exporter
+              {t("export.submit")}
             </button>
           </div>
         </div>

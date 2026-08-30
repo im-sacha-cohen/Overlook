@@ -2,6 +2,7 @@
 
 import { ConnectionBadge } from "./ConnectionBadge";
 import type { Connection } from "@/lib/types";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
   connections: Connection[];
@@ -30,6 +31,7 @@ export function TopBar({
   onSetDir,
   onOpenCmd,
 }: Props) {
+  const { t } = useLang();
   const btnStyle = (on: boolean): React.CSSProperties => ({
     padding: "4px 11px",
     border: "none",
@@ -64,17 +66,17 @@ export function TopBar({
       <div style={{ flex: 1 }} />
       <div style={{ display: "flex", alignItems: "center", gap: 2, padding: 2, background: "#f3f1ec", borderRadius: 8 }}>
         <button onClick={() => onSetDir("doc")} style={btnStyle(dir === "doc")}>
-          Document
+          {t("topBar.document")}
         </button>
         <button onClick={() => onSetDir("query")} style={btnStyle(dir === "query")}>
-          Requête
+          {t("topBar.query")}
         </button>
       </div>
       <button
         onClick={onOpenCmd}
         style={{ display: "flex", alignItems: "center", gap: 8, height: 30, padding: "0 8px 0 10px", background: "#fff", border: "1px solid #e8e5df", borderRadius: 8, color: "#8b877e", cursor: "pointer" }}
       >
-        Rechercher
+        {t("topBar.search")}
         <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, padding: "1px 5px", background: "#f4f2ed", borderRadius: 4 }}>⌘K</span>
       </button>
     </div>

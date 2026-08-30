@@ -1,21 +1,9 @@
 "use client";
 
 import type { ColumnMeta, RowFilter, RowSort } from "@/lib/types";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 export type ViewKind = "table" | "board" | "calendar" | "gallery";
-
-const VIEWS: [ViewKind, string][] = [
-  ["table", "Table"],
-  ["board", "Tableau"],
-  ["calendar", "Calendrier"],
-  ["gallery", "Galerie"],
-];
-
-const OPS: [RowFilter["op"], string][] = [
-  ["eq", "est"],
-  ["neq", "n'est pas"],
-  ["contains", "contient"],
-];
 
 interface Props {
   view: ViewKind;
@@ -44,8 +32,20 @@ const smallBtn: React.CSSProperties = {
 };
 
 export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, filters, onFiltersChange, sorts, onSortsChange, onAddRow }: Props) {
+  const { t } = useLang();
   const selectableCols = columns.filter((c) => !c.hidden);
   const groupableCols = columns.filter((c) => c.logicalType === "select" || c.logicalType === "checkbox");
+  const VIEWS: [ViewKind, string][] = [
+    ["table", t("toolbar.table")],
+    ["board", t("toolbar.board")],
+    ["calendar", t("toolbar.calendar")],
+    ["gallery", t("toolbar.gallery")],
+  ];
+  const OPS: [RowFilter["op"], string][] = [
+    ["eq", t("toolbar.opEq")],
+    ["neq", t("toolbar.opNeq")],
+    ["contains", t("toolbar.opContains")],
+  ];
 
   return (
     <div>
@@ -71,24 +71,24 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
         ))}
         <div style={{ display: "flex", flex: "0 1 auto", minWidth: 0, flexWrap: "wrap", justifyContent: "flex-end", marginLeft: "auto", alignItems: "center", gap: 6, paddingBottom: 6 }}>
           <select value={groupBy} onChange={(e) => onSetGroupBy(e.target.value)} style={{ ...smallBtn, height: 27, padding: "0 6px", cursor: "pointer" }}>
-            <option value="">Sans groupe</option>
+            <option value="">{t("toolbar.noGroup")}</option>
             {groupableCols.map((c) => (
               <option key={c.name} value={c.name}>
-                Grouper par {c.name}
+                {t("toolbar.groupBy", { column: c.name })}
               </option>
             ))}
           </select>
           <button style={smallBtn} onClick={() => onFiltersChange([...filters, { column: selectableCols[0]?.name ?? "", op: "contains", value: "" }])}>
-            + Filtre
+            {t("toolbar.addFilter")}
           </button>
           <button style={smallBtn} onClick={() => onSortsChange([...sorts, { column: selectableCols[0]?.name ?? "", dir: "asc" }])}>
-            + Tri
+            {t("toolbar.addSort")}
           </button>
           <button
             onClick={onAddRow}
             style={{ flex: "none", whiteSpace: "nowrap", minHeight: 27, padding: "0 10px", background: "var(--accent)", border: "1px solid var(--accent-hover)", borderRadius: 7, color: "#fff", fontSize: 12.5, fontWeight: 500, cursor: "pointer" }}
           >
-            Nouvelle ligne
+            {t("toolbar.newRow")}
           </button>
         </div>
       </div>
@@ -97,7 +97,7 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 7, padding: "12px 0 0" }}>
           {filters.map((f, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, height: 28, padding: "0 4px 0 8px", background: "var(--accent-bg)", border: "1px solid var(--accent-border)", borderRadius: 8, fontSize: 12.5 }}>
-              <span style={{ color: "oklch(0.5 0.1 250)", fontWeight: 500 }}>où</span>
+              <span style={{ color: "oklch(0.5 0.1 250)", fontWeight: 500 }}>{t("toolbar.where")}</span>
               <select
                 value={f.column}
                 onChange={(e) => onFiltersChange(filters.map((x, j) => (j === i ? { ...x, column: e.target.value } : x)))}
@@ -123,7 +123,7 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
               <input
                 value={f.value}
                 onChange={(e) => onFiltersChange(filters.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
-                placeholder="valeur"
+                placeholder={t("toolbar.valuePlaceholder")}
                 style={{ width: 92, border: "none", background: "#fff", borderRadius: 5, padding: "3px 6px", fontSize: 12.5, outline: "none" }}
               />
               <button
@@ -136,7 +136,7 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
           ))}
           {sorts.map((s, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, height: 28, padding: "0 4px 0 8px", background: "#f6f4ef", border: "1px solid #e8e5df", borderRadius: 8, fontSize: 12.5 }}>
-              <span style={{ color: "#8b877e", fontWeight: 500 }}>trier</span>
+              <span style={{ color: "#8b877e", fontWeight: 500 }}>{t("toolbar.sortBy")}</span>
               <select
                 value={s.column}
                 onChange={(e) => onSortsChange(sorts.map((x, j) => (j === i ? { ...x, column: e.target.value } : x)))}

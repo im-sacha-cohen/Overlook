@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 export interface ImportProgressState {
   done: number;
@@ -17,6 +18,7 @@ interface Props {
 }
 
 export function ImportProgress({ state, onCancel, onDismiss }: Props) {
+  const { t, lang } = useLang();
   const [showErrors, setShowErrors] = useState(false);
   const pct = state.total > 0 ? Math.min(100, Math.round((state.done / state.total) * 100)) : state.status === "done" ? 100 : 0;
 
@@ -39,14 +41,14 @@ export function ImportProgress({ state, onCancel, onDismiss }: Props) {
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <span style={{ fontWeight: 500 }}>
-          {state.status === "running" && "Import en cours…"}
-          {state.status === "done" && (state.failed.length > 0 ? "Import terminé avec erreurs" : "Import terminé")}
-          {state.status === "error" && "Import échoué"}
+          {state.status === "running" && t("importProgress.running")}
+          {state.status === "done" && (state.failed.length > 0 ? t("importProgress.doneWithErrors") : t("importProgress.done"))}
+          {state.status === "error" && t("importProgress.error")}
         </span>
         <div style={{ flex: 1 }} />
         {state.status === "running" ? (
           <button onClick={onCancel} style={{ background: "transparent", border: "none", color: "#d8d4cc", cursor: "pointer", fontSize: 12 }}>
-            Annuler
+            {t("importProgress.cancel")}
           </button>
         ) : (
           <button onClick={onDismiss} style={{ background: "transparent", border: "none", color: "#d8d4cc", cursor: "pointer", fontSize: 14 }}>
@@ -64,9 +66,9 @@ export function ImportProgress({ state, onCancel, onDismiss }: Props) {
           </div>
           <div style={{ marginTop: 6, color: "#a8a39a" }}>
             {state.total > 0
-              ? `${state.done.toLocaleString("fr-FR")}/${state.total.toLocaleString("fr-FR")} instruction(s)`
+              ? t("importProgress.statements", { done: state.done.toLocaleString(lang === "fr" ? "fr-FR" : "en-US"), total: state.total.toLocaleString(lang === "fr" ? "fr-FR" : "en-US") })
               : "…"}
-            {state.failed.length > 0 && <span style={{ color: "oklch(0.75 0.12 25)" }}> · {state.failed.length} erreur(s)</span>}
+            {state.failed.length > 0 && <span style={{ color: "oklch(0.75 0.12 25)" }}> · {t("importProgress.errors", { count: state.failed.length })}</span>}
           </div>
           {state.failed.length > 0 && (
             <div style={{ marginTop: 6 }}>
@@ -74,7 +76,7 @@ export function ImportProgress({ state, onCancel, onDismiss }: Props) {
                 onClick={() => setShowErrors((v) => !v)}
                 style={{ background: "transparent", border: "none", color: "#d8d4cc", cursor: "pointer", fontSize: 11.5, padding: 0, textDecoration: "underline" }}
               >
-                {showErrors ? "Masquer le détail" : "Voir le détail"}
+                {showErrors ? t("importProgress.hideDetails") : t("importProgress.showDetails")}
               </button>
               {showErrors && (
                 <div style={{ marginTop: 6, maxHeight: 120, overflowY: "auto" }}>
@@ -84,7 +86,7 @@ export function ImportProgress({ state, onCancel, onDismiss }: Props) {
                     </div>
                   ))}
                   {state.failed.length > 20 && (
-                    <div style={{ fontSize: 11, color: "#a8a39a" }}>… et {state.failed.length - 20} autre(s)</div>
+                    <div style={{ fontSize: 11, color: "#a8a39a" }}>{t("importProgress.andMore", { count: state.failed.length - 20 })}</div>
                   )}
                 </div>
               )}

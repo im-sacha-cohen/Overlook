@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
   connectionName: string;
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function ProdGuardDialog({ connectionName, actionLabel, onConfirm, onCancel }: Props) {
+  const { t } = useLang();
   const [typed, setTyped] = useState("");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,12 +65,12 @@ export function ProdGuardDialog({ connectionName, actionLabel, onConfirm, onCanc
           }}
         >
           <span style={{ fontSize: 16 }}>⚠</span>
-          <div style={{ fontWeight: 600, color: "var(--env-prod-fg)" }}>Action sur une connexion de production</div>
+          <div style={{ fontWeight: 600, color: "var(--env-prod-fg)" }}>{t("prodGuard.title")}</div>
         </div>
         <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{actionLabel}</div>
           <div style={{ fontSize: 12.5, color: "#8b877e" }}>
-            Tape <strong style={{ fontFamily: "var(--font-mono)", color: "#26241f" }}>{connectionName}</strong> pour confirmer.
+            {t("prodGuard.typeBefore")} <strong style={{ fontFamily: "var(--font-mono)", color: "#26241f" }}>{connectionName}</strong> {t("prodGuard.typeAfter")}
           </div>
           <input
             autoFocus
@@ -90,7 +92,7 @@ export function ProdGuardDialog({ connectionName, actionLabel, onConfirm, onCanc
               onClick={onCancel}
               style={{ padding: "7px 12px", background: "#fff", border: "1px solid #e8e5df", borderRadius: 8, cursor: "pointer", color: "#4b473f" }}
             >
-              Annuler
+              {t("common.cancel")}
             </button>
             <button
               onClick={handleConfirm}
@@ -105,7 +107,7 @@ export function ProdGuardDialog({ connectionName, actionLabel, onConfirm, onCanc
                 cursor: matches ? "pointer" : "not-allowed",
               }}
             >
-              {running ? "En cours…" : "Confirmer"}
+              {running ? t("common.confirmRunning") : t("common.confirm")}
             </button>
           </div>
         </div>

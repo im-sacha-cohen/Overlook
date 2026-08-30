@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api } from "@/lib/client/api";
 import { ENGINE_DEFAULT_PORT, ENGINE_LABELS, ENV_LABELS, type Connection, type ConnectionInput, type EnvType, type Engine } from "@/lib/types";
 import { ProdGuardDialog } from "./ProdGuardDialog";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
   initial?: Connection;
@@ -30,6 +31,7 @@ const labelStyle: React.CSSProperties = {
 };
 
 export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped }: Props) {
+  const { t } = useLang();
   const [name, setName] = useState(initial?.name ?? "");
   const [envType, setEnvType] = useState<EnvType>(initial?.envType ?? "local");
   const [engine, setEngine] = useState<Engine>(initial?.engine ?? "postgres");
@@ -72,7 +74,7 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped }: 
       } else {
         await api.testConnection(buildInput());
       }
-      setTestResult({ ok: true, message: "Connexion réussie" });
+      setTestResult({ ok: true, message: t("connectionForm.testSuccess") });
     } catch (err) {
       setTestResult({ ok: false, message: err instanceof Error ? err.message : String(err) });
     } finally {
@@ -93,7 +95,7 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped }: 
         ssl: isSqlite ? undefined : ssl,
         database,
       });
-      setCreateDbResult({ ok: true, message: "Base créée" });
+      setCreateDbResult({ ok: true, message: t("connectionForm.dbCreated") });
     } catch (err) {
       setCreateDbResult({ ok: false, message: err instanceof Error ? err.message : String(err) });
     } finally {
@@ -103,8 +105,8 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped }: 
 
   async function handleSave() {
     setError(null);
-    if (!name.trim()) return setError("Donne un nom à la connexion");
-    if (!database.trim()) return setError(isSqlite ? "Chemin du fichier requis" : "Nom de la base requis");
+    if (!name.trim()) return setError(t("connectionForm.nameRequired"));
+    if (!database.trim()) return setError(isSqlite ? t("connectionForm.filePathRequired") : t("connectionForm.dbNameRequired"));
     setSaving(true);
     try {
       await onSave(buildInput());
@@ -143,7 +145,7 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped }: 
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "1px solid #f2f0ea" }}>
-          <div style={{ fontWeight: 600 }}>{initial ? "Modifier la connexion" : "Nouvelle connexion"}</div>
+          <div style={{ fontWeight: 600 }}>{initial ? t("connectionForm.editTitle") : t("connectionForm.newTitle")}</div>
           <div style={{ flex: 1 }} />
           <button onClick={onClose} style={{ width: 26, height: 26, background: "transparent", border: "none", borderRadius: 6, color: "#8b877e", cursor: "pointer" }}>
             ✕
@@ -152,13 +154,13 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped }: 
 
         <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
           <div>
-            <label style={labelStyle}>Nom</label>
-            <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="ex. orders_db" />
+            <label style={labelStyle}>{t("connectionForm.name")}</label>
+            <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder={t("connectionForm.namePlaceholder")} />
           </div>
 
           <div style={{ display: "flex", gap: 10 }}>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Environnement</label>
+              <label style={labelStyle}>{t("connectionForm.environment")}</label>
               <select style={inputStyle} value={envType} onChange={(e) => setEnvType(e.target.value as EnvType)}>
                 {(Object.keys(ENV_LABELS) as EnvType[]).map((v) => (
                   <option key={v} value={v}>
@@ -168,7 +170,7 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped }: 
               </select>
             </div>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Moteur</label>
+              <label style={labelStyle}>{t("connectionForm.engine")}</label>
               <select
                 style={inputStyle}
                 value={engine}
@@ -191,37 +193,37 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped }: 
 
           {envType === "prod" && (
             <div style={{ padding: "8px 10px", background: "var(--env-prod-bg)", border: "1px solid var(--env-prod-border)", borderRadius: 8, fontSize: 12.5, color: "var(--env-prod-fg)" }}>
-              Connexion de production : les suppressions et modifications de schéma demanderont une confirmation explicite.
+              {t("connectionForm.prodWarning")}
             </div>
           )}
 
           {isSqlite ? (
             <div>
-              <label style={labelStyle}>Chemin du fichier</label>
+              <label style={labelStyle}>{t("connectionForm.filePath")}</label>
               <input style={inputStyle} value={database} onChange={(e) => setDatabase(e.target.value)} placeholder="./data/example.sqlite" />
             </div>
           ) : (
             <>
               <div style={{ display: "flex", gap: 10 }}>
                 <div style={{ flex: 3 }}>
-                  <label style={labelStyle}>Hôte</label>
+                  <label style={labelStyle}>{t("connectionForm.host")}</label>
                   <input style={inputStyle} value={host} onChange={(e) => setHost(e.target.value)} placeholder="localhost" />
                 </div>
                 <div style={{ flex: 1 }}>
-                  <label style={labelStyle}>Port</label>
+                  <label style={labelStyle}>{t("connectionForm.port")}</label>
                   <input style={inputStyle} value={port} onChange={(e) => setPort(e.target.value)} />
                 </div>
               </div>
               <div>
-                <label style={labelStyle}>Base de données</label>
+                <label style={labelStyle}>{t("connectionForm.database")}</label>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <input style={{ ...inputStyle, flex: 1 }} value={database} onChange={(e) => setDatabase(e.target.value)} placeholder="ex. postgres" />
+                  <input style={{ ...inputStyle, flex: 1 }} value={database} onChange={(e) => setDatabase(e.target.value)} placeholder={t("connectionForm.databasePlaceholder")} />
                   <button
                     onClick={handleCreateDatabase}
                     disabled={creatingDb || !database.trim()}
                     style={{ flex: "none", padding: "0 10px", background: "#fff", border: "1px solid #e8e5df", borderRadius: 8, cursor: "pointer", color: "#4b473f", fontSize: 12.5, whiteSpace: "nowrap" }}
                   >
-                    {creatingDb ? "Création…" : "Créer la base"}
+                    {creatingDb ? t("connectionForm.creatingDb") : t("connectionForm.createDb")}
                   </button>
                 </div>
                 {createDbResult && (
@@ -232,17 +234,17 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped }: 
               </div>
               <div style={{ display: "flex", gap: 10 }}>
                 <div style={{ flex: 1 }}>
-                  <label style={labelStyle}>Utilisateur</label>
+                  <label style={labelStyle}>{t("connectionForm.user")}</label>
                   <input style={inputStyle} value={user} onChange={(e) => setUser(e.target.value)} />
                 </div>
                 <div style={{ flex: 1 }}>
-                  <label style={labelStyle}>Mot de passe {initial ? "(laisser vide pour ne pas changer)" : ""}</label>
+                  <label style={labelStyle}>{t("connectionForm.password")} {initial ? t("connectionForm.passwordKeepHint") : ""}</label>
                   <input style={inputStyle} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
                 </div>
               </div>
               <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
                 <input type="checkbox" checked={ssl} onChange={(e) => setSsl(e.target.checked)} />
-                Utiliser SSL
+                {t("connectionForm.useSsl")}
               </label>
             </>
           )}
@@ -273,7 +275,7 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped }: 
               disabled={testing}
               style={{ padding: "7px 12px", background: "#fff", border: "1px solid #e8e5df", borderRadius: 8, cursor: "pointer", color: "#4b473f" }}
             >
-              {testing ? "Test en cours…" : "Tester la connexion"}
+              {testing ? t("connectionForm.testing") : t("connectionForm.testConnection")}
             </button>
             <button
               onClick={handleSave}
@@ -288,24 +290,24 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped }: 
                 cursor: "pointer",
               }}
             >
-              {saving ? "Enregistrement…" : "Enregistrer"}
+              {saving ? t("connectionForm.saving") : t("connectionForm.save")}
             </button>
           </div>
 
           {initial && (
             <div style={{ marginTop: 8, paddingTop: 14, borderTop: "1px solid #f2f0ea" }}>
               <div style={{ fontSize: 11.5, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--env-prod-fg)", fontWeight: 600, marginBottom: 8 }}>
-                Zone dangereuse
+                {t("connectionForm.dangerZone")}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ flex: 1, fontSize: 12.5, color: "#8b877e" }}>
-                  Supprime définitivement la base « {initial.database} » sur le serveur (pas seulement cette connexion).
+                  {t("connectionForm.dropDbHint", { name: initial.database })}
                 </div>
                 <button
                   onClick={() => setDropDbOpen(true)}
                   style={{ flex: "none", padding: "7px 12px", background: "#fff", border: "1px solid var(--env-prod-border)", borderRadius: 8, color: "var(--env-prod-fg)", cursor: "pointer", fontSize: 12.5, whiteSpace: "nowrap" }}
                 >
-                  Supprimer la base…
+                  {t("connectionForm.dropDb")}
                 </button>
               </div>
             </div>
@@ -316,7 +318,7 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped }: 
       {initial && dropDbOpen && (
         <ProdGuardDialog
           connectionName={initial.database}
-          actionLabel={`Supprimer définitivement la base « ${initial.database} » sur le serveur. Toutes les tables et données seront perdues. Cette action ne peut pas être annulée.`}
+          actionLabel={t("connectionForm.dropDbConfirmAction", { name: initial.database })}
           onConfirm={async () => {
             await api.dropDatabase(initial.id, initial.database);
             setDropDbOpen(false);

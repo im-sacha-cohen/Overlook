@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import type { ColumnMeta, LogicalType } from "../types";
+import type { Lang } from "../i18n/translations";
 
 export function iconFor(type: LogicalType): string {
   return { text: "T", number: "#", select: "◇", date: "▭", checkbox: "☑", relation: "↗", json: "{}", unknown: "?" }[
@@ -8,19 +9,25 @@ export function iconFor(type: LogicalType): string {
 }
 
 const MONTHS_FR = ["janv", "févr", "mars", "avr", "mai", "juin", "juil", "août", "sept", "oct", "nov", "déc"];
+const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-export function formatValue(value: unknown, column: ColumnMeta): string {
+export function formatValue(value: unknown, column: ColumnMeta, lang: Lang = "fr"): string {
   if (value === undefined || value === null || value === "") return "";
   if (column.logicalType === "date") {
     const d = new Date(String(value));
-    if (!Number.isNaN(d.getTime())) return `${d.getDate()} ${MONTHS_FR[d.getMonth()]} ${d.getFullYear()}`;
+    if (!Number.isNaN(d.getTime())) {
+      const months = lang === "fr" ? MONTHS_FR : MONTHS_EN;
+      return lang === "fr"
+        ? `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`
+        : `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+    }
     return String(value);
   }
   if (column.logicalType === "number") {
     const n = Number(value);
-    return Number.isNaN(n) ? String(value) : n.toLocaleString("fr-FR");
+    return Number.isNaN(n) ? String(value) : n.toLocaleString(lang === "fr" ? "fr-FR" : "en-US");
   }
-  if (column.logicalType === "checkbox") return value ? "Oui" : "Non";
+  if (column.logicalType === "checkbox") return value ? (lang === "fr" ? "Oui" : "Yes") : lang === "fr" ? "Non" : "No";
   if (column.logicalType === "json") return typeof value === "string" ? value : JSON.stringify(value);
   return String(value);
 }

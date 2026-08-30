@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import type { ColumnMeta, Row } from "@/lib/types";
 import { iconFor } from "@/lib/client/format";
 import type { HistoryEntry } from "@/lib/client/history";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
   row: Row;
@@ -51,8 +52,9 @@ const fieldInputStyle: React.CSSProperties = {
 };
 
 export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, onClose, onDelete, recentHistory }: Props) {
+  const { t } = useLang();
   const titleCol = columns.find((c) => c.logicalType === "text") ?? columns[0];
-  const title = titleCol ? String(row[titleCol.name] ?? "Sans titre") : "Sans titre";
+  const title = titleCol ? String(row[titleCol.name] ?? t("detailPanel.untitled")) : t("detailPanel.untitled");
 
   const [width, setWidth] = useState(loadWidth);
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -81,7 +83,7 @@ export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, 
   }
 
   return (
-    <div className="om-sb" style={{ position: "relative", width, flex: "none", borderLeft: "1px solid var(--border)", background: "#fff", overflowY: "auto", animation: "om-fade 0.14s ease" }}>
+    <div className="om-sb" data-clarity-mask="true" style={{ position: "relative", width, flex: "none", borderLeft: "1px solid var(--border)", background: "#fff", overflowY: "auto", animation: "om-fade 0.14s ease" }}>
       <div
         onMouseDown={startResize}
         onMouseEnter={(e) => (e.currentTarget.style.background = "var(--accent)")}
@@ -97,7 +99,7 @@ export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, 
           onClick={onDelete}
           style={{ padding: "4px 9px", background: "#fff", border: "1px solid #eceae4", borderRadius: 7, fontSize: 12.5, color: "#8b877e", cursor: "pointer" }}
         >
-          Supprimer
+          {t("detailPanel.delete")}
         </button>
         <button onClick={onClose} style={{ width: 26, height: 26, background: "transparent", border: "none", borderRadius: 6, color: "#8b877e", cursor: "pointer" }}>
           ✕
@@ -115,7 +117,7 @@ export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, 
               {c.isPrimaryKey ? (
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 7px", borderRadius: 6, background: "#f6f4ef", fontFamily: "var(--font-mono)", fontSize: 12.5, color: "#6f6b62" }}>
                   {String(row[c.name] ?? "")}
-                  <span style={{ fontSize: 10.5, color: "#bdb8ae" }}>clé primaire</span>
+                  <span style={{ fontSize: 10.5, color: "#bdb8ae" }}>{t("detailPanel.primaryKey")}</span>
                 </span>
               ) : c.logicalType === "checkbox" ? (
                 <span
@@ -164,8 +166,8 @@ export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, 
           </div>
         ))}
         <div style={{ height: 26 }} />
-        <div style={{ borderTop: "1px solid #f2f0ea", paddingTop: 16, fontSize: 12.5, color: "#a8a39a" }}>Dernières modifications</div>
-        {recentHistory.length === 0 && <div style={{ padding: "8px 0", fontSize: 12.5, color: "#c2bdb3" }}>Rien pour l&apos;instant.</div>}
+        <div style={{ borderTop: "1px solid #f2f0ea", paddingTop: 16, fontSize: 12.5, color: "#a8a39a" }}>{t("detailPanel.recentChanges")}</div>
+        {recentHistory.length === 0 && <div style={{ padding: "8px 0", fontSize: 12.5, color: "#c2bdb3" }}>{t("detailPanel.noneYet")}</div>}
         {recentHistory.map((l, i) => (
           <div key={i} style={{ display: "flex", gap: 10, padding: "6px 0", fontSize: 12.5, color: "#6f6b62" }}>
             <span style={{ fontFamily: "var(--font-mono)", color: "#bdb8ae" }}>{l.time}</span>

@@ -1,6 +1,7 @@
 "use client";
 
 import type { HistoryEntry } from "@/lib/client/history";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
   entries: HistoryEntry[];
@@ -9,11 +10,12 @@ interface Props {
 }
 
 export function HistoryPanel({ entries, onClose, onUndo }: Props) {
+  const { t } = useLang();
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(35,31,24,0.14)", display: "flex", justifyContent: "flex-end", zIndex: 45, animation: "om-fade 0.12s ease" }}>
       <div onClick={(e) => e.stopPropagation()} className="om-sb" style={{ width: 420, background: "#fff", borderLeft: "1px solid #e5e2db", overflowY: "auto", animation: "om-pop 0.16s ease" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "15px 20px", borderBottom: "1px solid #f2f0ea", position: "sticky", top: 0, background: "#fff" }}>
-          <div style={{ fontWeight: 600 }}>Historique</div>
+          <div style={{ fontWeight: 600 }}>{t("history.title")}</div>
           <div style={{ flex: 1 }} />
           <button onClick={onClose} style={{ width: 26, height: 26, background: "transparent", border: "none", borderRadius: 6, color: "#8b877e", cursor: "pointer" }}>
             ✕
@@ -32,13 +34,13 @@ export function HistoryPanel({ entries, onClose, onUndo }: Props) {
                   onClick={() => onUndo(l)}
                   style={{ alignSelf: "flex-start", padding: "3px 8px", background: "#fff", border: "1px solid #eceae4", borderRadius: 6, fontSize: 12, color: "#8b877e", cursor: "pointer" }}
                 >
-                  Annuler
+                  {t("history.undo")}
                 </button>
               )}
             </div>
           ))}
           {entries.length === 0 && (
-            <div style={{ padding: "18px 0", fontSize: 13, color: "#a8a39a" }}>Rien pour l&apos;instant. Modifie une cellule pour voir l&apos;historique se remplir.</div>
+            <div style={{ padding: "18px 0", fontSize: 13, color: "#a8a39a" }}>{t("history.empty")}</div>
           )}
         </div>
       </div>

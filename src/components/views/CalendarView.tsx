@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { ColumnMeta, Row } from "@/lib/types";
 import { pillStyle } from "@/lib/client/format";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
   rows: Row[];
@@ -12,30 +13,17 @@ interface Props {
   onRowOpen: (row: Row) => void;
 }
 
-const DAY_NAMES = ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"];
-const MONTH_NAMES_FR = [
-  "Janvier",
-  "Février",
-  "Mars",
-  "Avril",
-  "Mai",
-  "Juin",
-  "Juillet",
-  "Août",
-  "Septembre",
-  "Octobre",
-  "Novembre",
-  "Décembre",
-];
-
 export function CalendarView({ rows, dateColumn, titleColumn, tagColumn, onRowOpen }: Props) {
+  const { t } = useLang();
+  const DAY_NAMES = t("calendarView.days").split(",");
+  const MONTH_NAMES = t("calendarView.months").split(",");
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
 
   if (!dateColumn) {
-    return <div style={{ padding: 20, color: "#a8a39a", fontSize: 13 }}>Aucune colonne de date à utiliser pour le calendrier.</div>;
+    return <div style={{ padding: 20, color: "#a8a39a", fontSize: 13 }}>{t("calendarView.noDateColumn")}</div>;
   }
 
   const year = cursor.getFullYear();
@@ -70,7 +58,7 @@ export function CalendarView({ rows, dateColumn, titleColumn, tagColumn, onRowOp
   while (weeks.length > 0 && weeks[weeks.length - 1].every((d) => !d.inMonth)) weeks.pop();
 
   return (
-    <div style={{ border: "1px solid #eceae4", borderRadius: 11, overflow: "hidden", background: "#fff" }}>
+    <div data-clarity-mask="true" style={{ border: "1px solid #eceae4", borderRadius: 11, overflow: "hidden", background: "#fff" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderBottom: "1px solid #f0eeE9" }}>
         <button
           onClick={() => setCursor(new Date(year, month - 1, 1))}
@@ -79,7 +67,7 @@ export function CalendarView({ rows, dateColumn, titleColumn, tagColumn, onRowOp
           ‹
         </button>
         <div style={{ fontWeight: 600 }}>
-          {MONTH_NAMES_FR[month]} {year}
+          {MONTH_NAMES[month]} {year}
         </div>
         <button
           onClick={() => setCursor(new Date(year, month + 1, 1))}
@@ -87,7 +75,7 @@ export function CalendarView({ rows, dateColumn, titleColumn, tagColumn, onRowOp
         >
           ›
         </button>
-        <div style={{ fontSize: 12.5, color: "#a8a39a" }}>par {dateColumn.name}</div>
+        <div style={{ fontSize: 12.5, color: "#a8a39a" }}>{t("calendarView.by", { column: dateColumn.name })}</div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", borderBottom: "1px solid #f0eeE9" }}>
         {DAY_NAMES.map((d) => (

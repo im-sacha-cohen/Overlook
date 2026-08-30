@@ -1,6 +1,7 @@
 "use client";
 
 import type { ViewKind } from "./TableToolbar";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 export interface TrailEntry {
   table: string;
@@ -18,6 +19,7 @@ interface Props {
 }
 
 export function RelationTrail({ trail, currentTable, onJump, onClear }: Props) {
+  const { t } = useLang();
   if (trail.length === 0) return null;
   return (
     <div
@@ -30,7 +32,7 @@ export function RelationTrail({ trail, currentTable, onJump, onClear }: Props) {
         fontSize: 12.5,
       }}
     >
-      <span style={{ color: "#b4afa5", marginRight: 3 }}>Chemin :</span>
+      <span style={{ color: "#b4afa5", marginRight: 3 }}>{t("relationTrail.path")}</span>
       {trail.map((entry, i) => (
         <span key={i} style={{ display: "flex", alignItems: "center", gap: 3 }}>
           <button
@@ -60,7 +62,7 @@ export function RelationTrail({ trail, currentTable, onJump, onClear }: Props) {
         onMouseEnter={(e) => (e.currentTarget.style.color = "#4b473f")}
         onMouseLeave={(e) => (e.currentTarget.style.color = "#a8a39a")}
       >
-        Réinitialiser
+        {t("relationTrail.reset")}
       </button>
     </div>
   );

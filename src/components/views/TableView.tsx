@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ColumnMeta, Row, RowSort } from "@/lib/types";
 import { formatValue, iconFor, pillStyle } from "@/lib/client/format";
 import { groupRows } from "@/lib/client/group";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
   columns: ColumnMeta[];
@@ -63,6 +64,7 @@ export function TableView({
   onFetchRelated,
   onOpenRelationInNewTab,
 }: Props) {
+  const { t, lang } = useLang();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [liveWidths, setLiveWidths] = useState<Record<string, number>>({});
   const [dragCol, setDragCol] = useState<string | null>(null);
@@ -135,7 +137,7 @@ export function TableView({
   }
 
   return (
-    <div style={{ minWidth: "100%", display: "inline-block" }}>
+    <div data-clarity-mask="true" style={{ minWidth: "100%", display: "inline-block" }}>
       <div
         style={{
           display: "grid",
@@ -352,7 +354,7 @@ export function TableView({
                               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(raw)}</span>
                             </span>
                           ) : (
-                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{formatValue(raw, c)}</span>
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{formatValue(raw, c, lang)}</span>
                           )}
 
                           {isRelation && hover?.key === hoverKey && (
@@ -378,7 +380,7 @@ export function TableView({
                               onClick={(e) => e.stopPropagation()}
                             >
                               {hover.row === null ? (
-                                <div style={{ fontSize: 12.5, color: "#a8a39a" }}>Chargement…</div>
+                                <div style={{ fontSize: 12.5, color: "#a8a39a" }}>{t("common.loading")}</div>
                               ) : (
                                 <>
                                   <div style={{ fontSize: 11, color: "#a8a39a", marginBottom: 6 }}>{c.references?.table}</div>
@@ -406,7 +408,7 @@ export function TableView({
       })}
 
       <div onClick={onAddRow} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 6px", color: "#b4afa5", cursor: "pointer", fontSize: 13 }}>
-        + Nouvelle ligne
+        + {t("toolbar.newRow")}
       </div>
 
       {relCtxMenu && (
@@ -430,7 +432,7 @@ export function TableView({
             → {relCtxMenu.col.references?.table}
           </div>
           <RelMenuItem
-            label="Ouvrir dans un nouvel onglet"
+            label={t("relation.openInNewTab")}
             onClick={() => {
               onOpenRelationInNewTab(relCtxMenu.col, relCtxMenu.value);
               setRelCtxMenu(null);

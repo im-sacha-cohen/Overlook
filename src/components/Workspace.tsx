@@ -35,6 +35,8 @@ import { ExportModal, type ExportChoice } from "./ExportModal";
 import { ExportProgress, type ExportProgressState } from "./ExportProgress";
 import { ImportProgress, type ImportProgressState } from "./ImportProgress";
 import { Toast } from "./Toast";
+import { SettingsPanel } from "./SettingsPanel";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 const VIEW_KINDS: ViewKind[] = ["table", "board", "calendar", "gallery"];
 const PAGE_SIZE = 100;
@@ -54,6 +56,7 @@ export function Workspace({ initialConnections }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { t } = useLang();
 
   const [connections, setConnections] = useState<Connection[]>(initialConnections);
   const [activeConnectionId, setActiveConnectionId] = useState<string | null>(() => {
@@ -107,7 +110,7 @@ export function Workspace({ initialConnections }: Props) {
   const [editValue, setEditValue] = useState("");
   const [detailRow, setDetailRow] = useState<Row | null>(null);
 
-  const [panel, setPanel] = useState<"schema" | "csv" | "sql-import" | "history" | "bulk-edit" | "create-table" | null>(null);
+  const [panel, setPanel] = useState<"schema" | "csv" | "sql-import" | "history" | "bulk-edit" | "create-table" | "settings" | null>(null);
   const [connectionFormOpen, setConnectionFormOpen] = useState(false);
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
 
@@ -141,8 +144,8 @@ export function Workspace({ initialConnections }: Props) {
   const flash = useCallback((msg: string) => setToast(msg), []);
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(""), 2200);
-    return () => clearTimeout(t);
+    const id = setTimeout(() => setToast(""), 2200);
+    return () => clearTimeout(id);
   }, [toast]);
 
   const pushHistory = useCallback((text: string, undo?: () => Promise<void>) => {
@@ -389,7 +392,7 @@ export function Workspace({ initialConnections }: Props) {
     await refreshConnections();
     setConnectionFormOpen(false);
     setEditingConnectionId(null);
-    flash("Connexion enregistrée");
+    flash(t("toast.connectionSaved"));
   }
 
   async function forgetConnectionLocally(id: string) {
@@ -413,19 +416,19 @@ export function Workspace({ initialConnections }: Props) {
   async function handleDeleteConnection(id: string) {
     await api.deleteConnection(id);
     await forgetConnectionLocally(id);
-    flash("Connexion supprimée");
+    flash(t("toast.connectionDeleted"));
   }
 
   async function handleDatabaseDropped(id: string) {
     setConnectionFormOpen(false);
     setEditingConnectionId(null);
     await forgetConnectionLocally(id);
-    flash("Base de données supprimée");
+    flash(t("toast.databaseDropped"));
   }
 
   // ---------- row cell interactions ----------
   function handleCellClick(row: Row, col: (typeof columns)[number]) {
-    if (!pkColumn) return flash("Aucune clé primaire détectée sur cette table.");
+    if (!pkColumn) return flash(t("toast.noPrimaryKey"));
     const rowId = String(row[pkColumn]);
     if (col.isPrimaryKey) return;
     if (col.logicalType === "checkbox") {
@@ -491,7 +494,7 @@ export function Workspace({ initialConnections }: Props) {
     if (!activeConnectionId || !activeTable) return;
     try {
       const { row } = await api.insertRow(activeConnectionId, activeTable, { ...defaultRowValues(), ...overrides });
-      pushHistory("Ligne créée", pkColumn ? async () => {
+      pushHistory(t("toast.rowCreated"), pkColumn ? async () => {
         await api.deleteRow(activeConnectionId, activeTable, row[pkColumn] as string, pkColumn);
         await loadRows();
       } : undefined);
@@ -502,11 +505,11 @@ export function Workspace({ initialConnections }: Props) {
   }
 
   function requestDeleteRow(row: Row) {
-    if (!activeConnectionId || !activeTable || !pkColumn) return flash("Aucune clé primaire détectée sur cette table.");
+    if (!activeConnectionId || !activeTable || !pkColumn) return flash(t("toast.noPrimaryKey"));
     const rowId = row[pkColumn] as string | number;
-    runGuarded(`Supprimer la ligne « ${pkColumn} = ${String(rowId)} » de « ${activeTable} ».`, async (confirm) => {
+    runGuarded(t("guard.deleteRow", { pk: pkColumn, id: String(rowId), table: activeTable }), async (confirm) => {
       await api.deleteRow(activeConnectionId, activeTable, rowId, pkColumn, confirm);
-      pushHistory(`Ligne supprimée (${String(rowId)})`, async () => {
+      pushHistory(t("history.rowDeleted", { id: String(rowId) }), async () => {
         await api.insertRow(activeConnectionId, activeTable, row);
         await loadRows();
       });
@@ -534,13 +537,13 @@ export function Workspace({ initialConnections }: Props) {
   }
 
   function requestBulkDelete() {
-    if (!activeConnectionId || !activeTable || !pkColumn) return flash("Aucune clé primaire détectée sur cette table.");
+    if (!activeConnectionId || !activeTable || !pkColumn) return flash(t("toast.noPrimaryKey"));
     const ids = [...selectedIds];
     if (ids.length === 0) return;
     const deletedRows = rows.filter((r) => ids.includes(String(r[pkColumn])));
-    runGuarded(`Supprimer ${ids.length} ligne(s) de « ${activeTable} ».`, async (confirm) => {
+    runGuarded(t("guard.bulkDeleteRows", { count: ids.length, table: activeTable }), async (confirm) => {
       await api.deleteRows(activeConnectionId, activeTable, pkColumn, ids, confirm);
-      pushHistory(`${ids.length} ligne${ids.length > 1 ? "s" : ""} supprimée${ids.length > 1 ? "s" : ""}`, async () => {
+      pushHistory(t("toast.rowsDeleted", { count: ids.length }), async () => {
         for (const r of deletedRows) await api.insertRow(activeConnectionId, activeTable, r);
         await loadRows();
       });
@@ -552,7 +555,7 @@ export function Workspace({ initialConnections }: Props) {
 
   async function requestBulkEdit(col: ColumnMeta, value: unknown) {
     if (!activeConnectionId || !activeTable || !pkColumn) {
-      flash("Aucune clé primaire détectée sur cette table.");
+      flash(t("toast.noPrimaryKey"));
       return;
     }
     const ids = [...selectedIds];
@@ -561,20 +564,20 @@ export function Workspace({ initialConnections }: Props) {
       rows.filter((r) => ids.includes(String(r[pkColumn]))).map((r) => [String(r[pkColumn]), r[col.name]] as const)
     );
     const finish = async () => {
-      pushHistory(`${col.name} → ${String(value)} sur ${ids.length} ligne${ids.length > 1 ? "s" : ""}`, async () => {
+      pushHistory(t("history.bulkFieldChange", { column: col.name, value: String(value), count: ids.length }), async () => {
         for (const [id, prev] of previousByRow) {
           await api.updateRow(activeConnectionId, activeTable, id, pkColumn, { [col.name]: prev });
         }
         await loadRows();
       });
       setPanel(null);
-      flash("Lignes modifiées");
+      flash(t("toast.rowsUpdated", { count: ids.length }));
       await loadRows();
     };
     if (activeConnection?.envType === "prod") {
       await new Promise<void>((resolve, reject) => {
         setPendingGuard({
-          label: `Modifier « ${col.name} » sur ${ids.length} ligne(s) de « ${activeTable} ».`,
+          label: t("guard.bulkEditField", { column: col.name, count: ids.length, table: activeTable }),
           run: async (confirm) => {
             try {
               await api.updateRows(activeConnectionId, activeTable, pkColumn, ids, { [col.name]: value }, confirm);
@@ -670,11 +673,11 @@ export function Workspace({ initialConnections }: Props) {
       a.click();
       URL.revokeObjectURL(url);
       setExportProgress({ doneRows, totalRows, doneTables, totalTables, status: "done" });
-      flash("Base exportée");
+      flash(t("toast.exported"));
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         setExportProgress(null);
-        flash("Export annulé");
+        flash(t("toast.exportCancelled"));
         return;
       }
       setExportProgress((prev) => ({
@@ -713,7 +716,7 @@ export function Workspace({ initialConnections }: Props) {
       });
       if (!res.ok || !res.body) {
         const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error || `Erreur ${res.status}`);
+        throw new Error(errBody.error || t("workspace.errorStatus", { status: res.status }));
       }
 
       const reader = res.body.getReader();
@@ -748,16 +751,16 @@ export function Workspace({ initialConnections }: Props) {
       await loadRows();
       setImportProgress({ done, total, failed, status: "done" });
       if (failed.length === 0) {
-        pushHistory("Script SQL importé");
-        flash(`Script exécuté (${done} instruction${done > 1 ? "s" : ""})`);
+        pushHistory(t("history.sqlImported"));
+        flash(t("toast.sqlImportedCount", { count: done }));
       } else {
-        pushHistory(`Script SQL importé avec ${failed.length} erreur(s)`);
-        flash(`${done - failed.length} instruction(s) OK, ${failed.length} en erreur`);
+        pushHistory(t("history.sqlImportedWithErrors", { count: failed.length }));
+        flash(t("toast.sqlImportedPartial", { ok: done - failed.length, failed: failed.length }));
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         setImportProgress(null);
-        flash("Import annulé");
+        flash(t("toast.importCancelled"));
         return;
       }
       setImportProgress({ done, total, failed, status: "error", error: err instanceof Error ? err.message : String(err) });
@@ -771,7 +774,7 @@ export function Workspace({ initialConnections }: Props) {
     setPanel(null);
     if (activeConnection?.envType === "prod") {
       setPendingGuard({
-        label: `Exécuter un script SQL sur « ${activeConnection.name} ».`,
+        label: t("guard.runSqlScript", { connection: activeConnection.name }),
         run: async (confirm) => {
           await runImportSql(sql, confirm);
         },
@@ -838,7 +841,7 @@ export function Workspace({ initialConnections }: Props) {
     if (!activeConnectionId || !col.references || value === undefined || value === null || value === "") return;
     try {
       const related = await fetchRelated(col, value);
-      if (!related) return flash("Ligne référencée introuvable.");
+      if (!related) return flash(t("toast.relatedRowNotFound"));
       if (activeTable) {
         const fromPk = fromRow && pkColumn ? fromRow[pkColumn] : null;
         const label = fromPk !== null && fromPk !== undefined ? `${activeTable} #${String(fromPk)}` : activeTable;
@@ -894,8 +897,8 @@ export function Workspace({ initialConnections }: Props) {
   async function handleCreateTable(name: string, tableColumns: { name: string; type: LogicalType }[]) {
     if (!activeConnectionId) return;
     await api.createTable(activeConnectionId, name, tableColumns);
-    pushHistory(`Table « ${name} » créée`);
-    flash("Table créée");
+    pushHistory(t("toast.tableCreated", { name }));
+    flash(t("toast.tableCreated", { name }));
     setPanel(null);
     await loadTables(activeConnectionId);
     selectTable(name);
@@ -905,8 +908,8 @@ export function Workspace({ initialConnections }: Props) {
     if (!activeConnectionId || !activeTable) return;
     try {
       await api.addColumn(activeConnectionId, activeTable, name, type);
-      pushHistory(`Colonne « ${name} » ajoutée (${type})`);
-      flash("Colonne ajoutée");
+      pushHistory(t("history.columnAdded", { name, type }));
+      flash(t("toast.columnAdded"));
       await loadTables(activeConnectionId);
     } catch (err) {
       flash(err instanceof Error ? err.message : String(err));
@@ -915,18 +918,18 @@ export function Workspace({ initialConnections }: Props) {
 
   function handleRenameColumn(oldName: string, newName: string) {
     if (!activeConnectionId || !activeTable) return;
-    requireUnlockedOrGuard(`Renommer la colonne « ${oldName} » en « ${newName} » sur « ${activeTable} ».`, async () => {
+    requireUnlockedOrGuard(t("guard.renameColumn", { old: oldName, new: newName, table: activeTable }), async () => {
       await api.renameColumn(activeConnectionId, activeTable, oldName, newName);
-      pushHistory(`Colonne « ${oldName} » renommée en « ${newName} »`);
+      pushHistory(t("history.columnRenamed", { old: oldName, new: newName }));
       await loadTables(activeConnectionId);
     });
   }
 
   function handleChangeColumnType(name: string, type: LogicalType) {
     if (!activeConnectionId || !activeTable) return;
-    requireUnlockedOrGuard(`Changer le type de « ${name} » vers ${type} sur « ${activeTable} ». Conversion possible avec perte de précision.`, async (confirm) => {
+    requireUnlockedOrGuard(t("guard.changeColumnType", { name, type, table: activeTable }), async (confirm) => {
       await api.changeColumnType(activeConnectionId, activeTable, name, type, confirm);
-      pushHistory(`Type de ${name} → ${type}`);
+      pushHistory(t("history.columnTypeChanged", { name, type }));
       await loadTables(activeConnectionId);
       await loadRows();
     });
@@ -934,9 +937,9 @@ export function Workspace({ initialConnections }: Props) {
 
   function handleDropColumn(name: string) {
     if (!activeConnectionId || !activeTable) return;
-    requireUnlockedOrGuard(`Supprimer la colonne « ${name} » de « ${activeTable} ». Action irréversible.`, async (confirm) => {
+    requireUnlockedOrGuard(t("guard.dropColumn", { name, table: activeTable }), async (confirm) => {
       await api.dropColumn(activeConnectionId, activeTable, name, confirm);
-      pushHistory(`Colonne « ${name} » supprimée`);
+      pushHistory(t("history.columnDropped", { name }));
       await loadTables(activeConnectionId);
       await loadRows();
     });
@@ -974,9 +977,9 @@ export function Workspace({ initialConnections }: Props) {
     if (!activeConnectionId) return;
     const names = [...selectedTables];
     if (names.length === 0) return;
-    runGuarded(`Supprimer ${names.length} table(s) : ${names.join(", ")}. Action irréversible.`, async (confirm) => {
+    runGuarded(t("guard.bulkDropTables", { count: names.length, names: names.join(", ") }), async (confirm) => {
       await api.dropTables(activeConnectionId, names, confirm);
-      pushHistory(`${names.length} table${names.length > 1 ? "s" : ""} supprimée${names.length > 1 ? "s" : ""} (${names.join(", ")})`);
+      pushHistory(`${t("toast.tablesDropped", { count: names.length })} (${names.join(", ")})`);
       setSelectedTables(new Set());
       if (activeTable && names.includes(activeTable)) setActiveTable(null);
       await loadTables(activeConnectionId);
@@ -987,25 +990,25 @@ export function Workspace({ initialConnections }: Props) {
   async function handleImportCsv(csvRows: Row[]) {
     if (!activeConnectionId || !activeTable) return;
     const { inserted } = await api.importCsv(activeConnectionId, activeTable, csvRows);
-    pushHistory(`${inserted} lignes importées depuis un CSV`);
-    flash(`${inserted} lignes importées`);
+    pushHistory(t("history.csvImported", { count: inserted }));
+    flash(t("toast.csvImported", { count: inserted }));
     setPanel(null);
     await loadRows();
   }
 
   // ---------- query mode ----------
   async function handleRunQuery(sql: string, allowWrite: boolean): Promise<QueryResult> {
-    if (!activeConnectionId) throw new Error("Aucune connexion active");
+    if (!activeConnectionId) throw new Error(t("error.noActiveConnection"));
     const trimmed = sql.trim().toLowerCase();
     const isSelect = trimmed.startsWith("select") || trimmed.startsWith("with") || trimmed.startsWith("explain") || trimmed.startsWith("pragma") || trimmed.startsWith("show");
     if (!isSelect && activeConnection?.envType === "prod") {
       return new Promise<QueryResult>((resolve, reject) => {
         setPendingGuard({
-          label: `Exécuter une requête d'écriture sur « ${activeConnection.name} » :\n${sql}`,
+          label: t("guard.runWriteQuery", { connection: activeConnection.name, sql }),
           run: async (confirm) => {
             try {
               const res = await api.runQuery(activeConnectionId, sql, allowWrite, confirm);
-              pushHistory("Requête exécutée (écriture)");
+              pushHistory(t("history.queryWrite"));
               resolve(res);
             } catch (err) {
               reject(err);
@@ -1016,7 +1019,7 @@ export function Workspace({ initialConnections }: Props) {
       });
     }
     const res = await api.runQuery(activeConnectionId, sql, allowWrite);
-    if (!isSelect) pushHistory("Requête exécutée (écriture)");
+    if (!isSelect) pushHistory(t("history.queryWrite"));
     return res;
   }
 
@@ -1043,16 +1046,21 @@ export function Workspace({ initialConnections }: Props) {
   // ---------- command palette ----------
   const cmdItems: CmdItem[] = useMemo(() => {
     const items: CmdItem[] = [];
-    tables.forEach((t) => items.push({ icon: "▦", label: `Aller à ${t.name}`, hint: t.name, onRun: () => { selectTable(t.name); setCmdOpen(false); } }));
-    ([["table", "Table"], ["board", "Tableau"], ["calendar", "Calendrier"], ["gallery", "Galerie"]] as [ViewKind, string][]).forEach(([v, l]) =>
-      items.push({ icon: "◫", label: `Vue ${l}`, hint: "vue", onRun: () => { setView(v); setCmdOpen(false); } })
-    );
-    items.push({ icon: "⌗", label: "Ouvrir le schéma", hint: "schéma", onRun: () => { setPanel("schema"); setCmdOpen(false); } });
-    items.push({ icon: "↧", label: "Importer un CSV", hint: "import", onRun: () => { setPanel("csv"); setCmdOpen(false); } });
-    items.push({ icon: "+", label: "Nouvelle table", hint: "table", onRun: () => { setPanel("create-table"); setCmdOpen(false); } });
-    items.push({ icon: "↺", label: "Historique", hint: "log", onRun: () => { setPanel("history"); setCmdOpen(false); } });
-    items.push({ icon: "+", label: "Nouvelle ligne", hint: "⇧↵", onRun: () => { handleAddRow(); setCmdOpen(false); } });
-    items.push({ icon: dir === "query" ? "◇" : "◆", label: dir === "query" ? "Passer en mode Document" : "Passer en mode Requête", hint: "mode", onRun: () => { setDir((d) => (d === "doc" ? "query" : "doc")); setCmdOpen(false); } });
+    tables.forEach((tbl) => items.push({ icon: "▦", label: t("cmdPalette.goTo", { table: tbl.name }), hint: tbl.name, onRun: () => { selectTable(tbl.name); setCmdOpen(false); } }));
+    (
+      [
+        ["table", t("toolbar.table")],
+        ["board", t("toolbar.board")],
+        ["calendar", t("toolbar.calendar")],
+        ["gallery", t("toolbar.gallery")],
+      ] as [ViewKind, string][]
+    ).forEach(([v, l]) => items.push({ icon: "◫", label: `${t("cmdPalette.view")} ${l}`, hint: t("cmdPalette.view"), onRun: () => { setView(v); setCmdOpen(false); } }));
+    items.push({ icon: "⌗", label: t("cmdPalette.openSchema"), hint: t("cmdPalette.schemaTag"), onRun: () => { setPanel("schema"); setCmdOpen(false); } });
+    items.push({ icon: "↧", label: t("cmdPalette.importCsv"), hint: t("cmdPalette.importTag"), onRun: () => { setPanel("csv"); setCmdOpen(false); } });
+    items.push({ icon: "+", label: t("cmdPalette.newTable"), hint: t("cmdPalette.tableTagShort"), onRun: () => { setPanel("create-table"); setCmdOpen(false); } });
+    items.push({ icon: "↺", label: t("sidebar.history"), hint: t("cmdPalette.historyTag"), onRun: () => { setPanel("history"); setCmdOpen(false); } });
+    items.push({ icon: "+", label: t("toolbar.newRow"), hint: t("cmdPalette.newRowHint"), onRun: () => { handleAddRow(); setCmdOpen(false); } });
+    items.push({ icon: dir === "query" ? "◇" : "◆", label: dir === "query" ? t("cmdPalette.toDocMode") : t("cmdPalette.toQueryMode"), hint: t("cmdPalette.modeTag"), onRun: () => { setDir((d) => (d === "doc" ? "query" : "doc")); setCmdOpen(false); } });
     if (!cmdQuery) return items.slice(0, 8);
     const q = cmdQuery.toLowerCase();
     return items.filter((c) => c.label.toLowerCase().includes(q) || c.hint.toLowerCase().includes(q)).slice(0, 8);
@@ -1064,15 +1072,15 @@ export function Workspace({ initialConnections }: Props) {
     return (
       <div style={{ height: "100vh", display: "grid", placeItems: "center", fontFamily: "var(--font-sans)" }}>
         <div style={{ textAlign: "center", maxWidth: 380 }}>
-          <div style={{ fontSize: 20, fontWeight: 600, marginBottom: 8 }}>Aucune connexion</div>
+          <div style={{ fontSize: 20, fontWeight: 600, marginBottom: 8 }}>{t("workspace.noConnectionTitle")}</div>
           <div style={{ fontSize: 13.5, color: "#8b877e", marginBottom: 18 }}>
-            Connecte une première base de données (PostgreSQL, MySQL ou SQLite) pour commencer.
+            {t("workspace.connectFirstDb")}
           </div>
           <button
             onClick={() => setConnectionFormOpen(true)}
             style={{ padding: "9px 16px", background: "var(--accent)", border: "1px solid var(--accent-hover)", borderRadius: 8, color: "#fff", fontWeight: 500, cursor: "pointer" }}
           >
-            + Nouvelle connexion
+            {t("connBadge.newConnection")}
           </button>
         </div>
         {connectionFormOpen && <ConnectionForm onSave={handleSaveConnection} onClose={() => setConnectionFormOpen(false)} />}
@@ -1128,15 +1136,16 @@ export function Workspace({ initialConnections }: Props) {
           onBulkDropTables={requestBulkDropTables}
           onExportSelectedTables={openExportModal}
           onOpenCreateTable={() => setPanel("create-table")}
+          onOpenSettings={() => setPanel("settings")}
         />
 
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
           {!activeConnectionId ? (
             <div style={{ flex: 1, display: "grid", placeItems: "center", color: "#a8a39a", fontSize: 13.5 }}>
-              Aucune connexion ouverte. Choisis-en une via le badge en haut à gauche.
+              {t("empty.noConnection")}
             </div>
           ) : !activeTable ? (
-            <div style={{ flex: 1, display: "grid", placeItems: "center", color: "#a8a39a", fontSize: 13.5 }}>Aucune table dans cette base.</div>
+            <div style={{ flex: 1, display: "grid", placeItems: "center", color: "#a8a39a", fontSize: 13.5 }}>{t("empty.noTable")}</div>
           ) : dir === "query" ? (
             <div style={{ flex: 1, minHeight: 0, padding: "18px 32px 32px" }}>
               <QueryConsole onRun={handleRunQuery} />
@@ -1164,7 +1173,7 @@ export function Workspace({ initialConnections }: Props) {
               </div>
 
               <div className="om-sb" style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "18px 32px 60px" }}>
-                {loadingRows && <div style={{ color: "#a8a39a", fontSize: 13, paddingBottom: 10 }}>Chargement…</div>}
+                {loadingRows && <div style={{ color: "#a8a39a", fontSize: 13, paddingBottom: 10 }}>{t("common.loading")}</div>}
                 {view === "table" && (
                   <TableView
                     columns={orderedVisibleColumns}
@@ -1251,6 +1260,8 @@ export function Workspace({ initialConnections }: Props) {
         <CreateTableModal connectionName={activeConnection.name} onCreate={handleCreateTable} onClose={() => setPanel(null)} />
       )}
 
+      {panel === "settings" && <SettingsPanel onClose={() => setPanel(null)} />}
+
       {panel === "history" && (
         <HistoryPanel
           entries={history}
@@ -1260,7 +1271,7 @@ export function Workspace({ initialConnections }: Props) {
             try {
               await entry.undo();
               setHistory((h) => h.filter((e) => e.id !== entry.id));
-              flash("Modification annulée");
+              flash(t("toast.bulkEditUndone"));
             } catch (err) {
               flash(err instanceof Error ? err.message : String(err));
             }

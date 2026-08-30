@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ColumnMeta } from "@/lib/types";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
   count: number;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function BulkEditModal({ count, columns, onApply, onClose }: Props) {
+  const { t } = useLang();
   const editable = columns.filter((c) => !c.isPrimaryKey && c.logicalType !== "relation");
   const [colName, setColName] = useState(editable[0]?.name ?? "");
   const [value, setValue] = useState("");
@@ -40,7 +42,7 @@ export function BulkEditModal({ count, columns, onApply, onClose }: Props) {
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(35,31,24,0.14)", display: "grid", placeItems: "center", zIndex: 60, animation: "om-fade 0.12s ease" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: 420, background: "#fff", border: "1px solid #e5e2db", borderRadius: 13, boxShadow: "var(--shadow-pop)", overflow: "hidden", animation: "om-pop 0.14s ease" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "1px solid #f2f0ea" }}>
-          <div style={{ fontWeight: 600 }}>Modifier {count} ligne{count > 1 ? "s" : ""}</div>
+          <div style={{ fontWeight: 600 }}>{t("bulkEdit.title", { count })}</div>
           <div style={{ flex: 1 }} />
           <button onClick={onClose} style={{ width: 26, height: 26, background: "transparent", border: "none", borderRadius: 6, color: "#8b877e", cursor: "pointer" }}>
             ✕
@@ -48,7 +50,7 @@ export function BulkEditModal({ count, columns, onApply, onClose }: Props) {
         </div>
         <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
           <div>
-            <label style={{ fontSize: 12, color: "#8b877e", marginBottom: 4, display: "block" }}>Colonne</label>
+            <label style={{ fontSize: 12, color: "#8b877e", marginBottom: 4, display: "block" }}>{t("bulkEdit.column")}</label>
             <select
               value={colName}
               onChange={(e) => setColName(e.target.value)}
@@ -62,11 +64,11 @@ export function BulkEditModal({ count, columns, onApply, onClose }: Props) {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "#8b877e", marginBottom: 4, display: "block" }}>Nouvelle valeur</label>
+            <label style={{ fontSize: 12, color: "#8b877e", marginBottom: 4, display: "block" }}>{t("bulkEdit.newValue")}</label>
             {col?.logicalType === "checkbox" ? (
               <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
                 <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
-                {checked ? "Oui" : "Non"}
+                {checked ? t("common.yes") : t("common.no")}
               </label>
             ) : col?.logicalType === "select" && col.options ? (
               <select value={value} onChange={(e) => setValue(e.target.value)} style={{ width: "100%", border: "1px solid #e8e5df", borderRadius: 8, padding: "8px 10px", background: "#fff" }}>
@@ -89,14 +91,14 @@ export function BulkEditModal({ count, columns, onApply, onClose }: Props) {
           {error && <div style={{ fontSize: 12.5, color: "var(--env-prod-fg)" }}>{error}</div>}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button onClick={onClose} style={{ padding: "7px 12px", background: "#fff", border: "1px solid #e8e5df", borderRadius: 8, cursor: "pointer", color: "#4b473f" }}>
-              Annuler
+              {t("common.cancel")}
             </button>
             <button
               onClick={handleApply}
               disabled={running || !col}
               style={{ padding: "7px 13px", background: "var(--accent)", border: "1px solid var(--accent-hover)", borderRadius: 8, color: "#fff", fontWeight: 500, cursor: "pointer" }}
             >
-              {running ? "Application…" : "Appliquer"}
+              {running ? t("bulkEdit.applying") : t("bulkEdit.apply")}
             </button>
           </div>
         </div>

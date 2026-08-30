@@ -1,5 +1,7 @@
 "use client";
 
+import { useLang } from "@/lib/i18n/LanguageProvider";
+
 interface Props {
   page: number;
   pageSize: number;
@@ -8,6 +10,7 @@ interface Props {
 }
 
 export function Pagination({ page, pageSize, total, onPageChange }: Props) {
+  const { t, lang } = useLang();
   if (total <= pageSize) return null;
   const from = total === 0 ? 0 : page * pageSize + 1;
   const to = Math.min(total, (page + 1) * pageSize);
@@ -28,7 +31,7 @@ export function Pagination({ page, pageSize, total, onPageChange }: Props) {
       }}
     >
       <span>
-        {from}–{to} sur {total.toLocaleString("fr-FR")}
+        {from}–{to} {t("pagination.of")} {total.toLocaleString(lang === "fr" ? "fr-FR" : "en-US")}
       </span>
       <div style={{ flex: 1 }} />
       <button
@@ -36,31 +39,31 @@ export function Pagination({ page, pageSize, total, onPageChange }: Props) {
         disabled={page === 0}
         style={{ padding: "4px 9px", background: "#fff", border: "1px solid #e8e5df", borderRadius: 6, cursor: page === 0 ? "default" : "pointer", color: page === 0 ? "#c2bdb3" : "#4b473f" }}
       >
-        « Première
+        {t("pagination.first")}
       </button>
       <button
         onClick={() => onPageChange(page - 1)}
         disabled={page === 0}
         style={{ padding: "4px 9px", background: "#fff", border: "1px solid #e8e5df", borderRadius: 6, cursor: page === 0 ? "default" : "pointer", color: page === 0 ? "#c2bdb3" : "#4b473f" }}
       >
-        ‹ Précédent
+        {t("pagination.previous")}
       </button>
       <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5 }}>
-        page {page + 1} / {lastPage + 1}
+        {t("pagination.page", { page: page + 1, total: lastPage + 1 })}
       </span>
       <button
         onClick={() => onPageChange(page + 1)}
         disabled={page >= lastPage}
         style={{ padding: "4px 9px", background: "#fff", border: "1px solid #e8e5df", borderRadius: 6, cursor: page >= lastPage ? "default" : "pointer", color: page >= lastPage ? "#c2bdb3" : "#4b473f" }}
       >
-        Suivant ›
+        {t("pagination.next")}
       </button>
       <button
         onClick={() => onPageChange(lastPage)}
         disabled={page >= lastPage}
         style={{ padding: "4px 9px", background: "#fff", border: "1px solid #e8e5df", borderRadius: 6, cursor: page >= lastPage ? "default" : "pointer", color: page >= lastPage ? "#c2bdb3" : "#4b473f" }}
       >
-        Dernière »
+        {t("pagination.last")}
       </button>
     </div>
   );

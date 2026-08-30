@@ -1,5 +1,7 @@
 "use client";
 
+import { useLang } from "@/lib/i18n/LanguageProvider";
+
 export interface ExportProgressState {
   doneRows: number;
   totalRows: number;
@@ -16,6 +18,7 @@ interface Props {
 }
 
 export function ExportProgress({ state, onCancel, onDismiss }: Props) {
+  const { t, lang } = useLang();
   const pct = state.totalRows > 0 ? Math.min(100, Math.round((state.doneRows / state.totalRows) * 100)) : state.status === "done" ? 100 : 0;
 
   return (
@@ -37,14 +40,14 @@ export function ExportProgress({ state, onCancel, onDismiss }: Props) {
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <span style={{ fontWeight: 500 }}>
-          {state.status === "running" && "Export en cours…"}
-          {state.status === "done" && "Export terminé"}
-          {state.status === "error" && "Export échoué"}
+          {state.status === "running" && t("exportProgress.running")}
+          {state.status === "done" && t("exportProgress.done")}
+          {state.status === "error" && t("exportProgress.error")}
         </span>
         <div style={{ flex: 1 }} />
         {state.status === "running" ? (
           <button onClick={onCancel} style={{ background: "transparent", border: "none", color: "#d8d4cc", cursor: "pointer", fontSize: 12 }}>
-            Annuler
+            {t("exportProgress.cancel")}
           </button>
         ) : (
           <button onClick={onDismiss} style={{ background: "transparent", border: "none", color: "#d8d4cc", cursor: "pointer", fontSize: 14 }}>
@@ -61,10 +64,10 @@ export function ExportProgress({ state, onCancel, onDismiss }: Props) {
             <div style={{ height: "100%", width: `${pct}%`, background: "var(--accent)", transition: "width 0.15s ease" }} />
           </div>
           <div style={{ marginTop: 6, color: "#a8a39a" }}>
-            {state.totalTables > 0 && `${state.doneTables}/${state.totalTables} table${state.totalTables > 1 ? "s" : ""} · `}
+            {state.totalTables > 0 && `${t("exportProgress.tables", { done: state.doneTables, total: state.totalTables })} · `}
             {state.totalRows > 0
-              ? `${state.doneRows.toLocaleString("fr-FR")}/${state.totalRows.toLocaleString("fr-FR")} ligne(s)`
-              : "structure seule"}
+              ? t("exportProgress.rows", { done: state.doneRows.toLocaleString(lang === "fr" ? "fr-FR" : "en-US"), total: state.totalRows.toLocaleString(lang === "fr" ? "fr-FR" : "en-US") })
+              : t("exportProgress.structureOnly")}
           </div>
         </>
       )}

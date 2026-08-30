@@ -3,6 +3,7 @@
 import { ENV_COLORS } from "@/lib/client/env";
 import type { Connection } from "@/lib/types";
 import type { ViewKind } from "./TableToolbar";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 export interface WorkspaceTab {
   tabId: string;
@@ -22,6 +23,7 @@ interface Props {
 }
 
 export function ConnectionTabs({ tabs, connections, activeTabId, onSwitch, onClose }: Props) {
+  const { t } = useLang();
   const resolved = tabs
     .map((tab) => {
       const conn = connections.find((c) => c.id === tab.connectionId);
@@ -96,7 +98,7 @@ export function ConnectionTabs({ tabs, connections, activeTabId, onSwitch, onClo
                 cursor: "pointer",
                 fontSize: 11,
               }}
-              title="Fermer l'onglet"
+              title={t("connTabs.close")}
             >
               ✕
             </button>

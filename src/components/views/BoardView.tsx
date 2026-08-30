@@ -3,6 +3,7 @@
 import type { ColumnMeta, Row } from "@/lib/types";
 import { formatValue, pillStyle } from "@/lib/client/format";
 import { groupRows } from "@/lib/client/group";
+import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
   columns: ColumnMeta[];
@@ -13,8 +14,9 @@ interface Props {
 }
 
 export function BoardView({ columns, rows, boardColumn, onRowOpen, onAddCard }: Props) {
+  const { t, lang } = useLang();
   if (!boardColumn) {
-    return <div style={{ padding: 20, color: "#a8a39a", fontSize: 13 }}>Aucune colonne de sélection à utiliser pour le tableau.</div>;
+    return <div style={{ padding: 20, color: "#a8a39a", fontSize: 13 }}>{t("boardView.noGroupColumn")}</div>;
   }
   const groups = groupRows(rows, boardColumn);
   const tagCols = columns.filter((c) => c.logicalType === "select" || c.logicalType === "number").slice(0, 2);
@@ -22,7 +24,7 @@ export function BoardView({ columns, rows, boardColumn, onRowOpen, onAddCard }: 
   const subCol = columns.filter((c) => c !== titleCol)[0];
 
   return (
-    <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+    <div data-clarity-mask="true" style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
       {groups.map((g) => (
         <div key={g.key} style={{ width: 262, flex: "none", display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 2px 4px" }}>
@@ -56,17 +58,17 @@ export function BoardView({ columns, rows, boardColumn, onRowOpen, onAddCard }: 
                 e.currentTarget.style.transform = "none";
               }}
             >
-              <div style={{ fontWeight: 500 }}>{titleCol ? formatValue(row[titleCol.name], titleCol) || "Sans titre" : "Sans titre"}</div>
+              <div style={{ fontWeight: 500 }}>{titleCol ? formatValue(row[titleCol.name], titleCol, lang) || t("detailPanel.untitled") : t("detailPanel.untitled")}</div>
               {subCol && (
                 <div style={{ fontSize: 12.5, color: "#8b877e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {formatValue(row[subCol.name], subCol)}
+                  {formatValue(row[subCol.name], subCol, lang)}
                 </div>
               )}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
                 {tagCols.map((c) =>
                   row[c.name] !== undefined && row[c.name] !== null && row[c.name] !== "" ? (
-                    <span key={c.name} style={pillStyle(formatValue(row[c.name], c))}>
-                      {formatValue(row[c.name], c)}
+                    <span key={c.name} style={pillStyle(formatValue(row[c.name], c, lang))}>
+                      {formatValue(row[c.name], c, lang)}
                     </span>
                   ) : null
                 )}
@@ -85,7 +87,7 @@ export function BoardView({ columns, rows, boardColumn, onRowOpen, onAddCard }: 
               e.currentTarget.style.color = "#b4afa5";
             }}
           >
-            + Ajouter
+            + {t("common.add")}
           </div>
         </div>
       ))}
