@@ -16,6 +16,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://overlook.elyonelabs.com"),
   title: "Overlook — éditeur de base de données",
   description: "Éditeur de base de données open-source, style Notion, multi-connexions.",
 };
