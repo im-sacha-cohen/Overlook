@@ -1,165 +1,165 @@
 <img src="docs/logo/wordmark.svg" alt="Overlook" height="48">
 
-Un éditeur de base de données open-source, 100% web, avec l'UI/UX d'un outil
-type Notion — et un principe simple : **on ne doit jamais pouvoir confondre
-une base locale et une base de production.**
+An open-source, 100% web database editor with the UI/UX of a Notion-style
+tool — built around one simple rule: **you should never be able to mistake
+a local database for a production one.**
 
-![Vue Table](docs/screenshots/table-view.png)
+[![Buy me a coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=ImSachaCOHEN&button_colour=5F7FFF&font_colour=ffffff&font_family=Lato&outline_colour=000000&coffee_colour=FFDD00)](https://www.buymeacoffee.com/ImSachaCOHEN)
 
-## Sommaire
+![Table view](docs/screenshots/table-view.png)
 
-- [Fonctionnalités](#fonctionnalités)
-- [Aperçu](#aperçu)
-- [Prérequis](#prérequis)
+## Table of contents
+
+- [Features](#features)
+- [Screenshots](#screenshots)
+- [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Configuration (`.env`)](#configuration-env)
-- [Bases de données de test](#bases-de-données-de-test)
-- [Déploiement en production](#déploiement-en-production)
-- [Sécurité et limites connues](#sécurité-et-limites-connues)
-- [Licence](#licence)
+- [Test databases](#test-databases)
+- [Production deployment](#production-deployment)
+- [Security and known limitations](#security-and-known-limitations)
+- [License](#license)
 
-## Fonctionnalités
+## Features
 
-- **Connexions multiples** — PostgreSQL, MySQL et SQLite, chacune taguée par
-  environnement (Local / Dev / Staging / Prod / Custom).
-- **Indicateur de connexion toujours visible** — badge coloré en permanence
-  dans la barre du haut + liseré de couleur sur tout le viewport (rouge pour
-  la prod), avec un switcher listant toutes les connexions enregistrées.
-- **Garde-fous sur la production** — toute suppression de ligne, suppression/
-  changement de type de colonne, ou requête SQL d'écriture sur une connexion
-  taguée « prod » exige de taper le nom de la connexion pour confirmer. Le
-  panneau Schéma est en lecture seule par défaut sur ces connexions.
-- **4 vues** sur chaque table : Table (grille éditable), Tableau (kanban),
-  Calendrier, Galerie — plus filtres, tri et regroupement.
-- **Édition de schéma réelle** : ajout/renommage/suppression de colonne,
-  changement de type (vrais `ALTER TABLE`).
-- **Import CSV**, **console SQL** (mode Requête, lecture seule par défaut),
-  **palette de commandes** (⌘K), **historique des modifications avec
-  annulation**.
+- **Multiple connections** — PostgreSQL, MySQL, and SQLite, each tagged by
+  environment (Local / Dev / Staging / Prod / Custom).
+- **Always-visible connection indicator** — a colored badge permanently
+  shown in the top bar, plus a colored strip across the whole viewport (red
+  for prod), with a switcher listing every saved connection.
+- **Production guardrails** — deleting a row, dropping/changing a column
+  type, or running a write query against a connection tagged "prod" all
+  require typing the connection's name to confirm. The Schema panel is
+  read-only by default on these connections.
+- **4 views** per table: Table (editable grid), Board (kanban), Calendar,
+  Gallery — plus filters, sorting, and grouping.
+- **Real schema editing**: add/rename/drop columns, change column types
+  (actual `ALTER TABLE` statements).
+- **CSV import**, a **SQL console** (Query mode, read-only by default), a
+  **command palette** (⌘K), and a **modification history with undo**.
 
-## Aperçu
+## Screenshots
 
 | | |
 |---|---|
-| **Vue Table** — grille éditable, colonnes redimensionnables/réordonnables | ![Vue Table](docs/screenshots/table-view.png) |
-| **Panneau de détail** — édition d'une ligne, redimensionnable | ![Panneau de détail](docs/screenshots/detail-panel.png) |
-| **Palette de commandes** (⌘K) — navigation clavier | ![Palette de commandes](docs/screenshots/command-palette.png) |
-| **Export** — SQL/NDJSON, structure/données, sélection des tables | ![Export](docs/screenshots/export-modal.png) |
-| **Vue Galerie** | ![Vue Galerie](docs/screenshots/gallery-view.png) |
-| **Garde-fou sur la production** — confirmation par saisie du nom de la connexion | ![Garde-fou prod](docs/screenshots/prod-guard.png) |
+| **Table view** — editable grid, resizable/reorderable columns | ![Table view](docs/screenshots/table-view.png) |
+| **Detail panel** — edit a row, resizable | ![Detail panel](docs/screenshots/detail-panel.png) |
+| **Command palette** (⌘K) — keyboard navigation | ![Command palette](docs/screenshots/command-palette.png) |
+| **Export** — SQL/NDJSON, structure/data, table selection | ![Export](docs/screenshots/export-modal.png) |
+| **Gallery view** | ![Gallery view](docs/screenshots/gallery-view.png) |
+| **Production guardrail** — confirmation by typing the connection name | ![Production guardrail](docs/screenshots/prod-guard.png) |
 
-## Prérequis
+## Prerequisites
 
 - **Node.js 20+**
-- Pour les bases de test uniquement : **Docker** et **Docker Compose**
-- Aucune base de données externe requise pour démarrer — Overlook fonctionne
-  directement avec SQLite si tu n'as rien d'autre sous la main.
+- **Docker** and **Docker Compose**, for the test databases only
+- No external database is required to get started — Overlook works out of
+  the box with SQLite if that's all you have on hand.
 
 ## Installation
 
 ```bash
-git clone <url-du-dépôt>
+git clone <repo-url>
 cd overlook
 npm install
 npm run dev
 ```
 
-Ouvre [http://localhost:3000](http://localhost:3000). Aucune base externe
-n'est requise pour démarrer : les connexions que tu crées sont stockées dans
-un fichier SQLite local (`data/app-metadata.db`), chiffrées au repos.
+Open [http://localhost:3000](http://localhost:3000). No external database is
+required to start: the connections you create are stored in a local SQLite
+file (`data/app-metadata.db`), encrypted at rest.
 
 ## Configuration (`.env`)
 
-Copie `.env.example` en `.env` pour personnaliser (les deux variables sont
-optionnelles, des valeurs par défaut sûres s'appliquent sinon) :
+Copy `.env.example` to `.env` to customize (both variables are optional —
+safe defaults apply otherwise):
 
-| Variable | Rôle | Défaut |
+| Variable | Role | Default |
 |---|---|---|
-| `APP_SECRET` | Clé de chiffrement (AES-256-GCM) des mots de passe de connexion stockés sur disque. | Générée et stockée dans `data/secret.key` au premier lancement. |
-| `DATA_DIR` | Dossier contenant le fichier de métadonnées (`app-metadata.db`) et la clé secrète. | `./data` |
+| `APP_SECRET` | Encryption key (AES-256-GCM) for connection passwords stored on disk. | Generated and stored in `data/secret.key` on first run. |
+| `DATA_DIR` | Folder holding the metadata file (`app-metadata.db`) and the secret key. | `./data` |
 
-**En production, définis toujours `APP_SECRET` explicitement** (une valeur
-aléatoire longue, ex. `openssl rand -hex 32`) et garde-la stable : si elle
-change, les mots de passe de connexion déjà chiffrés deviennent illisibles.
+**In production, always set `APP_SECRET` explicitly** (a long random value,
+e.g. `openssl rand -hex 32`) and keep it stable: if it changes, previously
+encrypted connection passwords become unreadable.
 
-## Bases de données de test
+## Test databases
 
-Un `docker-compose.yml` fournit un Postgres et un MySQL de développement,
-pré-remplis avec un petit schéma d'exemple :
+A `docker-compose.yml` provides a development Postgres and MySQL, pre-seeded
+with a small example schema:
 
 ```bash
 docker compose up -d
 ```
 
-- Postgres : `localhost:5433`, base `atlas_dev`, utilisateur/mot de passe `atlas`/`atlas`
-- MySQL : `localhost:3307`, base `atlas_dev`, utilisateur/mot de passe `atlas`/`atlas`
+- Postgres: `localhost:5433`, database `overlook_dev`, user/password `overlook`/`overlook`
+- MySQL: `localhost:3307`, database `overlook_dev`, user/password `overlook`/`overlook`
 
-(Ports décalés de leurs valeurs par défaut pour ne pas entrer en conflit avec
-une instance déjà installée sur ta machine.)
+(Ports are shifted from their defaults so they don't clash with an instance
+already installed on your machine.)
 
-Pour SQLite, un fichier d'exemple peut être généré avec :
+For SQLite, a sample file can be generated with:
 
 ```bash
 node dev/seed-sqlite.js
 ```
 
-## Déploiement en production
+## Production deployment
 
-Overlook stocke ses connexions dans un fichier SQLite local (`data/app-metadata.db`)
-: il faut donc un **hôte au filesystem persistant** (VPS, conteneur avec volume,
-serveur Node classique) — pas de plateforme serverless comme Vercel, dont le
-filesystem est éphémère.
+Overlook stores its connections in a local SQLite file
+(`data/app-metadata.db`), so it needs a **host with a persistent
+filesystem** (VPS, a container with a volume, a regular Node server) —
+not a serverless platform like Vercel, whose filesystem is ephemeral.
 
-### Option A — Node classique (VPS, serveur dédié…)
+### Option A — Plain Node (VPS, dedicated server…)
 
 ```bash
 npm ci
 npm run build
-APP_SECRET=<clé-longue-et-stable> npm run start
+APP_SECRET=<long-stable-secret> npm run start
 ```
 
-Mets `npm run start` derrière un process manager (`pm2`, `systemd`) et un
-reverse proxy TLS (nginx, Caddy).
+Run `npm run start` behind a process manager (`pm2`, `systemd`) and a TLS
+reverse proxy (nginx, Caddy).
 
 ### Option B — Docker
 
-Le `Dockerfile` fourni construit une image de production (build multi-étapes,
-sortie `standalone` de Next.js) :
+The included `Dockerfile` builds a production image (multi-stage build,
+Next.js `standalone` output):
 
 ```bash
 docker build -t overlook .
 docker run -d \
   -p 3000:3000 \
-  -e APP_SECRET=<clé-longue-et-stable> \
+  -e APP_SECRET=<long-stable-secret> \
   -v overlook-data:/app/data \
   --name overlook \
   overlook
 ```
 
-Le volume `overlook-data` conserve les connexions enregistrées (et la clé de
-chiffrement si `APP_SECRET` n'est pas fourni) d'un redémarrage à l'autre.
+The `overlook-data` volume keeps saved connections (and the encryption key,
+if `APP_SECRET` isn't provided) across restarts.
 
-## Sécurité et limites connues
+## Security and known limitations
 
-- **Pas de contrôle d'accès intégré.** Cet outil est pensé pour un usage en
-  environnement de confiance (poste local ou réseau privé). Ne l'expose pas
-  publiquement sans ajouter une couche d'authentification.
-- Les mots de passe des connexions sont chiffrés (AES-256-GCM) avant d'être
-  écrits sur disque. La clé de chiffrement vient de la variable d'environnement
-  `APP_SECRET` si elle est définie, sinon une clé est générée et stockée dans
-  `data/secret.key` au premier lancement.
-- Le stockage des connexions repose sur un fichier SQLite local : idéal pour
-  de l'auto-hébergement (Docker, serveur Node), mais ce fichier ne persiste
-  pas entre invocations sur une plateforme serverless au filesystem éphémère
-  (ex. Vercel) — dans ce cas, il faudrait migrer ce stockage vers une base
-  hébergée.
-- Les requêtes de données utilisent des requêtes paramétrées ; les
-  identifiants (tables/colonnes) sont toujours validés contre le schéma
-  introspecté avant d'être injectés dans les instructions DDL.
-- Les colonnes de type « formule » ne sont pas prises en charge (hors
-  scope) ; les relations (clés étrangères) sont affichées mais pas éditables
-  via un sélecteur dédié.
+- **No built-in access control.** This tool is meant for use in a trusted
+  environment (a local machine or private network). Don't expose it
+  publicly without adding an authentication layer.
+- Connection passwords are encrypted (AES-256-GCM) before being written to
+  disk. The encryption key comes from the `APP_SECRET` environment variable
+  if set, otherwise a key is generated and stored in `data/secret.key` on
+  first run.
+- Connection storage relies on a local SQLite file: great for
+  self-hosting (Docker, a Node server), but this file doesn't persist
+  across invocations on a serverless platform with an ephemeral filesystem
+  (e.g. Vercel) — in that case, this storage would need to move to a
+  hosted database.
+- Data queries always use parameterized statements; identifiers
+  (tables/columns) are always validated against the introspected schema
+  before being injected into DDL statements.
+- "Formula" columns aren't supported (out of scope); relations (foreign
+  keys) are shown but not editable through a dedicated picker.
 
-## Licence
+## License
 
 MIT.
