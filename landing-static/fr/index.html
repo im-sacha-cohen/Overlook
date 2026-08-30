@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overlook — l'éditeur de base de données qui ne peut pas vous mentir sur la prod</title>
+<meta name="description" content="Un éditeur de base de données open-source, 100% web, avec l'UI/UX d'un outil façon Notion — construit autour d'une seule règle : vous ne devriez jamais pouvoir confondre une base locale avec une base de production.">
+<link rel="icon" href="../images/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+<div class="page">
+  <nav class="nav">
+    <div class="navInner">
+      <span class="brand"><img src="../images/logo.svg" alt="" width="22" height="22"> Overlook</span>
+      <div class="navLinks">
+        <a href="#features">Fonctionnalités</a>
+        <a href="#showcase">Captures d'écran</a>
+        <a href="https://github.com/im-sacha-cohen/Overlook">Ouvrir l'app</a>
+        <a href="../" class="langLink">EN</a>
+      </div>
+      <a class="navGh" href="https://github.com/im-sacha-cohen/Overlook" target="_blank" rel="noreferrer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </nav>
+
+  <div class="strip">
+    <span style="background: var(--local)"></span>
+    <span style="background: var(--dev)"></span>
+    <span style="background: var(--staging)"></span>
+    <span style="background: var(--prod)"></span>
+  </div>
+
+  <header class="hero">
+    <div class="heroBg"></div>
+
+    <div class="badgeRow">
+      <span class="envPill" style="color: var(--local); border-color: color-mix(in oklab, var(--local) 45%, transparent); background: color-mix(in oklab, var(--local) 8%, transparent)"><span class="dot" style="background: var(--local)"></span>local</span>
+      <span class="envPill" style="color: var(--dev); border-color: color-mix(in oklab, var(--dev) 45%, transparent); background: color-mix(in oklab, var(--dev) 8%, transparent)"><span class="dot" style="background: var(--dev)"></span>dev</span>
+      <span class="envPill" style="color: var(--staging); border-color: color-mix(in oklab, var(--staging) 45%, transparent); background: color-mix(in oklab, var(--staging) 8%, transparent)"><span class="dot" style="background: var(--staging)"></span>staging</span>
+      <span class="envPill on" style="color: var(--prod); border-color: color-mix(in oklab, var(--prod) 45%, transparent); background: color-mix(in oklab, var(--prod) 8%, transparent)"><span class="dot" style="background: var(--prod)"></span>prod</span>
+    </div>
+
+    <h1 class="h1">L'éditeur de base de données<br>qui ne peut pas vous mentir sur la <em>prod</em></h1>
+
+    <p class="sub">Overlook est un éditeur de base de données gratuit, open-source, 100% web, avec l'UI/UX d'un outil façon Notion — construit autour d'une seule règle : vous ne devriez jamais pouvoir confondre une base locale avec une base de production.</p>
+
+    <div class="ctaRow">
+      <a class="ctaPrimary" href="https://github.com/im-sacha-cohen/Overlook" target="_blank" rel="noreferrer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        Voir sur GitHub
+      </a>
+      <a class="ctaSecondary" href="https://github.com/im-sacha-cohen/Overlook#installation" target="_blank" rel="noreferrer">Ouvrir l'app →</a>
+    </div>
+    <div class="stars">Licence MIT · Next.js · Postgres / MySQL / SQLite</div>
+
+    <div class="shot">
+      <div class="shotFrame">
+        <div class="shotBar"><span class="shotDot"></span><span class="shotDot"></span><span class="shotDot"></span></div>
+        <img src="../images/table-view.png" alt="Vue table d'Overlook" width="1440" height="900" loading="eager">
+      </div>
+    </div>
+  </header>
+
+  <section class="quoteSection">
+    <p class="quote">Un simple clic sur la mauvaise connexion ne devrait jamais pouvoir <span>faire tomber la production.</span> L'app rend donc cette connexion impossible à manquer — et impossible à toucher par accident.</p>
+  </section>
+
+  <section class="features" id="features">
+    <div class="wrap">
+      <div class="sectionHead">
+        <span class="eyebrow">Au menu</span>
+        <h2>Tout ce qu'un éditeur de base de données doit avoir —<br>et les garde-fous qu'il n'a généralement pas</h2>
+      </div>
+      <div class="grid">
+        <div class="card"><div class="cardIcon" style="color: var(--dev); background: color-mix(in oklab, var(--dev) 12%, transparent)">◈</div><h3>Connexions multiples</h3><p>PostgreSQL, MySQL et SQLite côte à côte — chacune taguée Local, Dev, Staging, Prod ou Custom.</p></div>
+        <div class="card"><div class="cardIcon" style="color: var(--prod); background: color-mix(in oklab, var(--prod) 12%, transparent)">▲</div><h3>Garde-fous production</h3><p>Supprimer une colonne, une ligne, ou lancer une requête d'écriture sur une connexion prod exige de taper le nom de la connexion pour confirmer.</p></div>
+        <div class="card"><div class="cardIcon" style="color: var(--local); background: color-mix(in oklab, var(--local) 12%, transparent)">▦</div><h3>4 vues par table</h3><p>Table, Board, Calendrier et Galerie — avec filtres, tri et regroupement intégrés.</p></div>
+        <div class="card"><div class="cardIcon" style="color: var(--staging); background: color-mix(in oklab, var(--staging) 12%, transparent)">⌘</div><h3>Palette de commandes</h3><p>⌘K pour naviguer partout — tables, connexions, actions — sans lâcher le clavier.</p></div>
+        <div class="card"><div class="cardIcon" style="color: var(--dev); background: color-mix(in oklab, var(--dev) 12%, transparent)">↺</div><h3>Historique avec annulation</h3><p>Chaque modification est tracée. Une erreur sur une table non-prod ? Annulez-la en un clic.</p></div>
+        <div class="card"><div class="cardIcon" style="color: var(--local); background: color-mix(in oklab, var(--local) 12%, transparent)">⇄</div><h3>Import & export</h3><p>Import CSV, export SQL/NDJSON, et une console SQL en lecture seule par défaut pour vos requêtes ponctuelles.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="showcase" id="showcase">
+    <div class="wrap">
+      <div class="showRow">
+        <div class="showText">
+          <span class="eyebrow" style="color: var(--prod)"><span style="width:6px;height:6px;border-radius:50%;background:var(--prod);display:inline-block"></span> Garde-fou production</span>
+          <h3>Confirmation en tapant le nom de la connexion</h3>
+          <p>Sur toute connexion taguée « prod », les actions destructrices — suppression d'une ligne, modification ou suppression d'une colonne, requête d'écriture brute — sont bloquées tant que vous n'avez pas tapé le nom de la connexion. Le panneau de schéma est en lecture seule par défaut.</p>
+        </div>
+        <div class="showImg"><img src="../images/prod-guard.png" alt="Boîte de dialogue de confirmation du garde-fou production" width="1440" height="900" loading="lazy"></div>
+      </div>
+
+      <div class="showRow rev">
+        <div class="showText">
+          <span class="eyebrow" style="color: var(--dev)"><span style="width:6px;height:6px;border-radius:50%;background:var(--dev);display:inline-block"></span> Palette de commandes</span>
+          <h3>⌘K pour aller n'importe où</h3>
+          <p>Naviguez entre connexions et tables, changez de vue ou déclenchez une action sans toucher la souris. Pensé pour ceux qui vivent dans leur éditeur.</p>
+        </div>
+        <div class="showImg"><img src="../images/command-palette.png" alt="Palette de commandes" width="1440" height="900" loading="lazy"></div>
+      </div>
+
+      <div class="showRow">
+        <div class="showText">
+          <span class="eyebrow" style="color: var(--local)"><span style="width:6px;height:6px;border-radius:50%;background:var(--local);display:inline-block"></span> Vue galerie</span>
+          <h3>Quatre vues, une seule table</h3>
+          <p>Les vues Table, Board, Calendrier et Galerie partagent les mêmes filtres, tris et regroupements — changez de perspective sans perdre votre position.</p>
+        </div>
+        <div class="showImg"><img src="../images/gallery-view.png" alt="Vue galerie" width="1440" height="900" loading="lazy"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="finalCta">
+    <div class="heroBg"></div>
+    <h2>Gratuit. Open-source. Auto-hébergé.</h2>
+    <p>Clonez-le, connectez-le à votre base, et ne confondez plus jamais d'environnement.</p>
+    <div class="ctaRow">
+      <a class="ctaPrimary" href="https://github.com/im-sacha-cohen/Overlook" target="_blank" rel="noreferrer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        Star sur GitHub
+      </a>
+      <a class="ctaSecondary" href="https://github.com/im-sacha-cohen/Overlook#installation" target="_blank" rel="noreferrer">Ouvrir l'app →</a>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="footerInner">
+      <span>© 2026 Overlook contributors · Licence MIT</span>
+      <div class="footerLinks">
+        <a href="https://github.com/im-sacha-cohen/Overlook" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://buymeacoffee.com/ImSachaCOHEN/e/571161" target="_blank" rel="noreferrer">M'offrir un café</a>
+        <a href="../">EN</a>
+      </div>
+    </div>
+  </footer>
+</div>
+</body>
+</html>

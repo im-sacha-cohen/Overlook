@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
+import { Telemetry } from "@/components/Telemetry";
 import "./globals.css";
 
 const instrumentSans = Instrument_Sans({
@@ -22,7 +23,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="fr" className={`${instrumentSans.variable} ${jetbrainsMono.variable}`}>
-      <body>{children}</body>
+      <body>
+        {children}
+        <Telemetry />
+      </body>
     </html>
   );
 }

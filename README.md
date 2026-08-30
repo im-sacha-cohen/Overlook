@@ -4,7 +4,7 @@ An open-source, 100% web database editor with the UI/UX of a Notion-style
 tool — built around one simple rule: **you should never be able to mistake
 a local database for a production one.**
 
-[![Buy me a coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=ImSachaCOHEN&button_colour=5F7FFF&font_colour=ffffff&font_family=Lato&outline_colour=000000&coffee_colour=FFDD00)](https://www.buymeacoffee.com/ImSachaCOHEN)
+[![Buy me a coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=ImSachaCOHEN&button_colour=5F7FFF&font_colour=ffffff&font_family=Lato&outline_colour=000000&coffee_colour=FFDD00)](https://buymeacoffee.com/ImSachaCOHEN/e/571161)
 
 ![Table view](docs/screenshots/table-view.png)
 
@@ -15,6 +15,7 @@ a local database for a production one.**
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Configuration (`.env`)](#configuration-env)
+- [Telemetry](#telemetry)
 - [Test databases](#test-databases)
 - [Production deployment](#production-deployment)
 - [Security and known limitations](#security-and-known-limitations)
@@ -78,10 +79,31 @@ safe defaults apply otherwise):
 |---|---|---|
 | `APP_SECRET` | Encryption key (AES-256-GCM) for connection passwords stored on disk. | Generated and stored in `data/secret.key` on first run. |
 | `DATA_DIR` | Folder holding the metadata file (`app-metadata.db`) and the secret key. | `./data` |
+| `NEXT_PUBLIC_DISABLE_TELEMETRY` | Set to `1` to disable anonymous usage analytics entirely. | unset (enabled) |
+| `NEXT_PUBLIC_CLARITY_PROJECT_ID` | Point analytics at your own Microsoft Clarity project instead of the shared Overlook dashboard. | Overlook's shared project |
 
 **In production, always set `APP_SECRET` explicitly** (a long random value,
 e.g. `openssl rand -hex 32`) and keep it stable: if it changes, previously
 encrypted connection passwords become unreadable.
+
+## Telemetry
+
+Overlook loads [Microsoft Clarity](https://clarity.microsoft.com/) to get a
+rough sense of how many people run the project and which features get used —
+it's how a self-hosted, source-available tool like this can be maintained
+without spyware-style tracking. It records anonymous sessions (clicks,
+scrolling, no account or personal identifiers) and is **not** a precise
+install counter: instances with no outbound internet access (common for
+locked-down internal deployments) will never report in.
+
+Anything that can show real database content — the Table, Board, Gallery and
+Calendar views, and the row detail panel — is marked `data-clarity-mask` so
+Clarity redacts it from recordings regardless of your Clarity project's
+default masking setting. Only chrome (menus, toolbars, dialogs) is ever
+visible in a recording.
+
+To opt out entirely, set `NEXT_PUBLIC_DISABLE_TELEMETRY=1`. To route data to
+your own Clarity project instead, set `NEXT_PUBLIC_CLARITY_PROJECT_ID`.
 
 ## Test databases
 
