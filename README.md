@@ -57,6 +57,19 @@ a local database for a production one.**
 
 ## Installation
 
+The quickest way to try Overlook is the prebuilt Docker image — no Node.js
+or source checkout needed:
+
+```bash
+docker run -d -p 3000:3000 -v overlook-data:/app/data --name overlook imsachacohen/overlook
+```
+
+Open [http://localhost:3000](http://localhost:3000). See
+[Production deployment](#production-deployment) for the full Docker options
+(persistent `APP_SECRET`, building the image yourself, etc.).
+
+To run from source instead (e.g. to contribute):
+
 ```bash
 git clone <repo-url>
 cd overlook
