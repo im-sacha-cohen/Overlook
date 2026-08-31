@@ -5,6 +5,7 @@ import type { ColumnMeta, Row, RowSort } from "@/lib/types";
 import { formatValue, iconFor, pillStyle } from "@/lib/client/format";
 import { groupRows } from "@/lib/client/group";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { RelationField } from "../RelationField";
 
 interface Props {
   columns: ColumnMeta[];
@@ -32,6 +33,9 @@ interface Props {
   onNavigateRelation: (col: ColumnMeta, value: unknown, fromRow: Row) => void;
   onFetchRelated: (col: ColumnMeta, value: unknown) => Promise<Row | null>;
   onOpenRelationInNewTab: (col: ColumnMeta, value: unknown) => void;
+  onSearchRelation: (col: ColumnMeta, query: string) => Promise<Row[]>;
+  getRelationLabel: (col: ColumnMeta, row: Row) => string;
+  onEditRelation: (row: Row, col: ColumnMeta, value: unknown) => void;
 }
 
 const DEFAULT_WIDTH = 160;
@@ -63,13 +67,16 @@ export function TableView({
   onNavigateRelation,
   onFetchRelated,
   onOpenRelationInNewTab,
+  onSearchRelation,
+  getRelationLabel,
+  onEditRelation,
 }: Props) {
   const { t, lang } = useLang();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [liveWidths, setLiveWidths] = useState<Record<string, number>>({});
   const [dragCol, setDragCol] = useState<string | null>(null);
   const [hover, setHover] = useState<{ key: string; row: Row | null } | null>(null);
-  const [relCtxMenu, setRelCtxMenu] = useState<{ x: number; y: number; col: ColumnMeta; value: unknown } | null>(null);
+  const [relCtxMenu, setRelCtxMenu] = useState<{ x: number; y: number; col: ColumnMeta; value: unknown; row: Row } | null>(null);
   const dragState = useRef<{ colName: string; startX: number; startWidth: number } | null>(null);
   const relCtxMenuRef = useRef<HTMLDivElement>(null);
 
@@ -152,7 +159,18 @@ export function TableView({
         }}
       >
         {pkColumn && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 0" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "8px 0",
+              position: "sticky",
+              left: 0,
+              zIndex: 3,
+              background: "#f5f3ee",
+            }}
+          >
             <input
               type="checkbox"
               checked={allChecked}
@@ -161,7 +179,16 @@ export function TableView({
             />
           </div>
         )}
-        <div style={{ padding: "8px 6px" }} />
+        <div
+          style={{
+            padding: "8px 6px",
+            position: "sticky",
+            left: pkColumn ? 30 : 0,
+            zIndex: 3,
+            background: "#f5f3ee",
+            boxShadow: "1px 0 0 #e2ded4",
+          }}
+        />
         {columns.map((c) => {
           const sort = sorts.find((s) => s.column === c.name);
           return (
@@ -263,7 +290,17 @@ export function TableView({
                     }}
                   >
                     {pkColumn && (
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          position: "sticky",
+                          left: 0,
+                          zIndex: 1,
+                          background: "inherit",
+                        }}
+                      >
                         <input
                           type="checkbox"
                           checked={selectedIds.has(rowId)}
@@ -274,7 +311,20 @@ export function TableView({
                     )}
                     <div
                       onClick={() => onRowOpen(row)}
-                      style={{ display: "flex", alignItems: "center", justifyContent: "center", color: "#cdc8be", cursor: "pointer", fontSize: 12, transition: "color 0.1s ease" }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "#cdc8be",
+                        cursor: "pointer",
+                        fontSize: 12,
+                        transition: "color 0.1s ease",
+                        position: "sticky",
+                        left: pkColumn ? 30 : 0,
+                        zIndex: 1,
+                        background: "inherit",
+                        boxShadow: "1px 0 0 #f2f0ea",
+                      }}
                       onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
                       onMouseLeave={(e) => (e.currentTarget.style.color = "#cdc8be")}
                     >
@@ -288,12 +338,15 @@ export function TableView({
                       return (
                         <div
                           key={c.name}
-                          onClick={() => (isRelation ? onNavigateRelation(c, raw, row) : onCellClick(row, c))}
+                          onClick={() => {
+                            if (isEdit) return;
+                            isRelation ? onNavigateRelation(c, raw, row) : onCellClick(row, c);
+                          }}
                           onContextMenu={(e) => {
-                            if (!isRelation || raw === null || raw === undefined || raw === "") return;
+                            if (!isRelation) return;
                             e.preventDefault();
                             setHover(null);
-                            setRelCtxMenu({ x: e.clientX, y: e.clientY, col: c, value: raw });
+                            setRelCtxMenu({ x: e.clientX, y: e.clientY, col: c, value: raw, row });
                           }}
                           onMouseEnter={
                             isRelation && raw !== null && raw !== undefined && raw !== ""
@@ -318,7 +371,20 @@ export function TableView({
                             cursor: c.logicalType === "unknown" ? "default" : isRelation ? "pointer" : "text",
                           }}
                         >
-                          {isEdit ? (
+                          {isEdit && isRelation ? (
+                            <RelationField
+                              col={c}
+                              value={raw}
+                              autoOpen
+                              onCommit={(value) => {
+                                onEditRelation(row, c, value);
+                                onCellCancel();
+                              }}
+                              onClose={onCellCancel}
+                              onSearch={onSearchRelation}
+                              getLabel={getRelationLabel}
+                            />
+                          ) : isEdit ? (
                             <input
                               autoFocus
                               value={editValue}
@@ -432,12 +498,21 @@ export function TableView({
             → {relCtxMenu.col.references?.table}
           </div>
           <RelMenuItem
-            label={t("relation.openInNewTab")}
+            label={t("relation.editValue")}
             onClick={() => {
-              onOpenRelationInNewTab(relCtxMenu.col, relCtxMenu.value);
+              onCellClick(relCtxMenu.row, relCtxMenu.col);
               setRelCtxMenu(null);
             }}
           />
+          {relCtxMenu.value !== null && relCtxMenu.value !== undefined && relCtxMenu.value !== "" && (
+            <RelMenuItem
+              label={t("relation.openInNewTab")}
+              onClick={() => {
+                onOpenRelationInNewTab(relCtxMenu.col, relCtxMenu.value);
+                setRelCtxMenu(null);
+              }}
+            />
+          )}
         </div>
       )}
     </div>

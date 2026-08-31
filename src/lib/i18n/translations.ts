@@ -92,6 +92,7 @@ export const fr: Dict = {
   "relationTrail.path": "Chemin :",
   "relationTrail.reset": "Réinitialiser",
   "relation.openInNewTab": "Ouvrir dans un nouvel onglet",
+  "relation.editValue": "Modifier la valeur",
 
   "prodGuard.title": "Action sur une connexion de production",
   "prodGuard.typeBefore": "Tape",
@@ -117,6 +118,10 @@ export const fr: Dict = {
   "detailPanel.noneYet": "Rien pour l'instant.",
   "detailPanel.delete": "Supprimer",
   "detailPanel.undo": "Annuler",
+  "detailPanel.relationEmpty": "Vide",
+  "detailPanel.relationSearching": "Recherche…",
+  "detailPanel.relationNoResults": "Aucun résultat",
+  "detailPanel.relationClear": "Effacer",
 
   "schemaPanel.title": "Schéma",
   "schemaPanel.locked": "Connexion de production : le schéma est en lecture seule.",
@@ -415,6 +420,7 @@ export const en: Dict = {
   "relationTrail.path": "Path:",
   "relationTrail.reset": "Reset",
   "relation.openInNewTab": "Open in a new tab",
+  "relation.editValue": "Edit value",
 
   "prodGuard.title": "Action on a production connection",
   "prodGuard.typeBefore": "Type",
@@ -440,6 +446,10 @@ export const en: Dict = {
   "detailPanel.noneYet": "Nothing yet.",
   "detailPanel.delete": "Delete",
   "detailPanel.undo": "Undo",
+  "detailPanel.relationEmpty": "Empty",
+  "detailPanel.relationSearching": "Searching…",
+  "detailPanel.relationNoResults": "No results",
+  "detailPanel.relationClear": "Clear",
 
   "schemaPanel.title": "Schema",
   "schemaPanel.locked": "Production connection: the schema is read-only.",

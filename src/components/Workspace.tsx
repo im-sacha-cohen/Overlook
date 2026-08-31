@@ -141,6 +141,20 @@ export function Workspace({ initialConnections }: Props) {
   const orderedVisibleColumns = useMemo(() => orderColumns(visibleColumns, columnOrder), [visibleColumns, columnOrder]);
   const pkColumn = useMemo(() => columns.find((c) => c.isPrimaryKey)?.name ?? null, [columns]);
 
+  useEffect(() => {
+    const parts = [activeTable, activeConnection?.name].filter(Boolean) as string[];
+    const desired = parts.length ? `${parts.join(" · ")} — Overlook` : "Overlook — éditeur de base de données";
+    document.title = desired;
+    // Next.js re-syncs <title> from route metadata after each router.replace
+    // (used above to persist the active tab in the URL), which replaces the
+    // <title> element itself — re-assert our value whenever that happens.
+    const observer = new MutationObserver(() => {
+      if (document.title !== desired) document.title = desired;
+    });
+    observer.observe(document.head, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, [activeTable, activeConnection]);
+
   const flash = useCallback((msg: string) => setToast(msg), []);
   useEffect(() => {
     if (!toast) return;
@@ -820,6 +834,49 @@ export function Workspace({ initialConnections }: Props) {
     setRelationTrail([]);
   }
 
+  const getTableLabelColumn = useCallback(
+    (tableName: string): string | null => {
+      const meta = tables.find((tb) => tb.name === tableName);
+      if (!meta) return null;
+      const textCol = meta.columns.find((c) => c.logicalType === "text" && !c.isPrimaryKey);
+      return textCol?.name ?? meta.columns[0]?.name ?? null;
+    },
+    [tables]
+  );
+
+  const searchRelation = useCallback(
+    async (col: ColumnMeta, query: string): Promise<Row[]> => {
+      if (!activeConnectionId || !col.references) return [];
+      const labelColumn = getTableLabelColumn(col.references.table) ?? col.references.column;
+      try {
+        const res = await api.selectRows(activeConnectionId, col.references.table, {
+          filters: query.trim() ? [{ column: labelColumn, op: "contains", value: query.trim() }] : [],
+          limit: 20,
+        });
+        return res.rows;
+      } catch {
+        return [];
+      }
+    },
+    [activeConnectionId, getTableLabelColumn]
+  );
+
+  const getRelationLabel = useCallback(
+    (col: ColumnMeta, row: Row): string => {
+      if (!col.references) return "";
+      const labelColumn = getTableLabelColumn(col.references.table);
+      const idValue = row[col.references.column];
+      if (labelColumn && labelColumn !== col.references.column) {
+        const label = row[labelColumn];
+        if (label !== undefined && label !== null && String(label) !== "") {
+          return idValue !== undefined && idValue !== null ? `${String(label)} — ${String(idValue)}` : String(label);
+        }
+      }
+      return idValue !== undefined && idValue !== null ? String(idValue) : "";
+    },
+    [getTableLabelColumn]
+  );
+
   async function fetchRelated(col: ColumnMeta, value: unknown): Promise<Row | null> {
     if (!activeConnectionId || !col.references) return null;
     const cacheKey = `${activeConnectionId}:${col.references.table}:${col.references.column}:${String(value)}`;
@@ -1201,6 +1258,9 @@ export function Workspace({ initialConnections }: Props) {
                     onNavigateRelation={handleNavigateRelation}
                     onFetchRelated={fetchRelated}
                     onOpenRelationInNewTab={openRelationInNewTab}
+                    onSearchRelation={searchRelation}
+                    getRelationLabel={getRelationLabel}
+                    onEditRelation={(row, col, value) => commitFieldChange(row, col.name, value)}
                   />
                 )}
                 {view === "board" && (
@@ -1230,6 +1290,8 @@ export function Workspace({ initialConnections }: Props) {
             onClose={() => setDetailRow(null)}
             onDelete={() => requestDeleteRow(detailRow)}
             recentHistory={history.slice(0, 3)}
+            onSearchRelation={searchRelation}
+            getRelationLabel={getRelationLabel}
           />
         )}
       </div>

@@ -5,6 +5,7 @@ import type { ColumnMeta, Row } from "@/lib/types";
 import { iconFor } from "@/lib/client/format";
 import type { HistoryEntry } from "@/lib/client/history";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { RelationField, fieldInputStyle } from "./RelationField";
 
 interface Props {
   row: Row;
@@ -15,6 +16,8 @@ interface Props {
   onClose: () => void;
   onDelete: () => void;
   recentHistory: HistoryEntry[];
+  onSearchRelation: (col: ColumnMeta, query: string) => Promise<Row[]>;
+  getRelationLabel: (col: ColumnMeta, row: Row) => string;
 }
 
 const WIDTH_KEY = "overlook:detailPanelWidth";
@@ -40,18 +43,7 @@ function saveWidth(width: number): void {
   }
 }
 
-const fieldInputStyle: React.CSSProperties = {
-  width: "100%",
-  border: "1px solid #e8e5df",
-  borderRadius: 6,
-  padding: "5px 7px",
-  background: "#fdfcfb",
-  outline: "none",
-  fontSize: 13.5,
-  transition: "border-color 0.1s ease, background 0.1s ease",
-};
-
-export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, onClose, onDelete, recentHistory }: Props) {
+export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, onClose, onDelete, recentHistory, onSearchRelation, getRelationLabel }: Props) {
   const { t } = useLang();
   const titleCol = columns.find((c) => c.logicalType === "text") ?? columns[0];
   const title = titleCol ? String(row[titleCol.name] ?? t("detailPanel.untitled")) : t("detailPanel.untitled");
@@ -137,6 +129,14 @@ export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, 
                 >
                   {row[c.name] ? "✓" : ""}
                 </span>
+              ) : c.logicalType === "relation" ? (
+                <RelationField
+                  col={c}
+                  value={row[c.name]}
+                  onCommit={(value) => onFieldCommit(c, value)}
+                  onSearch={onSearchRelation}
+                  getLabel={getRelationLabel}
+                />
               ) : c.logicalType === "select" ? (
                 <select
                   value={String(row[c.name] ?? "")}
@@ -178,3 +178,4 @@ export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, 
     </div>
   );
 }
+
