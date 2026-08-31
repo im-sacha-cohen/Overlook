@@ -144,7 +144,19 @@ reverse proxy (nginx, Caddy).
 
 ### Option B — Docker
 
-The included `Dockerfile` builds a production image (multi-stage build,
+A prebuilt image is published to Docker Hub at
+[`imsachacohen/overlook`](https://hub.docker.com/r/imsachacohen/overlook):
+
+```bash
+docker run -d \
+  -p 3000:3000 \
+  -e APP_SECRET=<long-stable-secret> \
+  -v overlook-data:/app/data \
+  --name overlook \
+  imsachacohen/overlook
+```
+
+Or build it yourself from the included `Dockerfile` (multi-stage build,
 Next.js `standalone` output):
 
 ```bash
