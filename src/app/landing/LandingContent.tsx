@@ -173,7 +173,6 @@ export function LandingContent({ lang }: { lang: LandingLang }) {
           <span>© {new Date().getFullYear()} {c.footer.license}</span>
           <div className={styles.footerLinks}>
             <a href={REPO_URL} target="_blank" rel="noreferrer">{c.footer.github}</a>
-            <a href="https://buymeacoffee.com/ImSachaCOHEN/e/571161" target="_blank" rel="noreferrer">{c.footer.coffee}</a>
             <Link href="/">{c.footer.openApp}</Link>
             <Link href={c.langSwitch.href}>{c.langSwitch.label}</Link>
           </div>

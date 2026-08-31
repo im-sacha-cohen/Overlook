@@ -24,7 +24,7 @@ export interface LandingCopy {
     rows: { eyebrow: string; tone: string; title: string; body: string; img: string; alt: string }[];
   };
   finalCta: { title: string; body: string; primary: string; secondary: string };
-  footer: { license: string; github: string; coffee: string; openApp: string };
+  footer: { license: string; github: string; openApp: string };
   langSwitch: { label: string; href: string };
 }
 
@@ -97,7 +97,7 @@ export const LANDING_COPY: Record<LandingLang, LandingCopy> = {
       primary: "Star on GitHub",
       secondary: "Open the app →",
     },
-    footer: { license: "Overlook contributors · MIT License", github: "GitHub", coffee: "Buy me a coffee", openApp: "Open the app" },
+    footer: { license: "Overlook contributors · MIT License", github: "GitHub", openApp: "Open the app" },
     langSwitch: { label: "FR", href: "/landing/fr" },
   },
   fr: {
@@ -168,7 +168,7 @@ export const LANDING_COPY: Record<LandingLang, LandingCopy> = {
       primary: "Star sur GitHub",
       secondary: "Ouvrir l'app →",
     },
-    footer: { license: "Overlook contributors · Licence MIT", github: "GitHub", coffee: "M'offrir un café", openApp: "Ouvrir l'app" },
+    footer: { license: "Overlook contributors · Licence MIT", github: "GitHub", openApp: "Ouvrir l'app" },
     langSwitch: { label: "EN", href: "/landing" },
   },
 };

@@ -330,9 +330,6 @@ export const fr: Dict = {
 
   "settings.title": "Paramètres",
   "settings.language": "Langue",
-  "settings.support": "Soutenir le projet",
-  "settings.supportText": "Overlook est open-source et gratuit. Si l'outil t'est utile, tu peux offrir un café.",
-  "settings.buyMeACoffee": "Buy me a coffee",
 };
 
 export const en: Dict = {
@@ -658,9 +655,6 @@ export const en: Dict = {
 
   "settings.title": "Settings",
   "settings.language": "Language",
-  "settings.support": "Support the project",
-  "settings.supportText": "Overlook is open-source and free. If you find it useful, you can buy me a coffee.",
-  "settings.buyMeACoffee": "Buy me a coffee",
 };
 
 export const dictionaries: Record<Lang, Dict> = { fr, en };

@@ -46,31 +46,6 @@ export function SettingsPanel({ onClose }: Props) {
               ))}
             </div>
           </div>
-
-          <div style={{ borderTop: "1px solid #f2f0ea", paddingTop: 18 }}>
-            <div style={{ fontSize: 12, color: "#8b877e", marginBottom: 8 }}>{t("settings.support")}</div>
-            <div style={{ fontSize: 13, color: "#4b473f", lineHeight: 1.5, marginBottom: 12 }}>{t("settings.supportText")}</div>
-            <a
-              href="https://buymeacoffee.com/ImSachaCOHEN/e/571161"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "9px 16px",
-                borderRadius: 8,
-                border: "1px solid #000",
-                background: "#5F7FFF",
-                color: "#fff",
-                fontSize: 13.5,
-                fontWeight: 500,
-                textDecoration: "none",
-              }}
-            >
-              ☕ {t("settings.buyMeACoffee")}
-            </a>
-          </div>
         </div>
       </div>
     </div>

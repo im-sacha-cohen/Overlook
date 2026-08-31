@@ -4,8 +4,6 @@ An open-source, 100% web database editor with the UI/UX of a Notion-style
 tool — built around one simple rule: **you should never be able to mistake
 a local database for a production one.**
 
-[![Buy me a coffee](https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=ImSachaCOHEN&button_colour=5F7FFF&font_colour=ffffff&font_family=Lato&outline_colour=000000&coffee_colour=FFDD00)](https://buymeacoffee.com/ImSachaCOHEN/e/571161)
-
 ![Table view](docs/screenshots/table-view.png)
 
 ## Table of contents
