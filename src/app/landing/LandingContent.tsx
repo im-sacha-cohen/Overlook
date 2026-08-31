@@ -4,6 +4,9 @@ import styles from "./landing.module.css";
 import { LANDING_COPY, type LandingLang } from "./copy";
 
 const REPO_URL = "https://github.com/im-sacha-cohen/Overlook";
+// Overlook is self-hosted only — there's no shared hosted instance to send
+// people to, so "open the app" really means "go set up your own".
+const INSTALL_URL = `${REPO_URL}#installation`;
 
 const ENV_PILLS = [
   { label: "local", color: "var(--local)" },
@@ -26,7 +29,7 @@ export function LandingContent({ lang }: { lang: LandingLang }) {
           <div className={styles.navLinks}>
             <a href="#features">{c.nav.features}</a>
             <a href="#showcase">{c.nav.screenshots}</a>
-            <Link href="/">{c.nav.openApp}</Link>
+            <a href={INSTALL_URL} target="_blank" rel="noreferrer">{c.nav.openApp}</a>
             <Link href={c.langSwitch.href} className={styles.langLink}>
               {c.langSwitch.label}
             </Link>
@@ -72,9 +75,9 @@ export function LandingContent({ lang }: { lang: LandingLang }) {
           <a className={styles.ctaPrimary} href={REPO_URL} target="_blank" rel="noreferrer">
             <GhIcon /> {c.hero.ctaPrimary}
           </a>
-          <Link className={styles.ctaSecondary} href="/">
+          <a className={styles.ctaSecondary} href={INSTALL_URL} target="_blank" rel="noreferrer">
             {c.hero.ctaSecondary}
-          </Link>
+          </a>
         </div>
         <div className={styles.stars}>{c.hero.stars}</div>
 
@@ -162,9 +165,9 @@ export function LandingContent({ lang }: { lang: LandingLang }) {
           <a className={styles.ctaPrimary} href={REPO_URL} target="_blank" rel="noreferrer">
             <GhIcon /> {c.finalCta.primary}
           </a>
-          <Link className={styles.ctaSecondary} href="/">
+          <a className={styles.ctaSecondary} href={INSTALL_URL} target="_blank" rel="noreferrer">
             {c.finalCta.secondary}
-          </Link>
+          </a>
         </div>
       </section>
 
@@ -173,7 +176,7 @@ export function LandingContent({ lang }: { lang: LandingLang }) {
           <span>© {new Date().getFullYear()} {c.footer.license}</span>
           <div className={styles.footerLinks}>
             <a href={REPO_URL} target="_blank" rel="noreferrer">{c.footer.github}</a>
-            <Link href="/">{c.footer.openApp}</Link>
+            <a href={INSTALL_URL} target="_blank" rel="noreferrer">{c.footer.openApp}</a>
             <Link href={c.langSwitch.href}>{c.langSwitch.label}</Link>
           </div>
         </div>
