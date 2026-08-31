@@ -252,6 +252,7 @@ export const fr: Dict = {
   "toast.sqlImportedCount": "Script exécuté ({{count}} instruction(s))",
   "toast.sqlImportedPartial": "{{ok}} instruction(s) OK, {{failed}} en erreur",
   "toast.bulkEditUndone": "Modification annulée",
+  "toast.saved": "Enregistré",
   "error.noActiveConnection": "Aucune connexion active",
 
   "history.rowDeleted": "Ligne supprimée ({{id}})",
@@ -577,6 +578,7 @@ export const en: Dict = {
   "toast.sqlImportedCount": "Script run ({{count}} statement(s))",
   "toast.sqlImportedPartial": "{{ok}} statement(s) OK, {{failed}} failed",
   "toast.bulkEditUndone": "Change undone",
+  "toast.saved": "Saved",
   "error.noActiveConnection": "No active connection",
 
   "history.rowDeleted": "Row deleted ({{id}})",

@@ -35,6 +35,7 @@ import { ExportModal, type ExportChoice } from "./ExportModal";
 import { ExportProgress, type ExportProgressState } from "./ExportProgress";
 import { ImportProgress, type ImportProgressState } from "./ImportProgress";
 import { Toast } from "./Toast";
+import { SaveIndicator } from "./SaveIndicator";
 import { SettingsPanel } from "./SettingsPanel";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 
@@ -123,6 +124,9 @@ export function Workspace({ initialConnections }: Props) {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [toast, setToast] = useState("");
 
+  const [saveIndicator, setSaveIndicator] = useState<{ id: number; undo: () => Promise<void> } | null>(null);
+  const saveIndicatorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportProgress, setExportProgress] = useState<ExportProgressState | null>(null);
   const exportAbortRef = useRef<AbortController | null>(null);
@@ -167,6 +171,28 @@ export function Workspace({ initialConnections }: Props) {
     const entry: HistoryEntry = { id: String(historySeq), time: timeNow(), text, who: `Toi · ${activeTable ?? ""}`, undo };
     setHistory((h) => [entry, ...h].slice(0, 60));
   }, [activeTable]);
+
+  const showSaveIndicator = useCallback((undo: () => Promise<void>) => {
+    const id = Date.now();
+    setSaveIndicator({ id, undo });
+    if (saveIndicatorTimer.current) clearTimeout(saveIndicatorTimer.current);
+    saveIndicatorTimer.current = setTimeout(() => {
+      setSaveIndicator((cur) => (cur?.id === id ? null : cur));
+    }, 3000);
+  }, []);
+
+  async function handleRevertSave() {
+    if (!saveIndicator) return;
+    const { undo } = saveIndicator;
+    setSaveIndicator(null);
+    if (saveIndicatorTimer.current) clearTimeout(saveIndicatorTimer.current);
+    try {
+      await undo();
+      flash(t("toast.bulkEditUndone"));
+    } catch (err) {
+      flash(err instanceof Error ? err.message : String(err));
+    }
+  }
 
   // ---------- loaders ----------
   const loadTables = useCallback(async (connectionId: string) => {
@@ -468,10 +494,12 @@ export function Workspace({ initialConnections }: Props) {
       await api.updateRow(activeConnectionId, activeTable, rowId, pkColumn, { [colName]: value });
       setRows((prev) => prev.map((r) => (r[pkColumn] === rowId ? { ...r, [colName]: value } : r)));
       if (detailRow && detailRow[pkColumn] === rowId) setDetailRow((d) => (d ? { ...d, [colName]: value } : d));
-      pushHistory(`${colName} → ${String(value)}`, async () => {
+      const undo = async () => {
         await api.updateRow(activeConnectionId, activeTable, rowId, pkColumn, { [colName]: previous });
         await loadRows();
-      });
+      };
+      pushHistory(`${colName} → ${String(value)}`, undo);
+      showSaveIndicator(undo);
     } catch (err) {
       flash(err instanceof Error ? err.message : String(err));
     }
@@ -1389,6 +1417,12 @@ export function Workspace({ initialConnections }: Props) {
       {importProgress && <ImportProgress state={importProgress} onCancel={cancelImport} onDismiss={() => setImportProgress(null)} />}
 
       <Toast message={toast} />
+      <SaveIndicator
+        visible={!!saveIndicator}
+        label={t("toast.saved")}
+        revertLabel={t("detailPanel.undo")}
+        onRevert={handleRevertSave}
+      />
     </div>
   );
 }
