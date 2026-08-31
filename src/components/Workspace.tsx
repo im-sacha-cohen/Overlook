@@ -107,6 +107,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [loadingRows, setLoadingRows] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(false);
 
   const [editing, setEditing] = useState<{ rowId: string; column: string } | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -234,6 +235,22 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   useEffect(() => {
     loadRows();
   }, [loadRows]);
+
+  const AUTO_REFRESH_INTERVAL_MS = 5000;
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = setInterval(() => {
+      // Skip a tick while a cell is being edited so a background refresh
+      // doesn't clobber in-progress input.
+      if (editing) return;
+      loadRows();
+    }, AUTO_REFRESH_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [autoRefresh, editing, loadRows]);
+
+  useEffect(() => {
+    setAutoRefresh(false);
+  }, [activeConnectionId, activeTable]);
 
   useEffect(() => {
     setFilters([]);
@@ -1255,6 +1272,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                   sorts={sorts}
                   onSortsChange={setSorts}
                   onAddRow={() => handleAddRow()}
+                  autoRefresh={autoRefresh}
+                  onToggleAutoRefresh={() => setAutoRefresh((v) => !v)}
                 />
               </div>
 

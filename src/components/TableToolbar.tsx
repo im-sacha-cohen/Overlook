@@ -16,6 +16,8 @@ interface Props {
   sorts: RowSort[];
   onSortsChange: (s: RowSort[]) => void;
   onAddRow: () => void;
+  autoRefresh: boolean;
+  onToggleAutoRefresh: () => void;
 }
 
 const smallBtn: React.CSSProperties = {
@@ -31,7 +33,7 @@ const smallBtn: React.CSSProperties = {
   cursor: "pointer",
 };
 
-export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, filters, onFiltersChange, sorts, onSortsChange, onAddRow }: Props) {
+export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, filters, onFiltersChange, sorts, onSortsChange, onAddRow, autoRefresh, onToggleAutoRefresh }: Props) {
   const { t } = useLang();
   const selectableCols = columns.filter((c) => !c.hidden);
   const groupableCols = columns.filter((c) => c.logicalType === "select" || c.logicalType === "checkbox");
@@ -78,6 +80,30 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
               </option>
             ))}
           </select>
+          <button
+            onClick={onToggleAutoRefresh}
+            title={t("toolbar.autoRefreshTitle")}
+            style={{
+              ...smallBtn,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              background: autoRefresh ? "var(--accent-bg)" : "#fff",
+              borderColor: autoRefresh ? "var(--accent-border)" : "#e8e5df",
+              color: autoRefresh ? "oklch(0.5 0.1 250)" : "#4b473f",
+            }}
+          >
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: autoRefresh ? "#3a9c5f" : "#c7c3b8",
+                animation: autoRefresh ? "om-pulse 1.4s ease-in-out infinite" : "none",
+              }}
+            />
+            {t("toolbar.autoRefresh")}
+          </button>
           <button style={smallBtn} onClick={() => onFiltersChange([...filters, { column: selectableCols[0]?.name ?? "", op: "contains", value: "" }])}>
             {t("toolbar.addFilter")}
           </button>
