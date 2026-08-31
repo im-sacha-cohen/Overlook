@@ -160,6 +160,12 @@ docker run -d \
 The `overlook-data` volume keeps saved connections (and the encryption key,
 if `APP_SECRET` isn't provided) across restarts.
 
+> **Connecting to databases running on your host machine:** inside the
+> container, `localhost` refers to the container itself, not your host. Use
+> `host.docker.internal` as the connection host instead (Overlook detects
+> it's running in Docker and suggests this automatically in the connection
+> form).
+
 ## Security and known limitations
 
 - **No built-in access control.** This tool is meant for use in a trusted
