@@ -11,6 +11,7 @@ interface Props {
   onSave: (input: ConnectionInput) => Promise<void>;
   onClose: () => void;
   onDatabaseDropped?: () => void;
+  dockerDetected?: boolean;
 }
 
 const inputStyle: React.CSSProperties = {
@@ -30,12 +31,12 @@ const labelStyle: React.CSSProperties = {
   display: "block",
 };
 
-export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped }: Props) {
+export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped, dockerDetected }: Props) {
   const { t } = useLang();
   const [name, setName] = useState(initial?.name ?? "");
   const [envType, setEnvType] = useState<EnvType>(initial?.envType ?? "local");
   const [engine, setEngine] = useState<Engine>(initial?.engine ?? "postgres");
-  const [host, setHost] = useState(initial?.host ?? "localhost");
+  const [host, setHost] = useState(initial?.host ?? (dockerDetected ? "host.docker.internal" : "localhost"));
   const [port, setPort] = useState<string>(String(initial?.port ?? ENGINE_DEFAULT_PORT.postgres ?? ""));
   const [database, setDatabase] = useState(initial?.database ?? "");
   const [user, setUser] = useState(initial?.user ?? "");
@@ -208,6 +209,37 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped }: 
                 <div style={{ flex: 3 }}>
                   <label style={labelStyle}>{t("connectionForm.host")}</label>
                   <input style={inputStyle} value={host} onChange={(e) => setHost(e.target.value)} placeholder="localhost" />
+                  {dockerDetected && (() => {
+                    const alreadyApplied = host === "host.docker.internal";
+                    return (
+                      <div style={{ marginTop: 6 }}>
+                        <div style={{ fontSize: 11.5, color: "#8b877e", marginBottom: 4 }}>
+                          {t("connectionForm.dockerHostHint")}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setHost("host.docker.internal")}
+                          disabled={alreadyApplied}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 5,
+                            padding: "3px 9px",
+                            background: alreadyApplied ? "#eef7f0" : "#eef4ff",
+                            border: `1px solid ${alreadyApplied ? "#cfe8d8" : "#cddcf7"}`,
+                            borderRadius: 999,
+                            color: alreadyApplied ? "#2f7a4d" : "#3a5fc4",
+                            cursor: alreadyApplied ? "default" : "pointer",
+                            fontSize: 11.5,
+                            fontWeight: 500,
+                          }}
+                        >
+                          <span aria-hidden>🐳</span>
+                          {alreadyApplied ? t("connectionForm.dockerHostHintApplied") : t("connectionForm.dockerHostHintAction")}
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div style={{ flex: 1 }}>
                   <label style={labelStyle}>{t("connectionForm.port")}</label>

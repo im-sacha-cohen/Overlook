@@ -44,6 +44,7 @@ const PAGE_SIZE = 100;
 
 interface Props {
   initialConnections: Connection[];
+  dockerDetected?: boolean;
 }
 
 interface PendingGuard {
@@ -53,7 +54,7 @@ interface PendingGuard {
 
 let historySeq = 0;
 
-export function Workspace({ initialConnections }: Props) {
+export function Workspace({ initialConnections, dockerDetected }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -1168,7 +1169,7 @@ export function Workspace({ initialConnections }: Props) {
             {t("connBadge.newConnection")}
           </button>
         </div>
-        {connectionFormOpen && <ConnectionForm onSave={handleSaveConnection} onClose={() => setConnectionFormOpen(false)} />}
+        {connectionFormOpen && <ConnectionForm onSave={handleSaveConnection} onClose={() => setConnectionFormOpen(false)} dockerDetected={dockerDetected} />}
       </div>
     );
   }
@@ -1375,6 +1376,7 @@ export function Workspace({ initialConnections }: Props) {
           onSave={handleSaveConnection}
           onClose={() => { setConnectionFormOpen(false); setEditingConnectionId(null); }}
           onDatabaseDropped={() => editingConnectionId && handleDatabaseDropped(editingConnectionId)}
+          dockerDetected={dockerDetected}
         />
       )}
 
