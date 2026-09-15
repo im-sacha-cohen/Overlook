@@ -16,6 +16,8 @@ interface Props {
   dir: "doc" | "query";
   onSetDir: (dir: "doc" | "query") => void;
   onOpenCmd: () => void;
+  autoRefresh: boolean;
+  onToggleAutoRefresh: () => void;
 }
 
 export function TopBar({
@@ -30,6 +32,8 @@ export function TopBar({
   dir,
   onSetDir,
   onOpenCmd,
+  autoRefresh,
+  onToggleAutoRefresh,
 }: Props) {
   const { t } = useLang();
   const btnStyle = (on: boolean): React.CSSProperties => ({
@@ -64,6 +68,37 @@ export function TopBar({
         </>
       )}
       <div style={{ flex: 1 }} />
+      {activeConnection && (
+        <button
+          onClick={onToggleAutoRefresh}
+          title={t("topBar.autoRefreshTitle")}
+          aria-pressed={autoRefresh}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 7,
+            height: 30,
+            padding: "0 10px",
+            border: `1px solid ${autoRefresh ? "var(--accent-border)" : "#e8e5df"}`,
+            borderRadius: 8,
+            fontSize: 12.5,
+            cursor: "pointer",
+            background: autoRefresh ? "var(--accent-bg)" : "#fff",
+            color: autoRefresh ? "oklch(0.5 0.1 250)" : "#8b877e",
+          }}
+        >
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: autoRefresh ? "#3a9c5f" : "#c7c3b8",
+              animation: autoRefresh ? "om-pulse 1.4s ease-in-out infinite" : "none",
+            }}
+          />
+          {t("topBar.autoRefresh")}
+        </button>
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: 2, padding: 2, background: "#f3f1ec", borderRadius: 8 }}>
         <button onClick={() => onSetDir("doc")} style={btnStyle(dir === "doc")}>
           {t("topBar.document")}

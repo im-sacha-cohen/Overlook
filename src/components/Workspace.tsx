@@ -108,7 +108,9 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [loadingRows, setLoadingRows] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(false);
+  // Connection ids with auto-refresh on — kept per connection for the session, across table switches.
+  const [autoRefreshConnections, setAutoRefreshConnections] = useState<Set<string>>(new Set());
+  const rowsRequestSeq = useRef(0);
 
   const [editing, setEditing] = useState<{ rowId: string; column: string } | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -147,6 +149,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   const visibleColumns = useMemo(() => columns.filter((c) => !c.hidden), [columns]);
   const orderedVisibleColumns = useMemo(() => orderColumns(visibleColumns, columnOrder), [visibleColumns, columnOrder]);
   const pkColumn = useMemo(() => columns.find((c) => c.isPrimaryKey)?.name ?? null, [columns]);
+  const pkColumnRef = useRef(pkColumn);
+  pkColumnRef.current = pkColumn;
 
   useEffect(() => {
     const parts = [activeTable, activeConnection?.name].filter(Boolean) as string[];
@@ -198,20 +202,25 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   }
 
   // ---------- loaders ----------
-  const loadTables = useCallback(async (connectionId: string) => {
+  // `silent` is the auto-refresh path: no loading state, no error toast, and state
+  // is only replaced when the data actually changed, so the screen doesn't move.
+  const loadTables = useCallback(async (connectionId: string, { silent = false } = {}) => {
     try {
       const { tables } = await api.listTables(connectionId);
-      setTables(tables);
+      setTables((prev) => (silent && JSON.stringify(prev) === JSON.stringify(tables) ? prev : tables));
       setActiveTable((prev) => (prev && tables.some((t) => t.name === prev) ? prev : tables[0]?.name ?? null));
     } catch (err) {
+      if (silent) return;
       flash(err instanceof Error ? err.message : String(err));
       setTables([]);
     }
   }, [flash]);
 
-  const loadRows = useCallback(async () => {
+  const loadRows = useCallback(async ({ silent = false } = {}) => {
     if (!activeConnectionId || !activeTable) return;
-    setLoadingRows(true);
+    // Drop responses that land after a newer request (table/page/filter changed meanwhile).
+    const seq = ++rowsRequestSeq.current;
+    if (!silent) setLoadingRows(true);
     try {
       const res = await api.selectRows(activeConnectionId, activeTable, {
         filters,
@@ -219,12 +228,25 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       });
-      setRows(res.rows);
+      if (seq !== rowsRequestSeq.current) return;
+      if (silent) {
+        setRows((prev) => (JSON.stringify(prev) === JSON.stringify(res.rows) ? prev : res.rows));
+        const pk = pkColumnRef.current;
+        if (pk) {
+          setDetailRow((d) => {
+            if (!d) return d;
+            const fresh = res.rows.find((r) => r[pk] === d[pk]);
+            return fresh && JSON.stringify(fresh) !== JSON.stringify(d) ? fresh : d;
+          });
+        }
+      } else {
+        setRows(res.rows);
+      }
       setTotal(res.total);
     } catch (err) {
-      flash(err instanceof Error ? err.message : String(err));
+      if (!silent && seq === rowsRequestSeq.current) flash(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoadingRows(false);
+      if (!silent && seq === rowsRequestSeq.current) setLoadingRows(false);
     }
   }, [activeConnectionId, activeTable, filters, sorts, page, flash]);
 
@@ -237,21 +259,38 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     loadRows();
   }, [loadRows]);
 
+  const autoRefresh = activeConnectionId !== null && autoRefreshConnections.has(activeConnectionId);
+  const toggleAutoRefresh = useCallback(() => {
+    if (!activeConnectionId) return;
+    setAutoRefreshConnections((prev) => {
+      const next = new Set(prev);
+      if (next.has(activeConnectionId)) next.delete(activeConnectionId);
+      else next.add(activeConnectionId);
+      return next;
+    });
+  }, [activeConnectionId]);
+
   const AUTO_REFRESH_INTERVAL_MS = 5000;
   useEffect(() => {
-    if (!autoRefresh) return;
-    const id = setInterval(() => {
-      // Skip a tick while a cell is being edited so a background refresh
-      // doesn't clobber in-progress input.
-      if (editing) return;
-      loadRows();
-    }, AUTO_REFRESH_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [autoRefresh, editing, loadRows]);
-
-  useEffect(() => {
-    setAutoRefresh(false);
-  }, [activeConnectionId, activeTable]);
+    if (!autoRefresh || !activeConnectionId) return;
+    const tick = () => {
+      if (document.hidden) return;
+      // Skip a tick while the user is typing (inline cell, detail panel field…)
+      // so a background refresh doesn't clobber in-progress input.
+      const focused = document.activeElement;
+      const typing = focused instanceof HTMLTextAreaElement || focused instanceof HTMLSelectElement || (focused instanceof HTMLInputElement && focused.type !== "checkbox");
+      if (editing || typing) return;
+      loadTables(activeConnectionId, { silent: true });
+      loadRows({ silent: true });
+    };
+    const id = setInterval(tick, AUTO_REFRESH_INTERVAL_MS);
+    // Hidden tabs skip ticks; catch up as soon as the tab is shown again.
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [autoRefresh, activeConnectionId, editing, loadTables, loadRows]);
 
   useEffect(() => {
     setFilters([]);
@@ -1219,6 +1258,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
         dir={dir}
         onSetDir={setDir}
         onOpenCmd={() => { setCmdOpen(true); setCmdQuery(""); }}
+        autoRefresh={autoRefresh}
+        onToggleAutoRefresh={toggleAutoRefresh}
       />
 
       {dir === "query" && activeTable && <EquivalentSqlBar sql={equivalentSql} />}
@@ -1274,8 +1315,6 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                   sorts={sorts}
                   onSortsChange={setSorts}
                   onAddRow={() => handleAddRow()}
-                  autoRefresh={autoRefresh}
-                  onToggleAutoRefresh={() => setAutoRefresh((v) => !v)}
                 />
               </div>
 
