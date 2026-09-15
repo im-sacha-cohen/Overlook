@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { ColumnMeta, Row } from "@/lib/types";
-import { pillStyle } from "@/lib/client/format";
+import { pillStyle, toText } from "@/lib/client/format";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
@@ -108,7 +108,7 @@ export function CalendarView({ rows, dateColumn, titleColumn, tagColumn, onRowOp
                 {day.num}
               </div>
               {day.items.map((row, i) => {
-                const label = titleColumn ? String(row[titleColumn.name] ?? "") : String(row[Object.keys(row)[0]] ?? "");
+                const label = titleColumn ? toText(row[titleColumn.name]) : toText(row[Object.keys(row)[0]]);
                 const tagVal = tagColumn ? row[tagColumn.name] : undefined;
                 return (
                   <div
@@ -124,7 +124,7 @@ export function CalendarView({ rows, dateColumn, titleColumn, tagColumn, onRowOp
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
                       display: "block",
-                      ...pillStyle(String(tagVal ?? label)),
+                      ...pillStyle(tagVal === null || tagVal === undefined ? label : toText(tagVal)),
                     }}
                   >
                     {label}

@@ -1,4 +1,5 @@
 import type { ColumnMeta, Row } from "../types";
+import { toText } from "./format";
 
 export interface RowGroup {
   key: string;
@@ -9,11 +10,11 @@ export function groupRows(rows: Row[], column: ColumnMeta | undefined): RowGroup
   if (!column) return [{ key: "", rows }];
   const keys = [...(column.options ?? [])];
   for (const r of rows) {
-    const v = String(r[column.name] ?? "—");
+    const v = toText(r[column.name]) || "—";
     if (!keys.includes(v)) keys.push(v);
   }
   return keys
-    .map((k) => ({ key: k, rows: rows.filter((r) => String(r[column.name] ?? "—") === k) }))
+    .map((k) => ({ key: k, rows: rows.filter((r) => (toText(r[column.name]) || "—") === k) }))
     .filter((g) => g.rows.length > 0);
 }
 

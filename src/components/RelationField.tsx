@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ColumnMeta, Row } from "@/lib/types";
+import { toText } from "@/lib/client/format";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 
 export const fieldInputStyle: React.CSSProperties = {
@@ -97,7 +98,7 @@ export function RelationField({
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={hasValue ? String(value) : ""}
+            placeholder={hasValue ? toText(value) : ""}
             onKeyDown={(e) => {
               if (e.key === "ArrowDown") {
                 e.preventDefault();
@@ -184,7 +185,7 @@ export function RelationField({
           {hasValue ? (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5, maxWidth: "100%", padding: "2px 7px 2px 5px", background: "#f6f4ef", border: "1px solid #e8e5df", borderRadius: 6, fontSize: 12.5, overflow: "hidden" }}>
               <span style={{ color: "#b4afa5", fontFamily: "var(--font-mono)", fontSize: 10 }}>↗</span>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(value)}</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{toText(value)}</span>
             </span>
           ) : (
             <span style={{ color: "#c2bdb3" }}>{t("detailPanel.relationEmpty")}</span>

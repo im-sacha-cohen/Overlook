@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/client/api";
 import type { ColumnMeta, Connection, ConnectionInput, LogicalType, QueryResult, Row, RowFilter, RowSort, TableMeta } from "@/lib/types";
 import { ENV_COLORS } from "@/lib/client/env";
+import { toText } from "@/lib/client/format";
 import { HistoryEntry, timeNow } from "@/lib/client/history";
 import { loadColumnLayout, orderColumns, saveColumnLayout } from "@/lib/client/columnLayout";
 import { loadOpenTabs, saveOpenTabs } from "@/lib/client/openTabs";
@@ -501,7 +502,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       return;
     }
     setEditing({ rowId, column: col.name });
-    setEditValue(row[col.name] === undefined || row[col.name] === null ? "" : String(row[col.name]));
+    setEditValue(toText(row[col.name]));
   }
 
   async function commitFieldChange(row: Row, colName: string, value: unknown) {
@@ -516,7 +517,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
         await api.updateRow(activeConnectionId, activeTable, rowId, pkColumn, { [colName]: previous });
         await loadRows();
       };
-      pushHistory(`${colName} → ${String(value)}`, undo);
+      pushHistory(`${colName} → ${toText(value)}`, undo);
       showSaveIndicator(undo);
     } catch (err) {
       flash(err instanceof Error ? err.message : String(err));
@@ -527,7 +528,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     if (!editing) return;
     const col = columns.find((c) => c.name === editing.column);
     const row = rows.find((r) => pkColumn && String(r[pkColumn]) === editing.rowId);
-    if (col && row) {
+    // Leaving a cell untouched must not rewrite it (a date or JSON value would round-trip as text).
+    if (col && row && editValue !== toText(row[col.name])) {
       const value = col.logicalType === "number" ? (editValue === "" ? null : Number(editValue)) : editValue;
       commitFieldChange(row, col.name, value);
     }

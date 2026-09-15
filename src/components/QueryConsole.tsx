@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { QueryResult } from "@/lib/types";
+import { toText } from "@/lib/client/format";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
@@ -91,7 +92,7 @@ export function QueryConsole({ onRun }: Props) {
                   <tr key={i} style={{ borderBottom: "1px solid #f4f2ed" }}>
                     {result.columns.map((c) => (
                       <td key={c} style={{ padding: "7px 10px", whiteSpace: "nowrap" }}>
-                        {r[c] === null || r[c] === undefined ? <span style={{ color: "#c2bdb3" }}>null</span> : String(r[c])}
+                        {r[c] === null || r[c] === undefined ? <span style={{ color: "#c2bdb3" }}>null</span> : toText(r[c])}
                       </td>
                     ))}
                   </tr>

@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { ColumnMeta, Row } from "@/lib/types";
-import { iconFor } from "@/lib/client/format";
+import { iconFor, toEditableText, toText } from "@/lib/client/format";
 import type { HistoryEntry } from "@/lib/client/history";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 import { RelationField, fieldInputStyle } from "./RelationField";
@@ -46,7 +46,7 @@ function saveWidth(width: number): void {
 export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, onClose, onDelete, recentHistory, onSearchRelation, getRelationLabel }: Props) {
   const { t } = useLang();
   const titleCol = columns.find((c) => c.logicalType === "text") ?? columns[0];
-  const title = titleCol ? String(row[titleCol.name] ?? t("detailPanel.untitled")) : t("detailPanel.untitled");
+  const title = (titleCol && toText(row[titleCol.name])) || t("detailPanel.untitled");
 
   const [width, setWidth] = useState(loadWidth);
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -84,7 +84,7 @@ export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, 
       />
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px", borderBottom: "1px solid #f2f0ea", position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "#a8a39a" }}>
-          {tableName}.{pkColumn ? String(row[pkColumn]) : "?"}
+          {tableName}.{pkColumn ? toText(row[pkColumn]) : "?"}
         </span>
         <div style={{ flex: 1 }} />
         <button
@@ -108,7 +108,7 @@ export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, 
             <div>
               {c.isPrimaryKey ? (
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 7px", borderRadius: 6, background: "#f6f4ef", fontFamily: "var(--font-mono)", fontSize: 12.5, color: "#6f6b62" }}>
-                  {String(row[c.name] ?? "")}
+                  {toText(row[c.name])}
                   <span style={{ fontSize: 10.5, color: "#bdb8ae" }}>{t("detailPanel.primaryKey")}</span>
                 </span>
               ) : c.logicalType === "checkbox" ? (
@@ -139,7 +139,7 @@ export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, 
                 />
               ) : c.logicalType === "select" ? (
                 <select
-                  value={String(row[c.name] ?? "")}
+                  value={toText(row[c.name])}
                   onChange={(e) => onFieldCommit(c, e.target.value)}
                   style={{ border: "1px solid #eceae4", borderRadius: 6, padding: "4px 6px", background: "#fff", fontSize: 13, cursor: "pointer" }}
                 >
@@ -150,13 +150,26 @@ export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, 
                     </option>
                   ))}
                 </select>
-              ) : (
-                <input
-                  key={String(row[c.name])}
-                  defaultValue={row[c.name] === undefined || row[c.name] === null ? "" : String(row[c.name])}
+              ) : c.logicalType === "json" ? (
+                <textarea
+                  key={toText(row[c.name])}
+                  defaultValue={toEditableText(row[c.name], c)}
+                  rows={Math.min(12, toEditableText(row[c.name], c).split("\n").length)}
+                  spellCheck={false}
                   onBlur={(e) => {
                     e.currentTarget.style.borderColor = "#e8e5df";
-                    if (e.target.value !== String(row[c.name] ?? "")) onFieldCommit(c, e.target.value);
+                    if (e.target.value !== toEditableText(row[c.name], c)) onFieldCommit(c, e.target.value);
+                  }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "oklch(0.7 0.1 250)")}
+                  style={{ ...fieldInputStyle, fontFamily: "var(--font-mono)", fontSize: 12, lineHeight: 1.45, resize: "vertical", whiteSpace: "pre" }}
+                />
+              ) : (
+                <input
+                  key={toText(row[c.name])}
+                  defaultValue={toText(row[c.name])}
+                  onBlur={(e) => {
+                    e.currentTarget.style.borderColor = "#e8e5df";
+                    if (e.target.value !== toText(row[c.name])) onFieldCommit(c, e.target.value);
                   }}
                   onFocus={(e) => (e.currentTarget.style.borderColor = "oklch(0.7 0.1 250)")}
                   style={fieldInputStyle}

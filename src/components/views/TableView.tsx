@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ColumnMeta, Row, RowSort } from "@/lib/types";
-import { formatValue, iconFor, pillStyle } from "@/lib/client/format";
+import { formatValue, iconFor, pillStyle, toText } from "@/lib/client/format";
 import { groupRows } from "@/lib/client/group";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 import { RelationField } from "../RelationField";
@@ -413,11 +413,11 @@ export function TableView({
                               {raw ? "✓" : ""}
                             </span>
                           ) : c.logicalType === "select" && raw ? (
-                            <span style={pillStyle(String(raw))}>{String(raw)}</span>
+                            <span style={pillStyle(toText(raw))}>{toText(raw)}</span>
                           ) : isRelation && raw ? (
                             <span style={{ display: "inline-flex", alignItems: "center", gap: 5, maxWidth: "100%", padding: "2px 7px 2px 5px", background: "#fff", border: "1px solid #e8e5df", borderRadius: 6, fontSize: 12.5, overflow: "hidden" }}>
                               <span style={{ color: "#b4afa5", fontFamily: "var(--font-mono)", fontSize: 10 }}>↗</span>
-                              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(raw)}</span>
+                              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{toText(raw)}</span>
                             </span>
                           ) : (
                             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{formatValue(raw, c, lang)}</span>
@@ -454,7 +454,7 @@ export function TableView({
                                     <div key={k} style={{ display: "flex", gap: 8, fontSize: 12.5, padding: "2px 0" }}>
                                       <span style={{ color: "#8b877e", flex: "none" }}>{k}</span>
                                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                        {v === null || v === undefined ? "" : String(v)}
+                                        {toText(v)}
                                       </span>
                                     </div>
                                   ))}

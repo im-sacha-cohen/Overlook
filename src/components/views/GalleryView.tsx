@@ -62,8 +62,8 @@ export function GalleryView({ columns, rows, onRowOpen }: Props) {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
               {tagCols.map((c) =>
                 row[c.name] ? (
-                  <span key={c.name} style={pillStyle(String(row[c.name]))}>
-                    {String(row[c.name])}
+                  <span key={c.name} style={pillStyle(formatValue(row[c.name], c, lang))}>
+                    {formatValue(row[c.name], c, lang)}
                   </span>
                 ) : null
               )}
