@@ -185,6 +185,12 @@ docker run -d \
 The `overlook-data` volume keeps saved connections (and the encryption key,
 if `APP_SECRET` isn't provided) across restarts.
 
+To move connections to another instance, use **Settings → Connections →
+Export…**: it downloads a `.json` file you can load with **Import…** on the
+other side. Passwords are left out unless you choose to include them, in which
+case they're encrypted with a passphrase you pick at export (scrypt +
+AES-256-GCM) — not with the instance's key.
+
 > **Connecting to databases running on your host machine:** inside the
 > container, `localhost` refers to the container itself, not your host. Use
 > `host.docker.internal` as the connection host instead (Overlook detects

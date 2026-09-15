@@ -8,6 +8,7 @@ import type {
   RowSort,
   TableMeta,
 } from "../types";
+import type { ConnectionBundle } from "../connectionBundle";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -37,6 +38,25 @@ export const api = {
     request<{ ok: true }>(`/api/connections/${id}`, { method: "DELETE" }),
   testConnection: (input: { id?: string } & Partial<ConnectionInput>) =>
     request<{ ok: true }>("/api/connections/test", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  exportConnections: async (input: { ids: string[]; includePasswords: boolean; passphrase?: string }) => {
+    const res = await fetch("/api/connections/bundle/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Erreur ${res.status}`);
+    }
+    const match = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "");
+    return { blob: await res.blob(), filename: match ? match[1] : "overlook-connections.json" };
+  },
+  importConnections: (input: { bundle: ConnectionBundle; indices: number[]; passphrase?: string }) =>
+    request<{ connections: Connection[] }>("/api/connections/bundle/import", {
       method: "POST",
       body: JSON.stringify(input),
     }),

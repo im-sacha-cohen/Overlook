@@ -26,21 +26,29 @@ function getKey(): Buffer {
   return cachedKey;
 }
 
-export function encrypt(plaintext: string): string {
+export function encryptWithKey(plaintext: string, key: Buffer): string {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv(ALGO, getKey(), iv);
+  const cipher = crypto.createCipheriv(ALGO, key, iv);
   const enc = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
   return [iv.toString("base64"), enc.toString("base64"), authTag.toString("base64")].join(".");
 }
 
-export function decrypt(ciphertext: string): string {
+export function decryptWithKey(ciphertext: string, key: Buffer): string {
   const [ivB64, encB64, tagB64] = ciphertext.split(".");
   if (!ivB64 || !encB64 || !tagB64) throw new Error("Malformed ciphertext");
   const iv = Buffer.from(ivB64, "base64");
   const enc = Buffer.from(encB64, "base64");
   const authTag = Buffer.from(tagB64, "base64");
-  const decipher = crypto.createDecipheriv(ALGO, getKey(), iv);
+  const decipher = crypto.createDecipheriv(ALGO, key, iv);
   decipher.setAuthTag(authTag);
   return Buffer.concat([decipher.update(enc), decipher.final()]).toString("utf8");
+}
+
+export function encrypt(plaintext: string): string {
+  return encryptWithKey(plaintext, getKey());
+}
+
+export function decrypt(ciphertext: string): string {
+  return decryptWithKey(ciphertext, getKey());
 }

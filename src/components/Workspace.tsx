@@ -1411,7 +1411,21 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
         <CreateTableModal connectionName={activeConnection.name} onCreate={handleCreateTable} onClose={() => setPanel(null)} />
       )}
 
-      {panel === "settings" && <SettingsPanel onClose={() => setPanel(null)} />}
+      {panel === "settings" && (
+        <SettingsPanel
+          connections={connections}
+          onClose={() => setPanel(null)}
+          onConnectionsExported={(count) => {
+            setPanel(null);
+            flash(t("toast.connectionsExported", { count }));
+          }}
+          onConnectionsImported={async (created) => {
+            setPanel(null);
+            flash(t("toast.connectionsImported", { count: created.length }));
+            await refreshConnections();
+          }}
+        />
+      )}
 
       {panel === "history" && (
         <HistoryPanel
