@@ -51,6 +51,10 @@ export class MySqlAdapter implements DatabaseAdapter {
       ssl: conn.ssl ? {} : undefined,
       connectionLimit: 5,
       multipleStatements: true,
+      // Return DATE/DATETIME/TIMESTAMP exactly as MySQL shows them in the session's
+      // timezone. Parsing them into JS Dates would read them in the Overlook server's
+      // timezone (UTC in Docker) and shift every hour once the browser converts again.
+      dateStrings: true,
     });
   }
 

@@ -49,21 +49,34 @@ export function isDateOnlyColumn(column: ColumnMeta): boolean {
   return column.nativeType.trim().toLowerCase() === "date";
 }
 
+// "YYYY-MM-DD", "YYYY-MM-DD HH:MM[:SS[.fff]]" or the same with a "T": a wall-clock
+// reading with no offset, as the drivers return DATE/DATETIME/TIMESTAMP columns.
+const WALL_CLOCK_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?$/;
+
 export function parseDateValue(value: unknown): Date | null {
   if (value === undefined || value === null || value === "") return null;
-  const raw = value instanceof Date ? value : String(value);
-  const dateOnly = typeof raw === "string" ? DATE_ONLY_RE.exec(raw) : null;
-  // "2024-03-01" would parse as UTC midnight and can land on the previous day locally.
-  const d = dateOnly ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])) : new Date(raw);
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const raw = String(value);
+  const wallClock = WALL_CLOCK_RE.exec(raw);
+  if (wallClock) {
+    const [, y, mo, d, h = "0", mi = "0", s = "0"] = wallClock;
+    // MySQL "zero dates" (0000-00-00) aren't real dates: show them as text.
+    if (Number(mo) < 1 || Number(d) < 1) return null;
+    // Built from its parts so it reads the same hour in any timezone — no UTC detour.
+    return new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s));
+  }
+  const d = new Date(raw);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-// Columns that store an instant rather than a wall-clock reading: a value sent
-// without an offset would be read in the *database's* timezone, which is rarely
-// the user's (a UTC container, say).
+// PostgreSQL TIMESTAMPTZ stores an instant: it is displayed in the browser's
+// timezone, so a value sent back needs its offset or the database would read it in
+// its own timezone. Every other date type (DATE, TIMESTAMP, MySQL DATETIME and
+// TIMESTAMP, SQLite text) is shown and written as the wall-clock reading the
+// database returns.
 export function isTimeZoneAwareColumn(column: ColumnMeta): boolean {
   const t = column.nativeType.trim().toLowerCase();
-  return t.includes("with time zone") || t === "timestamptz" || t === "timestamp";
+  return t.includes("with time zone") || t === "timestamptz";
 }
 
 function localOffset(d: Date): string {

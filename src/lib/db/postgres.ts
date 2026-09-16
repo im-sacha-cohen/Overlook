@@ -1,4 +1,4 @@
-import { Pool, type PoolClient } from "pg";
+import { Pool, types as pgTypes, type CustomTypesConfig, type PoolClient } from "pg";
 import type { Connection, ColumnMeta, LogicalType, QueryResult, Row, TableMeta } from "../types";
 import {
   assertKnownColumn,
@@ -39,6 +39,18 @@ function q(ident: string): string {
   return `"${ident}"`;
 }
 
+// DATE and TIMESTAMP (without time zone) hold a wall-clock reading, not an instant.
+// node-postgres would parse them in the Overlook server's timezone (UTC in Docker)
+// and the browser would convert them again, shifting every hour. Hand them over
+// verbatim instead; TIMESTAMPTZ keeps being parsed, since it is a real instant.
+const WALL_CLOCK_TYPE_OIDS = new Set([pgTypes.builtins.DATE, pgTypes.builtins.TIMESTAMP]);
+const TYPE_PARSERS: CustomTypesConfig = {
+  getTypeParser: ((oid: number, format?: "text" | "binary") =>
+    WALL_CLOCK_TYPE_OIDS.has(oid) && format !== "binary"
+      ? (value: string) => value
+      : pgTypes.getTypeParser(oid, format as "text")) as CustomTypesConfig["getTypeParser"],
+};
+
 export class PostgresAdapter implements DatabaseAdapter {
   private pool: Pool;
 
@@ -51,6 +63,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       password: conn.password,
       ssl: conn.ssl ? { rejectUnauthorized: false } : undefined,
       max: 5,
+      types: TYPE_PARSERS,
     });
   }
 
