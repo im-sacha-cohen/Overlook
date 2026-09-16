@@ -5,6 +5,7 @@ import type { ColumnMeta, Row, RowSort } from "@/lib/types";
 import { formatValue, iconFor, pillStyle, toText } from "@/lib/client/format";
 import { groupRows } from "@/lib/client/group";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { DateField } from "../DateField";
 import { RelationField } from "../RelationField";
 
 interface Props {
@@ -36,6 +37,7 @@ interface Props {
   onSearchRelation: (col: ColumnMeta, query: string) => Promise<Row[]>;
   getRelationLabel: (col: ColumnMeta, row: Row) => string;
   onEditRelation: (row: Row, col: ColumnMeta, value: unknown) => void;
+  onEditDate: (row: Row, col: ColumnMeta, value: string | null) => void;
 }
 
 const DEFAULT_WIDTH = 160;
@@ -70,6 +72,7 @@ export function TableView({
   onSearchRelation,
   getRelationLabel,
   onEditRelation,
+  onEditDate,
 }: Props) {
   const { t, lang } = useLang();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -371,7 +374,15 @@ export function TableView({
                             cursor: c.logicalType === "unknown" ? "default" : isRelation ? "pointer" : "text",
                           }}
                         >
-                          {isEdit && isRelation ? (
+                          {isEdit && c.logicalType === "date" ? (
+                            <DateField
+                              column={c}
+                              value={raw}
+                              autoOpen
+                              onCommit={(next) => onEditDate(row, c, next)}
+                              onClose={onCellCancel}
+                            />
+                          ) : isEdit && isRelation ? (
                             <RelationField
                               col={c}
                               value={raw}

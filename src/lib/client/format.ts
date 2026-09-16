@@ -44,17 +44,52 @@ function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
+// A DATE column carries no time; everything else (datetime, timestamp…) does.
+export function isDateOnlyColumn(column: ColumnMeta): boolean {
+  return column.nativeType.trim().toLowerCase() === "date";
+}
+
+export function parseDateValue(value: unknown): Date | null {
+  if (value === undefined || value === null || value === "") return null;
+  const raw = value instanceof Date ? value : String(value);
+  const dateOnly = typeof raw === "string" ? DATE_ONLY_RE.exec(raw) : null;
+  // "2024-03-01" would parse as UTC midnight and can land on the previous day locally.
+  const d = dateOnly ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])) : new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+// Columns that store an instant rather than a wall-clock reading: a value sent
+// without an offset would be read in the *database's* timezone, which is rarely
+// the user's (a UTC container, say).
+export function isTimeZoneAwareColumn(column: ColumnMeta): boolean {
+  const t = column.nativeType.trim().toLowerCase();
+  return t.includes("with time zone") || t === "timestamptz" || t === "timestamp";
+}
+
+function localOffset(d: Date): string {
+  const minutes = -d.getTimezoneOffset();
+  const sign = minutes >= 0 ? "+" : "-";
+  return `${sign}${pad2(Math.floor(Math.abs(minutes) / 60))}:${pad2(Math.abs(minutes) % 60)}`;
+}
+
+// Shape a picked date the way drivers accept it, matching nowForColumn below.
+export function formatDateForDb(d: Date, column: ColumnMeta): string {
+  const day = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  if (isDateOnlyColumn(column)) return day;
+  const clock = `${day} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  return isTimeZoneAwareColumn(column) ? `${clock}${localOffset(d)}` : clock;
+}
+
 function formatDate(value: unknown, column: ColumnMeta, lang: Lang): string {
   const raw = value instanceof Date ? value : String(value);
   const dateOnlyMatch = typeof raw === "string" ? DATE_ONLY_RE.exec(raw) : null;
-  // "2024-03-01" would parse as UTC midnight and can land on the previous day locally.
-  const d = dateOnlyMatch ? new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3])) : new Date(raw);
-  if (Number.isNaN(d.getTime())) return toText(value);
+  const d = parseDateValue(value);
+  if (!d) return toText(value);
 
   const months = lang === "fr" ? MONTHS_FR : MONTHS_EN;
   const day =
     lang === "fr" ? `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}` : `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
-  if (dateOnlyMatch || column.nativeType.trim().toLowerCase() === "date") return day;
+  if (dateOnlyMatch || isDateOnlyColumn(column)) return day;
 
   const seconds = d.getSeconds();
   const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}${seconds ? `:${pad2(seconds)}` : ""}`;
@@ -107,4 +142,9 @@ export function pillStyle(value: string): CSSProperties {
 export function ddlPreview(tableName: string, columns: ColumnMeta[]): string {
   const lines = columns.map((c) => `  ${c.name} ${c.nativeType}`);
   return `-- ${tableName}\n${lines.join(",\n")}`;
+}
+
+// Value for a NOT NULL date column on a brand new row.
+export function nowForColumn(column: ColumnMeta): string {
+  return formatDateForDb(new Date(), column);
 }

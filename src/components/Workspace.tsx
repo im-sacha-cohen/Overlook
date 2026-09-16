@@ -1435,6 +1435,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                     onSearchRelation={searchRelation}
                     getRelationLabel={getRelationLabel}
                     onEditRelation={(row, col, value) => commitFieldChange(row, col.name, value)}
+                    onEditDate={(row, col, value) => commitFieldChange(row, col.name, value)}
                   />
                 )}
                 {view === "board" && (

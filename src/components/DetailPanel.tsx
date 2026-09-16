@@ -5,6 +5,7 @@ import type { ColumnMeta, Row } from "@/lib/types";
 import { iconFor, toEditableText, toText } from "@/lib/client/format";
 import type { HistoryEntry } from "@/lib/client/history";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { DateField } from "./DateField";
 import { RelationField, fieldInputStyle } from "./RelationField";
 
 interface Props {
@@ -150,6 +151,8 @@ export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, 
                     </option>
                   ))}
                 </select>
+              ) : c.logicalType === "date" ? (
+                <DateField column={c} value={row[c.name]} onCommit={(value) => onFieldCommit(c, value)} />
               ) : c.logicalType === "json" ? (
                 <textarea
                   key={toText(row[c.name])}
