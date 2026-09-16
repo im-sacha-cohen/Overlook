@@ -62,3 +62,18 @@ export function filterOpToSql(op: RowFilter["op"]): string {
   if (op === "neq") return "<>";
   return "LIKE";
 }
+
+/**
+ * Empty strings coming from the grid mean "no value", but MySQL (and Postgres)
+ * reject '' for datetime/number/json columns. Turn them into NULL so the row
+ * insert/update reaches the database in a shape it accepts.
+ */
+export function coerceRowValues(meta: TableMeta, values: Row): Row {
+  const out: Row = {};
+  for (const [name, value] of Object.entries(values)) {
+    const col = meta.columns.find((c) => c.name === name);
+    out[name] =
+      col && value === "" && col.logicalType !== "text" && col.logicalType !== "select" ? null : value;
+  }
+  return out;
+}

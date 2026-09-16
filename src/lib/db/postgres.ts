@@ -2,6 +2,7 @@ import { Pool, type PoolClient } from "pg";
 import type { Connection, ColumnMeta, LogicalType, QueryResult, Row, TableMeta } from "../types";
 import {
   assertKnownColumn,
+  coerceRowValues,
   assertValidIdentifier,
   filterOpToSql,
   primaryKeyOf,
@@ -226,6 +227,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   async insertRow(table: string, values: Row): Promise<Row> {
     const meta = await this.getTable(table);
+    values = coerceRowValues(meta, values);
     const cols = Object.keys(values).filter((k) => meta.columns.some((c) => c.name === k));
     cols.forEach((c) => assertKnownColumn(meta, c));
     const placeholders = cols.map((_, i) => `$${i + 1}`);
@@ -244,6 +246,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   async updateRow(table: string, pkColumn: string, pkValue: unknown, values: Row): Promise<void> {
     const meta = await this.getTable(table);
+    values = coerceRowValues(meta, values);
     const cols = Object.keys(values).filter((k) => meta.columns.some((c) => c.name === k));
     cols.forEach((c) => assertKnownColumn(meta, c));
     assertKnownColumn(meta, pkColumn);
@@ -261,6 +264,7 @@ export class PostgresAdapter implements DatabaseAdapter {
   async updateRows(table: string, pkColumn: string, pkValues: unknown[], values: Row): Promise<number> {
     if (pkValues.length === 0) return 0;
     const meta = await this.getTable(table);
+    values = coerceRowValues(meta, values);
     const cols = Object.keys(values).filter((k) => meta.columns.some((c) => c.name === k));
     cols.forEach((c) => assertKnownColumn(meta, c));
     assertKnownColumn(meta, pkColumn);
@@ -363,6 +367,7 @@ export class PostgresAdapter implements DatabaseAdapter {
   async bulkInsert(table: string, rows: Row[]): Promise<number> {
     if (rows.length === 0) return 0;
     const meta = await this.getTable(table);
+    rows = rows.map((r) => coerceRowValues(meta, r));
     const cols = Object.keys(rows[0]).filter((k) => meta.columns.some((c) => c.name === k));
     cols.forEach((c) => assertKnownColumn(meta, c));
     const client = await this.pool.connect();
