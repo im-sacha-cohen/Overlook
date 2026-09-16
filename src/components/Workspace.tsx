@@ -5,9 +5,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/client/api";
 import type { ColumnMeta, Connection, ConnectionInput, LogicalType, QueryResult, Row, RowFilter, RowSort, TableMeta } from "@/lib/types";
 import { ENV_COLORS } from "@/lib/client/env";
-import { toText } from "@/lib/client/format";
+import { nowForColumn, toText } from "@/lib/client/format";
 import { HistoryEntry, timeNow } from "@/lib/client/history";
-import { loadColumnLayout, orderColumns, saveColumnLayout } from "@/lib/client/columnLayout";
+import { clearLegacyColumnLayout, orderColumns, readLegacyColumnLayouts } from "@/lib/client/columnLayout";
+import { EMPTY_PREFS, type TablePrefs } from "@/lib/prefs";
 import { loadOpenTabs, saveOpenTabs } from "@/lib/client/openTabs";
 import { TopBar } from "./TopBar";
 import { ConnectionTabs, type WorkspaceTab } from "./ConnectionTabs";
@@ -109,9 +110,14 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [loadingRows, setLoadingRows] = useState(false);
-  // Connection ids with auto-refresh on — kept per connection for the session, across table switches.
-  const [autoRefreshConnections, setAutoRefreshConnections] = useState<Set<string>>(new Set());
+  const [autoRefreshByConnection, setAutoRefreshByConnection] = useState<Record<string, boolean>>({});
   const rowsRequestSeq = useRef(0);
+
+  // Saved view preferences for the active connection, loaded from the server.
+  // Kept in a ref so saving them back doesn't re-trigger the effect that applies them.
+  const prefsRef = useRef<{ connectionId: string | null; tables: Record<string, TablePrefs> }>({ connectionId: null, tables: {} });
+  const [prefsEpoch, setPrefsEpoch] = useState(0);
+  const hydratedKey = useRef<string | null>(null);
 
   const [editing, setEditing] = useState<{ rowId: string; column: string } | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -261,16 +267,15 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     loadRows();
   }, [loadRows]);
 
-  const autoRefresh = activeConnectionId !== null && autoRefreshConnections.has(activeConnectionId);
+  const autoRefresh = activeConnectionId !== null && (autoRefreshByConnection[activeConnectionId] ?? false);
   const toggleAutoRefresh = useCallback(() => {
     if (!activeConnectionId) return;
-    setAutoRefreshConnections((prev) => {
-      const next = new Set(prev);
-      if (next.has(activeConnectionId)) next.delete(activeConnectionId);
-      else next.add(activeConnectionId);
-      return next;
+    const next = !(autoRefreshByConnection[activeConnectionId] ?? false);
+    setAutoRefreshByConnection((prev) => ({ ...prev, [activeConnectionId]: next }));
+    api.saveConnectionPrefs(activeConnectionId, { autoRefresh: next }).catch(() => {
+      // Best effort: the toggle still applies to this session.
     });
-  }, [activeConnectionId]);
+  }, [activeConnectionId, autoRefreshByConnection]);
 
   const AUTO_REFRESH_INTERVAL_MS = 5000;
   useEffect(() => {
@@ -294,14 +299,84 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     };
   }, [autoRefresh, activeConnectionId, editing, loadTables, loadRows]);
 
+  // ---------- saved view preferences (filters, sorts, layout, auto-refresh) ----------
   useEffect(() => {
-    setFilters([]);
-    setSorts([]);
-    setGroupBy("");
+    const connectionId = activeConnectionId;
+    if (!connectionId) return;
+    let cancelled = false;
+    (async () => {
+      let tables: Record<string, TablePrefs> = {};
+      let autoRefreshPref = false;
+      try {
+        const loaded = await api.getPrefs(connectionId);
+        tables = loaded.tables;
+        autoRefreshPref = loaded.connection.autoRefresh;
+      } catch {
+        // Fall back to defaults rather than blocking the workspace.
+      }
+      // Column layouts older builds left in this browser are moved to the server once.
+      for (const [table, layout] of Object.entries(readLegacyColumnLayouts(connectionId))) {
+        const base = tables[table] ?? EMPTY_PREFS;
+        if (base.columnOrder.length > 0 || Object.keys(base.columnWidths).length > 0) {
+          clearLegacyColumnLayout(connectionId, table);
+          continue;
+        }
+        const migrated = { ...base, columnOrder: layout.order, columnWidths: layout.widths };
+        tables[table] = migrated;
+        // Only drop the browser copy once the server has it.
+        api.saveTablePrefs(connectionId, table, migrated).then(() => clearLegacyColumnLayout(connectionId, table)).catch(() => {});
+      }
+      if (cancelled) return;
+      prefsRef.current = { connectionId, tables };
+      hydratedKey.current = null;
+      setAutoRefreshByConnection((prev) => ({ ...prev, [connectionId]: autoRefreshPref }));
+      setPrefsEpoch((n) => n + 1);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeConnectionId]);
+
+  useEffect(() => {
     setEditing(null);
     setSelectedIds(new Set());
     setPage(0);
-  }, [activeTable, activeConnectionId]);
+    if (!activeConnectionId || !activeTable || prefsRef.current.connectionId !== activeConnectionId) {
+      hydratedKey.current = null;
+      return;
+    }
+    const prefs = prefsRef.current.tables[activeTable] ?? EMPTY_PREFS;
+    setFilters(prefs.filters);
+    setSorts(prefs.sorts);
+    setGroupBy(prefs.groupBy);
+    setColumnOrder(prefs.columnOrder);
+    setColumnWidths(prefs.columnWidths);
+    setHiddenCols((prev) => ({ ...prev, [activeTable]: new Set(prefs.hiddenColumns) }));
+    setView(prefs.view);
+    hydratedKey.current = `${activeConnectionId}:${activeTable}`;
+  }, [activeConnectionId, activeTable, prefsEpoch]);
+
+  // Save back once the table has been hydrated, so applying prefs can't erase them.
+  useEffect(() => {
+    if (!activeConnectionId || !activeTable) return;
+    if (hydratedKey.current !== `${activeConnectionId}:${activeTable}`) return;
+    const prefs: TablePrefs = {
+      filters,
+      sorts,
+      groupBy,
+      view,
+      columnOrder,
+      columnWidths,
+      hiddenColumns: [...(hiddenCols[activeTable] ?? [])],
+    };
+    prefsRef.current.tables[activeTable] = prefs;
+    const id = setTimeout(() => {
+      api.saveTablePrefs(activeConnectionId, activeTable, prefs).catch(() => {
+        // Best effort: preferences still apply to this session.
+      });
+    }, 400);
+    return () => clearTimeout(id);
+  }, [activeConnectionId, activeTable, filters, sorts, groupBy, view, columnOrder, columnWidths, hiddenCols]);
 
   useEffect(() => {
     setPage(0);
@@ -313,18 +388,6 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     setSelectedTables(new Set());
     setRelationTrail([]);
   }, [activeConnectionId]);
-
-  // ---------- per-table column layout (order + widths), persisted in localStorage ----------
-  useEffect(() => {
-    if (!activeConnectionId || !activeTable) {
-      setColumnOrder([]);
-      setColumnWidths({});
-      return;
-    }
-    const layout = loadColumnLayout(activeConnectionId, activeTable);
-    setColumnOrder(layout.order);
-    setColumnWidths(layout.widths);
-  }, [activeConnectionId, activeTable]);
 
   // ---------- persist current connection/table/view in the URL ----------
   useEffect(() => {
@@ -588,7 +651,13 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       if (c.logicalType === "checkbox") row[c.name] = false;
       else if (c.logicalType === "number") row[c.name] = 0;
       else if (c.logicalType === "select") row[c.name] = c.options?.[0] ?? "";
-      else row[c.name] = "";
+      // Dates and JSON have no sensible blank: a nullable column is left out so
+      // the column default (or NULL) applies, a NOT NULL one gets a real value.
+      else if (c.logicalType === "date") {
+        if (!c.nullable) row[c.name] = nowForColumn(c);
+      } else if (c.logicalType === "json") {
+        if (!c.nullable) row[c.name] = "{}";
+      } else row[c.name] = "";
     });
     return row;
   }
@@ -900,20 +969,14 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     });
   }
 
-  // ---------- column layout (resize / reorder), persisted per table ----------
+  // ---------- column layout (resize / reorder) ----------
+  // Both land in the saved preferences through the effect above.
   function handleResizeColumn(name: string, width: number) {
-    if (!activeConnectionId || !activeTable) return;
-    setColumnWidths((prev) => {
-      const next = { ...prev, [name]: width };
-      saveColumnLayout(activeConnectionId, activeTable, { order: columnOrder, widths: next });
-      return next;
-    });
+    setColumnWidths((prev) => ({ ...prev, [name]: width }));
   }
 
   function handleReorderColumns(newOrder: string[]) {
-    if (!activeConnectionId || !activeTable) return;
     setColumnOrder(newOrder);
-    saveColumnLayout(activeConnectionId, activeTable, { order: newOrder, widths: columnWidths });
   }
 
   // ---------- navigating & previewing relations ----------

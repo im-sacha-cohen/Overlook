@@ -185,6 +185,11 @@ docker run -d \
 The `overlook-data` volume keeps saved connections (and the encryption key,
 if `APP_SECRET` isn't provided) across restarts.
 
+Per-table view preferences — filters, sorts, grouping, the active view, column
+order, widths and hidden columns — plus the auto-refresh toggle are saved there
+too, per connection. They follow you to another browser or machine, and travel
+with the export below.
+
 To move connections to another instance, use **Settings → Connections →
 Export…**: it downloads a `.json` file you can load with **Import…** on the
 other side. Passwords are left out unless you choose to include them, in which

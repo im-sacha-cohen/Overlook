@@ -9,6 +9,7 @@ import type {
   TableMeta,
 } from "../types";
 import type { ConnectionBundle } from "../connectionBundle";
+import type { ConnectionPrefs, TablePrefs } from "../prefs";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -41,6 +42,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+
+  getPrefs: (connectionId: string) =>
+    request<{ connection: ConnectionPrefs; tables: Record<string, TablePrefs> }>(`/api/connections/${connectionId}/prefs`),
+  saveTablePrefs: (connectionId: string, table: string, prefs: TablePrefs) =>
+    request<unknown>(`/api/connections/${connectionId}/prefs`, { method: "PUT", body: JSON.stringify({ table, prefs }) }),
+  saveConnectionPrefs: (connectionId: string, prefs: ConnectionPrefs) =>
+    request<unknown>(`/api/connections/${connectionId}/prefs`, { method: "PUT", body: JSON.stringify({ prefs }) }),
 
   exportConnections: async (input: { ids: string[]; includePasswords: boolean; passphrase?: string }) => {
     const res = await fetch("/api/connections/bundle/export", {

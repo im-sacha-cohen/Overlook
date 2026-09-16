@@ -1,6 +1,7 @@
 // Portable file format for moving saved connections between Overlook instances.
 // Shared by the client (file preview) and the server (export/import routes).
 import type { Engine, EnvType } from "./types";
+import { sanitizeConnectionPrefs, sanitizeTablePrefs, type ConnectionPrefs, type TablePrefs } from "./prefs";
 
 export const BUNDLE_FORMAT = "overlook-connections";
 export const BUNDLE_VERSION = 1;
@@ -17,6 +18,10 @@ export interface BundleConnection {
   ssl: boolean;
   // AES-256-GCM ciphertext under the bundle's passphrase-derived key — never the instance key.
   password?: string;
+  // Per-table view preferences (filters, sorts, column layout…), keyed by table name.
+  prefs?: Record<string, TablePrefs>;
+  // Connection-level preferences (auto-refresh…).
+  connectionPrefs?: ConnectionPrefs;
 }
 
 export interface BundleEncryption {
@@ -49,6 +54,13 @@ const ENV_TYPES: EnvType[] = ["local", "dev", "staging", "prod", "custom"];
 
 function optionalString(v: unknown): string | undefined {
   return typeof v === "string" && v !== "" ? v : undefined;
+}
+
+function sanitizePrefsMap(raw: unknown): Record<string, TablePrefs> | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const out: Record<string, TablePrefs> = {};
+  for (const [table, prefs] of Object.entries(raw as Record<string, unknown>).slice(0, 500)) out[table.slice(0, 200)] = sanitizeTablePrefs(prefs);
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 export function parseBundle(raw: unknown): ConnectionBundle {
@@ -90,6 +102,8 @@ export function parseBundle(raw: unknown): ConnectionBundle {
       user: optionalString(c.user),
       ssl: c.ssl === true,
       password,
+      prefs: sanitizePrefsMap(c.prefs),
+      connectionPrefs: c.connectionPrefs ? sanitizeConnectionPrefs(c.connectionPrefs) : undefined,
     };
   });
 

@@ -8,7 +8,7 @@ import type { Connection, ConnectionInput } from "../types";
 
 let db: Database.Database | null = null;
 
-function getDb(): Database.Database {
+export function getDb(): Database.Database {
   if (db) return db;
   const dir = dataDir();
   fs.mkdirSync(dir, { recursive: true });
@@ -27,6 +27,18 @@ function getDb(): Database.Database {
       passwordEnc TEXT,
       ssl INTEGER NOT NULL DEFAULT 0,
       createdAt TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS table_prefs (
+      connectionId TEXT NOT NULL,
+      tableName TEXT NOT NULL,
+      prefs TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      PRIMARY KEY (connectionId, tableName)
+    );
+    CREATE TABLE IF NOT EXISTS connection_prefs (
+      connectionId TEXT PRIMARY KEY,
+      prefs TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
     );
   `);
   return db;
@@ -137,5 +149,10 @@ export function updateConnection(id: string, input: Partial<ConnectionInput>): C
 }
 
 export function deleteConnection(id: string): void {
-  getDb().prepare("DELETE FROM connections WHERE id = ?").run(id);
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare("DELETE FROM table_prefs WHERE connectionId = ?").run(id);
+    db.prepare("DELETE FROM connection_prefs WHERE connectionId = ?").run(id);
+    db.prepare("DELETE FROM connections WHERE id = ?").run(id);
+  })();
 }

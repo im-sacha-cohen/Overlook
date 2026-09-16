@@ -1,28 +1,45 @@
+// Column order/widths used to live in localStorage. They are now part of the
+// server-side table preferences; this module only reclaims what older versions
+// left in the browser, plus the ordering helper the views use.
 export interface ColumnLayout {
   order: string[];
   widths: Record<string, number>;
 }
 
-function storageKey(connectionId: string, table: string): string {
-  return `overlook:cols:${connectionId}:${table}`;
-}
+const LEGACY_PREFIX = "overlook:cols:";
 
-export function loadColumnLayout(connectionId: string, table: string): ColumnLayout {
+// Reads any layout an older build stored for this connection. The entries are kept
+// until the server confirms the migration (see clearLegacyColumnLayout), so a reload
+// mid-migration doesn't lose them.
+export function readLegacyColumnLayouts(connectionId: string): Record<string, ColumnLayout> {
+  const out: Record<string, ColumnLayout> = {};
   try {
-    const raw = localStorage.getItem(storageKey(connectionId, table));
-    if (!raw) return { order: [], widths: {} };
-    const parsed = JSON.parse(raw);
-    return { order: Array.isArray(parsed.order) ? parsed.order : [], widths: parsed.widths ?? {} };
+    const prefix = `${LEGACY_PREFIX}${connectionId}:`;
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(prefix)) keys.push(key);
+    }
+    for (const key of keys) {
+      const table = key.slice(prefix.length);
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) ?? "");
+        out[table] = { order: Array.isArray(parsed.order) ? parsed.order : [], widths: parsed.widths ?? {} };
+      } catch {
+        localStorage.removeItem(key);
+      }
+    }
   } catch {
-    return { order: [], widths: {} };
+    // Storage disabled: nothing to migrate.
   }
+  return out;
 }
 
-export function saveColumnLayout(connectionId: string, table: string, layout: ColumnLayout): void {
+export function clearLegacyColumnLayout(connectionId: string, table: string): void {
   try {
-    localStorage.setItem(storageKey(connectionId, table), JSON.stringify(layout));
+    localStorage.removeItem(`${LEGACY_PREFIX}${connectionId}:${table}`);
   } catch {
-    // best-effort only (private browsing, storage disabled, etc.)
+    // Storage disabled: nothing to clear.
   }
 }
 

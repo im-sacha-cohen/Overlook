@@ -3,6 +3,7 @@ import { BUNDLE_FORMAT, BUNDLE_VERSION, MIN_PASSPHRASE_LENGTH, type BundleEncryp
 import type { Connection } from "../types";
 import { decryptWithKey, encryptWithKey } from "./crypto";
 import { createConnection, getConnectionSecret, listConnections } from "./metadata";
+import { getConnectionPrefs, listTablePrefs, replaceTablePrefs, saveConnectionPrefs } from "./prefs";
 
 // ~32 MiB of memory and ~100 ms per derivation: slow enough to make offline
 // guessing of the passphrase expensive, fast enough for an interactive export.
@@ -44,6 +45,8 @@ export function buildBundle(ids: string[], passphrase: string | null): Connectio
     encryption,
     connections: conns.map((c) => {
       const password = key ? getConnectionSecret(c.id)?.password : undefined;
+      const prefs = listTablePrefs(c.id);
+      const connectionPrefs = getConnectionPrefs(c.id);
       return {
         name: c.name,
         envType: c.envType,
@@ -54,6 +57,8 @@ export function buildBundle(ids: string[], passphrase: string | null): Connectio
         user: c.user,
         ssl: !!c.ssl,
         password: key && password ? encryptWithKey(password, key) : undefined,
+        prefs: Object.keys(prefs).length > 0 ? prefs : undefined,
+        connectionPrefs: connectionPrefs.autoRefresh ? connectionPrefs : undefined,
       };
     }),
   };
@@ -87,7 +92,7 @@ export function importBundle(bundle: ConnectionBundle, indices: number[], passph
   return picked.map((c, i) => {
     const name = uniqueName(c.name, taken);
     taken.add(name);
-    return createConnection({
+    const created = createConnection({
       name,
       envType: c.envType,
       engine: c.engine,
@@ -98,5 +103,8 @@ export function importBundle(bundle: ConnectionBundle, indices: number[], passph
       ssl: c.ssl,
       password: passwords[i],
     });
+    if (c.prefs) replaceTablePrefs(created.id, c.prefs);
+    if (c.connectionPrefs) saveConnectionPrefs(created.id, c.connectionPrefs);
+    return created;
   });
 }
