@@ -167,16 +167,24 @@ export function ExportConnections({ connections, onBack, onDone }: { connections
         {!includePasswords ? (
           <div style={{ fontSize: 12, color: "#a8a39a", marginTop: 6 }}>{t("connTransfer.passwordsOffHint")}</div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10, padding: 12, borderRadius: 8, background: "#faf9f6", border: "1px solid #f0eee9" }}>
+            <div style={{ fontSize: 12.5, color: "#6f6b62", lineHeight: 1.5 }}>{t("connTransfer.passphraseIntro")}</div>
             <div>
               <div style={labelStyle}>{t("connTransfer.passphrase")}</div>
-              <input type="password" autoComplete="new-password" style={inputStyle} value={passphrase} onChange={(e) => setPassphrase(e.target.value)} />
+              <input
+                type="password"
+                autoComplete="new-password"
+                placeholder={t("connTransfer.passphrasePlaceholder", { min: MIN_PASSPHRASE_LENGTH })}
+                style={inputStyle}
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+              />
             </div>
             <div>
               <div style={labelStyle}>{t("connTransfer.passphraseConfirm")}</div>
               <input type="password" autoComplete="new-password" style={inputStyle} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
             </div>
-            <div style={{ fontSize: 12, color: "#a8a39a" }}>{t("connTransfer.passphraseHint", { min: MIN_PASSPHRASE_LENGTH })}</div>
+            <div style={{ fontSize: 12, color: "#a8a39a", lineHeight: 1.5 }}>{t("connTransfer.passphraseHint")}</div>
           </div>
         )}
       </div>
@@ -290,7 +298,7 @@ export function ImportConnections({ existing, onBack, onDone }: { existing: Conn
 
       {needsPassphrase && (
         <div>
-          <div style={labelStyle}>{t("connTransfer.passphrase")}</div>
+          <div style={labelStyle}>{t("connTransfer.passphraseImport")}</div>
           <input type="password" autoComplete="off" style={inputStyle} value={passphrase} onChange={(e) => setPassphrase(e.target.value)} />
           <div style={{ fontSize: 12, color: "#a8a39a", marginTop: 6 }}>{t("connTransfer.importPassphraseHint")}</div>
         </div>
@@ -307,6 +315,31 @@ export function ImportConnections({ existing, onBack, onDone }: { existing: Conn
             {busy ? t("common.confirmRunning") : t("connTransfer.importSubmit", { count: selected.size })}
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Standalone dialog for the welcome screen, where Settings isn't reachable yet.
+export function ConnectionImportModal({ existing, onClose, onDone }: { existing: Connection[]; onClose: () => void; onDone: (created: Connection[]) => void }) {
+  const { t } = useLang();
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(35,31,24,0.14)", display: "grid", placeItems: "center", zIndex: 60, animation: "om-fade 0.12s ease" }}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="om-sb"
+        style={{ width: 480, maxWidth: "calc(100vw - 32px)", maxHeight: "86vh", overflowY: "auto", background: "#fff", border: "1px solid #e5e2db", borderRadius: 13, boxShadow: "var(--shadow-pop)", animation: "om-pop 0.14s ease", textAlign: "left" }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "1px solid #f2f0ea" }}>
+          <div style={{ fontWeight: 600 }}>{t("connTransfer.importTitle")}</div>
+          <div style={{ flex: 1 }} />
+          <button onClick={onClose} style={{ width: 26, height: 26, background: "transparent", border: "none", borderRadius: 6, color: "#8b877e", cursor: "pointer" }}>
+            ✕
+          </button>
+        </div>
+        <div style={{ padding: 18 }}>
+          <ImportConnections existing={existing} onBack={onClose} onDone={onDone} />
+        </div>
       </div>
     </div>
   );

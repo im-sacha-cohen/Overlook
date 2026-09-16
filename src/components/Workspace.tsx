@@ -26,6 +26,7 @@ import { CreateTableModal } from "./CreateTableModal";
 import { BulkEditModal } from "./BulkEditModal";
 import { HistoryPanel } from "./HistoryPanel";
 import { ConnectionForm } from "./ConnectionForm";
+import { ConnectionImportModal } from "./ConnectionTransfer";
 import { ProdGuardDialog } from "./ProdGuardDialog";
 import { CommandPalette, type CmdItem } from "./CommandPalette";
 import { QueryConsole } from "./QueryConsole";
@@ -118,6 +119,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
 
   const [panel, setPanel] = useState<"schema" | "csv" | "sql-import" | "history" | "bulk-edit" | "create-table" | "settings" | null>(null);
   const [connectionFormOpen, setConnectionFormOpen] = useState(false);
+  const [importConnectionsOpen, setImportConnectionsOpen] = useState(false);
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
 
   const [cmdOpen, setCmdOpen] = useState(false);
@@ -1220,14 +1222,34 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
           <div style={{ fontSize: 13.5, color: "#8b877e", marginBottom: 18 }}>
             {t("workspace.connectFirstDb")}
           </div>
-          <button
-            onClick={() => setConnectionFormOpen(true)}
-            style={{ padding: "9px 16px", background: "var(--accent)", border: "1px solid var(--accent-hover)", borderRadius: 8, color: "#fff", fontWeight: 500, cursor: "pointer" }}
-          >
-            {t("connBadge.newConnection")}
-          </button>
+          <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+            <button
+              onClick={() => setConnectionFormOpen(true)}
+              style={{ padding: "9px 16px", background: "var(--accent)", border: "1px solid var(--accent-hover)", borderRadius: 8, color: "#fff", fontWeight: 500, cursor: "pointer" }}
+            >
+              {t("connBadge.newConnection")}
+            </button>
+            <button
+              onClick={() => setImportConnectionsOpen(true)}
+              style={{ padding: "9px 16px", background: "#fff", border: "1px solid #e8e5df", borderRadius: 8, color: "#4b473f", cursor: "pointer" }}
+            >
+              {t("connTransfer.importFromWelcome")}
+            </button>
+          </div>
         </div>
         {connectionFormOpen && <ConnectionForm onSave={handleSaveConnection} onClose={() => setConnectionFormOpen(false)} dockerDetected={dockerDetected} />}
+        {importConnectionsOpen && (
+          <ConnectionImportModal
+            existing={connections}
+            onClose={() => setImportConnectionsOpen(false)}
+            onDone={async (created) => {
+              setImportConnectionsOpen(false);
+              await refreshConnections();
+              // Land straight in the first imported connection rather than an empty workspace.
+              if (created[0]) switchToConnection(created[0].id);
+            }}
+          />
+        )}
       </div>
     );
   }
