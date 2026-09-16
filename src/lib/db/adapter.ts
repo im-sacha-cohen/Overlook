@@ -27,12 +27,22 @@ export interface DatabaseAdapter {
   renameColumn(table: string, oldName: string, newName: string): Promise<void>;
   changeColumnType(table: string, column: string, type: LogicalType): Promise<void>;
   dropColumn(table: string, column: string): Promise<void>;
-  dropTable(table: string): Promise<void>;
+  /**
+   * Drops the tables in one go, so foreign keys between them don't depend on order.
+   * `ignoreForeignKeys` lets tables referenced from elsewhere go too: MySQL and
+   * SQLite switch the checks off for the drop, PostgreSQL uses CASCADE (which also
+   * removes the referencing constraints and dependent views).
+   */
+  dropTables(tables: string[], options?: DropTablesOptions): Promise<void>;
   bulkInsert(table: string, rows: Row[]): Promise<number>;
   runRawQuery(sql: string): Promise<QueryResult>;
   runStatement(sql: string): Promise<void>;
   runScript(sql: string): Promise<ImportReport>;
   close(): Promise<void>;
+}
+
+export interface DropTablesOptions {
+  ignoreForeignKeys?: boolean;
 }
 
 const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;

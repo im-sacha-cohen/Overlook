@@ -29,6 +29,7 @@ import { HistoryPanel } from "./HistoryPanel";
 import { ConnectionForm } from "./ConnectionForm";
 import { ConnectionImportModal } from "./ConnectionTransfer";
 import { ProdGuardDialog } from "./ProdGuardDialog";
+import { DropTablesDialog } from "./DropTablesDialog";
 import { CommandPalette, type CmdItem } from "./CommandPalette";
 import { QueryConsole } from "./QueryConsole";
 import { EquivalentSqlBar } from "./EquivalentSqlBar";
@@ -133,6 +134,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
 
   const [unlockedConnections, setUnlockedConnections] = useState<Set<string>>(new Set());
   const [pendingGuard, setPendingGuard] = useState<PendingGuard | null>(null);
+  const [dropTablesRequest, setDropTablesRequest] = useState<string[] | null>(null);
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [toast, setToast] = useState("");
@@ -1174,6 +1176,10 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     });
   }
 
+  function selectTableRange(names: string[], additive: boolean) {
+    setSelectedTables((prev) => new Set(additive ? [...prev, ...names] : names));
+  }
+
   function deselectAllTables() {
     setSelectedTables(new Set());
   }
@@ -1183,16 +1189,30 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   }
 
   function requestBulkDropTables() {
+    if (!activeConnectionId || selectedTables.size === 0) return;
+    setDropTablesRequest([...selectedTables]);
+  }
+
+  async function confirmDropTables(names: string[], { ignoreForeignKeys }: { ignoreForeignKeys: boolean }) {
     if (!activeConnectionId) return;
-    const names = [...selectedTables];
-    if (names.length === 0) return;
-    runGuarded(t("guard.bulkDropTables", { count: names.length, names: names.join(", ") }), async (confirm) => {
-      await api.dropTables(activeConnectionId, names, confirm);
+    const connectionId = activeConnectionId;
+    const drop = async (confirm?: string) => {
+      await api.dropTables(connectionId, names, { ignoreForeignKeys, confirm });
       pushHistory(`${t("toast.tablesDropped", { count: names.length })} (${names.join(", ")})`);
       setSelectedTables(new Set());
       if (activeTable && names.includes(activeTable)) setActiveTable(null);
-      await loadTables(activeConnectionId);
-    });
+      await loadTables(connectionId);
+    };
+    if (activeConnection?.envType === "prod") {
+      // Prod still requires typing the connection name, after the options are chosen.
+      setDropTablesRequest(null);
+      setPendingGuard({ label: t("guard.bulkDropTables", { count: names.length, names: names.join(", ") }), run: drop });
+      return;
+    }
+    // Errors propagate to the dialog, which stays open to show them.
+    await drop();
+    setDropTablesRequest(null);
+    flash(t("toast.tablesDropped", { count: names.length }));
   }
 
   // ---------- CSV import ----------
@@ -1363,6 +1383,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
           selectedTables={selectedTables}
           onToggleTableSelect={toggleTableSelect}
           onSelectOnlyTable={selectOnlyTable}
+          onSelectTableRange={selectTableRange}
           onDeselectAllTables={deselectAllTables}
           onBulkDropTables={requestBulkDropTables}
           onExportSelectedTables={openExportModal}
@@ -1542,6 +1563,14 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
 
       {cmdOpen && <CommandPalette query={cmdQuery} onQueryChange={setCmdQuery} items={cmdItems} onClose={() => setCmdOpen(false)} />}
 
+      {dropTablesRequest && activeConnection && (
+        <DropTablesDialog
+          names={dropTablesRequest}
+          engine={activeConnection.engine}
+          onConfirm={(options) => confirmDropTables(dropTablesRequest, options)}
+          onCancel={() => setDropTablesRequest(null)}
+        />
+      )}
       {pendingGuard && activeConnection && (
         <ProdGuardDialog
           connectionName={activeConnection.name}

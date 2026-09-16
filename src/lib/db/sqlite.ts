@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import type { Connection, ColumnMeta, LogicalType, QueryResult, Row, TableMeta } from "../types";
-import { assertKnownColumn, assertValidIdentifier, filterOpToSql, type DatabaseAdapter, type ImportReport, type SelectOptions } from "./adapter";
+import { assertKnownColumn, assertValidIdentifier, filterOpToSql, type DatabaseAdapter, type DropTablesOptions, type ImportReport, type SelectOptions } from "./adapter";
 import { splitSqlStatements } from "./splitSqlStatements";
 
 const CREATABLE_TYPE_SQL: Record<Exclude<LogicalType, "relation" | "unknown">, string> = {
@@ -245,9 +245,45 @@ export class SqliteAdapter implements DatabaseAdapter {
     this.db.exec(`ALTER TABLE ${q(table)} DROP COLUMN ${q(column)}`);
   }
 
-  async dropTable(table: string): Promise<void> {
-    assertValidIdentifier(table);
-    this.db.exec(`DROP TABLE ${q(table)}`);
+  // SQLite drops one table per statement and checks foreign keys on each, so a
+  // referencing table has to go before the table it points to.
+  private dropOrder(tables: string[]): string[] {
+    const references = new Map(
+      tables.map((table) => {
+        const fks = this.db.pragma(`foreign_key_list(${q(table)})`) as { table: string }[];
+        return [table, new Set(fks.map((fk) => fk.table).filter((target) => target !== table))] as const;
+      })
+    );
+    const ordered: string[] = [];
+    const remaining = new Set(tables);
+    let progressed = true;
+    while (remaining.size > 0 && progressed) {
+      progressed = false;
+      for (const table of [...remaining]) {
+        const stillReferenced = [...remaining].some((other) => other !== table && references.get(other)?.has(table));
+        if (!stillReferenced) {
+          ordered.push(table);
+          remaining.delete(table);
+          progressed = true;
+        }
+      }
+    }
+    // A reference cycle can't be ordered: keep the given order and let SQLite report it.
+    return [...ordered, ...remaining];
+  }
+
+  async dropTables(tables: string[], { ignoreForeignKeys = false }: DropTablesOptions = {}): Promise<void> {
+    tables.forEach(assertValidIdentifier);
+    const ordered = this.dropOrder(tables);
+    // PRAGMA foreign_keys is a no-op inside a transaction, so flip it around it.
+    if (ignoreForeignKeys) this.db.pragma("foreign_keys = OFF");
+    try {
+      this.db.transaction(() => {
+        for (const table of ordered) this.db.exec(`DROP TABLE ${q(table)}`);
+      })();
+    } finally {
+      if (ignoreForeignKeys) this.db.pragma("foreign_keys = ON");
+    }
   }
 
   async bulkInsert(table: string, rows: Row[]): Promise<number> {

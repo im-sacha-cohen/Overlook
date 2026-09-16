@@ -17,6 +17,8 @@ interface Props {
   selectedTables: Set<string>;
   onToggleTableSelect: (name: string) => void;
   onSelectOnlyTable: (name: string) => void;
+  /** Shift-click: select every table between two clicks. `additive` keeps the current selection (⌘/Ctrl+Shift). */
+  onSelectTableRange: (names: string[], additive: boolean) => void;
   onDeselectAllTables: () => void;
   onBulkDropTables: () => void;
   onExportSelectedTables: () => void;
@@ -37,6 +39,7 @@ export function Sidebar({
   selectedTables,
   onToggleTableSelect,
   onSelectOnlyTable,
+  onSelectTableRange,
   onDeselectAllTables,
   onOpenCreateTable,
   onBulkDropTables,
@@ -45,6 +48,8 @@ export function Sidebar({
 }: Props) {
   const { t } = useLang();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  // Last table clicked without Shift: the fixed end of a Shift-click range.
+  const rangeAnchor = useRef<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [importMenuOpen, setImportMenuOpen] = useState(false);
   const importBtnRef = useRef<HTMLDivElement>(null);
@@ -111,7 +116,20 @@ export function Sidebar({
           return (
             <div key={t.name}>
               <div
+                onMouseDown={(e) => {
+                  // Shift-click would otherwise select the sidebar text.
+                  if (e.shiftKey) e.preventDefault();
+                }}
                 onClick={(e) => {
+                  if (e.shiftKey) {
+                    const anchor = rangeAnchor.current ?? activeTable;
+                    const from = tables.findIndex((x) => x.name === anchor);
+                    const to = tables.findIndex((x) => x.name === t.name);
+                    const range = from === -1 ? [t.name] : tables.slice(Math.min(from, to), Math.max(from, to) + 1).map((x) => x.name);
+                    onSelectTableRange(range, e.metaKey || e.ctrlKey);
+                    return;
+                  }
+                  rangeAnchor.current = t.name;
                   if (e.metaKey || e.ctrlKey) {
                     onToggleTableSelect(t.name);
                   } else {
@@ -121,7 +139,10 @@ export function Sidebar({
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  if (!selectedTables.has(t.name)) onSelectOnlyTable(t.name);
+                  if (!selectedTables.has(t.name)) {
+                    rangeAnchor.current = t.name;
+                    onSelectOnlyTable(t.name);
+                  }
                   setMenu({ x: e.clientX, y: e.clientY });
                 }}
                 style={{
@@ -229,7 +250,7 @@ export function Sidebar({
           <span style={{ fontFamily: "var(--font-mono)" }}>⌘K</span> {t("sidebar.hintCmd")}
         </div>
         <div>
-          <span style={{ fontFamily: "var(--font-mono)" }}>⌘{t("sidebar.hintClick")}</span> {t("sidebar.hintMultiSelect")} · <span style={{ fontFamily: "var(--font-mono)" }}>{t("sidebar.hintRightClick")}</span> {t("sidebar.hintActions")}
+          <span style={{ fontFamily: "var(--font-mono)" }}>⌘{t("sidebar.hintClick")}</span> {t("sidebar.hintMultiSelect")} · <span style={{ fontFamily: "var(--font-mono)" }}>⇧{t("sidebar.hintClick")}</span> {t("sidebar.hintRange")} · <span style={{ fontFamily: "var(--font-mono)" }}>{t("sidebar.hintRightClick")}</span> {t("sidebar.hintActions")}
         </div>
       </div>
 

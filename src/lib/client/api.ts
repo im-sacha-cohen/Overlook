@@ -167,10 +167,10 @@ export const api = {
       body: JSON.stringify({ confirm }),
     }),
 
-  dropTables: (connectionId: string, names: string[], confirm?: string) =>
+  dropTables: (connectionId: string, names: string[], options: { ignoreForeignKeys?: boolean; confirm?: string } = {}) =>
     request<{ dropped: number }>(`/api/connections/${connectionId}/tables/bulk-delete`, {
       method: "POST",
-      body: JSON.stringify({ names, confirm }),
+      body: JSON.stringify({ names, confirm: options.confirm, ignoreForeignKeys: options.ignoreForeignKeys === true }),
     }),
 
   addColumn: (connectionId: string, table: string, name: string, type: LogicalType) =>

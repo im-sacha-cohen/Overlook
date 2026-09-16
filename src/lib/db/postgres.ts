@@ -7,6 +7,7 @@ import {
   filterOpToSql,
   primaryKeyOf,
   type DatabaseAdapter,
+  type DropTablesOptions,
   type ImportReport,
   type SelectOptions,
 } from "./adapter";
@@ -354,11 +355,11 @@ export class PostgresAdapter implements DatabaseAdapter {
     }
   }
 
-  async dropTable(table: string): Promise<void> {
-    assertValidIdentifier(table);
+  async dropTables(tables: string[], { ignoreForeignKeys = false }: DropTablesOptions = {}): Promise<void> {
+    tables.forEach(assertValidIdentifier);
     const client = await this.pool.connect();
     try {
-      await client.query(`DROP TABLE ${q(table)}`);
+      await client.query(`DROP TABLE ${tables.map(q).join(", ")}${ignoreForeignKeys ? " CASCADE" : ""}`);
     } finally {
       client.release();
     }

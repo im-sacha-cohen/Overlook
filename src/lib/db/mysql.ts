@@ -1,6 +1,6 @@
 import mysql, { type Pool } from "mysql2/promise";
 import type { Connection, ColumnMeta, LogicalType, QueryResult, Row, TableMeta } from "../types";
-import { assertKnownColumn, assertValidIdentifier, coerceRowValues, filterOpToSql, type DatabaseAdapter, type ImportReport, type SelectOptions } from "./adapter";
+import { assertKnownColumn, assertValidIdentifier, coerceRowValues, filterOpToSql, type DatabaseAdapter, type DropTablesOptions, type ImportReport, type SelectOptions } from "./adapter";
 import { normalizeMysqlDateLiterals, splitSqlStatements } from "./splitSqlStatements";
 
 const CREATABLE_TYPE_SQL: Record<Exclude<LogicalType, "relation" | "unknown">, string> = {
@@ -265,9 +265,29 @@ export class MySqlAdapter implements DatabaseAdapter {
     await this.pool.query(`ALTER TABLE ${q(table)} DROP COLUMN ${q(column)}`);
   }
 
-  async dropTable(table: string): Promise<void> {
-    assertValidIdentifier(table);
-    await this.pool.query(`DROP TABLE ${q(table)}`);
+  async dropTables(tables: string[], { ignoreForeignKeys = false }: DropTablesOptions = {}): Promise<void> {
+    tables.forEach(assertValidIdentifier);
+    // FOREIGN_KEY_CHECKS is per session: set and restore it on one pooled connection.
+    const conn = await this.pool.getConnection();
+    let restored = true;
+    try {
+      if (ignoreForeignKeys) {
+        restored = false;
+        await conn.query("SET FOREIGN_KEY_CHECKS = 0");
+      }
+      await conn.query(`DROP TABLE ${tables.map(q).join(", ")}`);
+    } finally {
+      if (!restored) {
+        try {
+          await conn.query("SET FOREIGN_KEY_CHECKS = 1");
+          restored = true;
+        } catch {
+          // Never hand a session with checks off back to the pool.
+        }
+      }
+      if (restored) conn.release();
+      else conn.destroy();
+    }
   }
 
   async bulkInsert(table: string, rows: Row[]): Promise<number> {
