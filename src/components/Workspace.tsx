@@ -185,9 +185,9 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   const activeTableMeta = useMemo(() => tables.find((t) => t.name === activeTable) ?? null, [tables, activeTable]);
   const columns = useMemo((): ColumnMeta[] => {
     if (!activeTableMeta) return [];
-    const hidden = activeTable ? hiddenCols[activeTable] : undefined;
+    const hidden = rowsKey ? hiddenCols[rowsKey] : undefined;
     return activeTableMeta.columns.map((c) => ({ ...c, hidden: hidden?.has(c.name) ?? false }));
-  }, [activeTableMeta, hiddenCols, activeTable]);
+  }, [activeTableMeta, hiddenCols, rowsKey]);
   const visibleColumns = useMemo(() => columns.filter((c) => !c.hidden), [columns]);
   const orderedVisibleColumns = useMemo(() => orderColumns(visibleColumns, columnOrder), [visibleColumns, columnOrder]);
   const pkColumn = useMemo(() => columns.find((c) => c.isPrimaryKey)?.name ?? null, [columns]);
@@ -261,6 +261,12 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       setTablesByConnection((prev) =>
         JSON.stringify(prev[connectionId]) === JSON.stringify(tables) ? prev : { ...prev, [connectionId]: tables },
       );
+      setTablesErrors((prev) => {
+        if (!(connectionId in prev)) return prev;
+        const next = { ...prev };
+        delete next[connectionId];
+        return next;
+      });
       // The user may have moved to another connection while this was loading.
       if (activeConnectionIdRef.current !== connectionId) return;
       setActiveTable((prev) => (prev && tables.some((t) => t.name === prev) ? prev : tables[0]?.name ?? null));
@@ -324,6 +330,18 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     const id = setTimeout(() => setSlowConnectionId(connectionId), SLOW_CONNECTION_MS);
     return () => clearTimeout(id);
   }, [tablesPending, activeConnectionId]);
+
+  // A connection that failed keeps retrying quietly (e.g. a Docker database still starting);
+  // the error screen stays until one attempt succeeds.
+  const CONNECTION_RETRY_MS = 10000;
+  useEffect(() => {
+    if (!tablesError || !activeConnectionId) return;
+    const connectionId = activeConnectionId;
+    const id = setInterval(() => {
+      if (!document.hidden) loadTables(connectionId, { silent: true });
+    }, CONNECTION_RETRY_MS);
+    return () => clearInterval(id);
+  }, [tablesError, activeConnectionId, loadTables]);
 
   useEffect(() => {
     loadRows();
@@ -413,7 +431,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     setGroupBy(prefs.groupBy);
     setColumnOrder(prefs.columnOrder);
     setColumnWidths(prefs.columnWidths);
-    setHiddenCols((prev) => ({ ...prev, [activeTable]: new Set(prefs.hiddenColumns) }));
+    setHiddenCols((prev) => ({ ...prev, [`${activeConnectionId}\u0000${activeTable}`]: new Set(prefs.hiddenColumns) }));
     setView(prefs.view);
     hydratedKey.current = `${activeConnectionId}:${activeTable}`;
   }, [activeConnectionId, activeTable, prefsEpoch]);
@@ -429,7 +447,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       view,
       columnOrder,
       columnWidths,
-      hiddenColumns: [...(hiddenCols[activeTable] ?? [])],
+      hiddenColumns: [...(hiddenCols[`${activeConnectionId}\u0000${activeTable}`] ?? [])],
     };
     prefsRef.current.tables[activeTable] = prefs;
     const id = setTimeout(() => {
@@ -1239,12 +1257,13 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   }
 
   function handleToggleHidden(name: string) {
-    if (!activeTable) return;
+    if (!rowsKey) return;
+    const key = rowsKey;
     setHiddenCols((prev) => {
-      const set = new Set(prev[activeTable] ?? []);
+      const set = new Set(prev[key] ?? []);
       if (set.has(name)) set.delete(name);
       else set.add(name);
-      return { ...prev, [activeTable]: set };
+      return { ...prev, [key]: set };
     });
   }
 
