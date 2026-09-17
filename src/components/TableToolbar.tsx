@@ -129,8 +129,8 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
     switch (op) {
       case "eq": return t("toolbar.opEq");
       case "neq": return t("toolbar.opNeq");
-      case "in": return t("toolbar.opIn");
-      case "notIn": return t("toolbar.opNotIn");
+      case "in": return t(col?.logicalType === "json" ? "toolbar.opHasAny" : "toolbar.opIn");
+      case "notIn": return t(col?.logicalType === "json" ? "toolbar.opHasNone" : "toolbar.opNotIn");
       case "contains": return t("toolbar.opContains");
       case "notContains": return t("toolbar.opNotContains");
       case "gt": return t(isDate ? "toolbar.opAfter" : "toolbar.opGt");
@@ -166,7 +166,13 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
     },
     [loadRelation, loadValues]
   );
-  const newFilter = (col?: ColumnMeta): RowFilter => ({ column: col?.name ?? "", op: opsFor(col?.logicalType).includes("contains") ? "contains" : "eq", value: "" });
+  // Columns with a known set of values (roles in JSON, statuses, foreign keys) start on
+  // the multi-select; free text starts on "contains".
+  const defaultOp = (col?: ColumnMeta): RowFilter["op"] => {
+    if (col && (col.logicalType === "json" || col.options?.length || col.references)) return "in";
+    return opsFor(col?.logicalType).includes("contains") ? "contains" : "eq";
+  };
+  const newFilter = (col?: ColumnMeta): RowFilter => ({ column: col?.name ?? "", op: defaultOp(col), value: "", values: [] });
   const updateFilter = (i: number, patch: Partial<RowFilter>) => onFiltersChange(filters.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   const setOp = (i: number, op: RowFilter["op"]) => {
     const f = filters[i];
@@ -344,7 +350,7 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
               />
               <Combobox
                 value={f.op}
-                width={f.op === "notContains" || f.op === "notEmpty" || f.op === "notIn" ? 124 : f.op === "in" ? 104 : 96}
+                width={Math.max(96, opLabel(f.op, col).length * 7 + 30)}
                 options={opsFor(col?.logicalType).map((op) => ({ value: op, label: opLabel(op, col) }))}
                 onChange={(v) => setOp(i, v as RowFilter["op"])}
               />
@@ -422,6 +428,19 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
               </button>
             </div>
           ))}
+          <button
+            onClick={() => {
+              onFiltersChange([]);
+              onSortsChange([]);
+              onFilterMatchChange("all");
+            }}
+            title={t("toolbar.clearAllHint")}
+            style={{ height: 28, padding: "0 9px", background: "transparent", border: "1px dashed #d9d5cc", borderRadius: 8, fontSize: 12.5, color: "#8b877e", cursor: "pointer" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--env-prod-fg)")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "#8b877e")}
+          >
+            {t("toolbar.clearAll")}
+          </button>
         </div>
       )}
 
