@@ -1369,6 +1369,14 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     [activeConnectionId, activeTable]
   );
 
+  const countRowsWith = useCallback(
+    async (candidate: RowFilter[]) => {
+      if (!activeConnectionId || !activeTable) return 0;
+      return (await api.selectRows(activeConnectionId, activeTable, { filters: candidate, filterMatch, filterGroups, search: debouncedSearch, limit: 1 })).total;
+    },
+    [activeConnectionId, activeTable, filterMatch, filterGroups, debouncedSearch]
+  );
+
   const getRelationLabel = useCallback(
     (col: ColumnMeta, row: Row): string => {
       if (!col.references) return "";
@@ -1895,6 +1903,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                   getRelationLabel={getRelationLabel}
                   onSuggestValues={suggestColumnValues}
                   tables={tables}
+                  tableName={activeTable}
+                  onCountRows={countRowsWith}
                   shortcutsEnabled={!panel && !cmdOpen && !connectionFormOpen && !dropTablesRequest && !pendingGuard && !exportModalOpen}
                 />
               </div>

@@ -34,30 +34,41 @@ interface Props {
   onSuggestRelation: (col: ColumnMeta, query: string) => Promise<Row[]>;
   getRelationLabel: (col: ColumnMeta, row: Row) => string;
   /** Most frequent values of a column matching what was typed. */
+  /** Rows the view would show with these filters (the one being edited included). */
+  onCountRows: (filters: RowFilter[]) => Promise<number>;
   /** `table`: where the column lives, when it is reached through a foreign key. */
   onSuggestValues: (col: ColumnMeta, query: string, table?: string) => Promise<{ value: string; count: number }[]>;
   /** Every table of the connection, to filter on columns of related tables. */
   tables: TableMeta[];
+  /** The table on screen. */
+  tableName: string;
   /** False while a dialog or panel covers the table, so its keys don't reach the toolbar. */
   shortcutsEnabled: boolean;
 }
 
 // A filter value with suggestions fetched for what was typed; any value can still be entered.
-function SuggestedFilterValue({ col, value, placeholder, onChange, load }: {
+// With `preview`, the typed value comes first with the number of rows it would leave.
+function SuggestedFilterValue({ col, value, placeholder, onChange, load, preview }: {
   col: ColumnMeta;
   value: string;
   placeholder: string;
   onChange: (v: string) => void;
   load: (col: ColumnMeta, query: string) => Promise<ComboOption[]>;
+  preview?: (value: string) => Promise<ComboOption | null>;
 }) {
   const [options, setOptions] = useState<ComboOption[]>([]);
+  // Latest preview function without refetching on every render (it closes over the filters).
+  const previewRef = useRef(preview);
+  useEffect(() => {
+    previewRef.current = preview;
+  });
   useEffect(() => {
     let stale = false;
     const timer = setTimeout(() => {
-      load(col, value).then((o) => {
-        if (!stale) setOptions(o);
+      Promise.all([load(col, value), value.trim() && previewRef.current ? previewRef.current(value) : Promise.resolve(null)]).then(([o, first]) => {
+        if (!stale) setOptions(first ? [first, ...o.filter((x) => x.value !== first.value)] : o);
       });
-    }, 150);
+    }, 200);
     return () => {
       stale = true;
       clearTimeout(timer);
@@ -104,9 +115,13 @@ function CountBadge({ n }: { n: number }) {
 // Columns whose repeated values (roles, statuses stored as text…) are worth suggesting.
 const SUGGESTED_TYPES: ColumnMeta["logicalType"][] = ["text", "json", "unknown"];
 
-export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, filters, onFiltersChange, filterMatch, onFilterMatchChange, filterGroups, onFilterGroupsChange, sorts, onSortsChange, search, onSearchChange, onAddRow, sql, onSuggestRelation, getRelationLabel, onSuggestValues, shortcutsEnabled, tables }: Props) {
-  const { t } = useLang();
+export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, filters, onFiltersChange, filterMatch, onFilterMatchChange, filterGroups, onFilterGroupsChange, sorts, onSortsChange, search, onSearchChange, onAddRow, sql, onSuggestRelation, getRelationLabel, onSuggestValues, shortcutsEnabled, tables, tableName, onCountRows }: Props) {
+  const { t, lang } = useLang();
   const searchRef = useRef<HTMLInputElement>(null);
+  const rowsLabel = useCallback(
+    (n: number) => t(n === 1 ? "toolbar.rows_one" : "toolbar.rows_other", { count: n.toLocaleString(lang === "fr" ? "fr-FR" : "en-US") }),
+    [t, lang]
+  );
   // The filter/sort just added opens its column picker straight away.
   const [showSql, setShowSql] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
@@ -147,7 +162,8 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
   const columnOptions = selectableCols.map((c) => ({ value: c.name, hint: c.nativeType }));
   const filterColumnOptions = useMemo((): ComboOption[] => {
     const own = columns.filter((c) => !c.hidden).map((c) => ({ value: c.name, hint: c.nativeType }));
-    const fks = columns.filter((c) => c.references && tableByName.has(c.references.table));
+    // A key back to this same table (parent_id…) isn't a related table: its columns are already listed.
+    const fks = columns.filter((c) => c.references && c.references.table !== tableName && tableByName.has(c.references.table));
     const related = fks.flatMap((fk) => {
       const tb = tableByName.get(fk.references!.table)!;
       // Two keys to the same table (client_id, affaire_id → client) say which one.
@@ -156,7 +172,7 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
       return tb.columns.map((c) => ({ value: `${fk.name}>${c.name}`, label: `↗ ${prefix} › ${c.name}`, hint: c.nativeType }));
     });
     return [...own, ...related];
-  }, [columns, tableByName]);
+  }, [columns, tableByName, tableName]);
   const opLabel = (op: RowFilter["op"], col?: ColumnMeta): string => {
     const isDate = col?.logicalType === "date";
     switch (op) {
@@ -181,14 +197,14 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
         .map((r) => {
           const key = String(r[refCol]);
           const label = getRelationLabel(col, r);
-          return { value: key, label: label.endsWith(` — ${key}`) ? label.slice(0, -key.length - 3) : label, hint: key };
+          return { value: key, label: label.endsWith(` — ${key}`) ? label.slice(0, -key.length - 3) : label, hint: t("toolbar.hintId", { id: key }) };
         });
     },
-    [onSuggestRelation, getRelationLabel]
+    [onSuggestRelation, getRelationLabel, t]
   );
   const loadValues = useCallback(
-    async (col: ColumnMeta, q: string): Promise<ComboOption[]> => (await onSuggestValues(col, q, relatedOwner.get(col))).map((v) => ({ value: v.value, hint: v.count.toLocaleString() })),
-    [onSuggestValues, relatedOwner]
+    async (col: ColumnMeta, q: string): Promise<ComboOption[]> => (await onSuggestValues(col, q, relatedOwner.get(col))).map((v) => ({ value: v.value, hint: rowsLabel(v.count) })),
+    [onSuggestValues, relatedOwner, rowsLabel]
   );
   // Suggestions for "is one of": the column's own options, foreign keys or frequent values.
   const loadChoices = useCallback(
@@ -204,6 +220,16 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
   const defaultOp = (col?: ColumnMeta): RowFilter["op"] => {
     if (col && (col.logicalType === "json" || col.options?.length || col.references)) return "in";
     return opsFor(col?.logicalType).includes("contains") ? "contains" : "eq";
+  };
+  // "« tech » — 12 lignes": what the view would show with this value, before picking it.
+  const previewFor = (i: number) => async (value: string): Promise<ComboOption | null> => {
+    const f = filters[i];
+    try {
+      const n = await onCountRows(filters.map((x, j) => (j === i ? { ...x, value, disabled: false } : x)));
+      return { value, label: `${opLabel(f.op, resolveCol(f))} « ${value} »`, hint: rowsLabel(n) };
+    } catch {
+      return null;
+    }
   };
   const newFilter = (col?: ColumnMeta): RowFilter => ({ column: col?.name ?? "", op: defaultOp(col), value: "", values: [] });
   const updateFilter = (i: number, patch: Partial<RowFilter>) => onFiltersChange(filters.map((x, j) => (j === i ? { ...x, ...patch } : x)));
@@ -358,9 +384,9 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
         (col && (f.op === "in" || f.op === "notIn") ? (
           <MultiCombobox values={f.values ?? []} onChange={(values) => updateFilter(i, { values })} load={(q) => loadChoices(col, q)} placeholder={t("toolbar.valuesPlaceholder")} />
         ) : col?.references && (f.op === "eq" || f.op === "neq") ? (
-          <SuggestedFilterValue value={f.value} placeholder={t("toolbar.valuePlaceholder")} onChange={(v) => updateFilter(i, { value: v })} col={col} load={loadRelation} />
+          <SuggestedFilterValue value={f.value} placeholder={t("toolbar.valuePlaceholder")} onChange={(v) => updateFilter(i, { value: v })} col={col} load={loadRelation} preview={previewFor(i)} />
         ) : col && !col.options?.length && SUGGESTED_TYPES.includes(col.logicalType) ? (
-          <SuggestedFilterValue value={f.value} placeholder={t("toolbar.valuePlaceholder")} onChange={(v) => updateFilter(i, { value: v })} col={col} load={loadValues} />
+          <SuggestedFilterValue value={f.value} placeholder={t("toolbar.valuePlaceholder")} onChange={(v) => updateFilter(i, { value: v })} col={col} load={loadValues} preview={previewFor(i)} />
         ) : col?.options?.length ? (
           // A fixed set of values (statuses…) gets suggestions; anything else is a plain field.
           <Combobox value={f.value} allowCustom width={110} options={col.options.map((o) => ({ value: o }))} placeholder={t("toolbar.valuePlaceholder")} onChange={(v) => updateFilter(i, { value: v })} />
