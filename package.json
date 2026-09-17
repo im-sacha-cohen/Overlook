@@ -6,7 +6,9 @@
     "dev": "next dev -H 127.0.0.1",
     "build": "next build",
     "start": "next start -H 127.0.0.1",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run",
+    "test:db": "docker compose up -d postgres-dev mysql-dev && OVERLOOK_TEST_POSTGRES=postgres://overlook:overlook@127.0.0.1:5433/overlook_dev OVERLOOK_TEST_MYSQL=mysql://overlook:overlook@127.0.0.1:3307/overlook_dev vitest run"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
@@ -26,6 +28,7 @@
     "@types/ssh2": "^1.15.6",
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.7"
   }
 }
