@@ -6,6 +6,8 @@ import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
   tables: TableMeta[];
+  /** "loading": the connection hasn't answered yet; "error": it failed (the main area explains why). */
+  status?: "ready" | "loading" | "error";
   activeTable: string | null;
   showColumns: boolean;
   onSelectTable: (name: string) => void;
@@ -28,6 +30,7 @@ interface Props {
 
 export function Sidebar({
   tables,
+  status = "ready",
   activeTable,
   showColumns,
   onSelectTable,
@@ -109,7 +112,13 @@ export function Sidebar({
           {t("sidebar.tables")}
         </div>
 
-        {tables.length === 0 && <div style={{ padding: "6px 8px", fontSize: 12.5, color: "#a8a39a" }}>{t("sidebar.noTables")}</div>}
+        {status === "loading" &&
+          [72, 54, 88, 61, 46].map((w, i) => (
+            <div key={i} style={{ padding: "7px 8px" }}>
+              <div style={{ height: 10, width: `${w}%`, borderRadius: 5, background: "var(--border-3)", animation: "om-pulse 1.4s ease-in-out infinite", animationDelay: `${i * 0.08}s` }} />
+            </div>
+          ))}
+        {status === "ready" && tables.length === 0 && <div style={{ padding: "6px 8px", fontSize: 12.5, color: "#a8a39a" }}>{t("sidebar.noTables")}</div>}
         {tables.map((t) => {
           const active = t.name === activeTable;
           const selected = selectedTables.has(t.name);

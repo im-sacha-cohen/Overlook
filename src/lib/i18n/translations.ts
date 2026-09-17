@@ -301,6 +301,11 @@ export const fr: Dict = {
 
   "empty.noConnection": "Aucune connexion ouverte. Choisis-en une via le badge en haut à gauche.",
   "empty.noTable": "Aucune table dans cette base.",
+  "connLoad.connecting": "Connexion à {{name}}…",
+  "connLoad.slow": "Toujours en cours…",
+  "connLoad.errorTitle": "Impossible de se connecter à {{name}}",
+  "connLoad.retry": "Réessayer",
+  "connLoad.editConnection": "Modifier la connexion",
   "boardView.noGroupColumn": "Aucune colonne de sélection à utiliser pour le tableau.",
   "galleryView.visual": "visuel",
   "calendarView.noDateColumn": "Aucune colonne de date à utiliser pour le calendrier.",
@@ -682,6 +687,11 @@ export const en: Dict = {
 
   "empty.noConnection": "No connection open. Pick one from the badge in the top left.",
   "empty.noTable": "No tables in this database.",
+  "connLoad.connecting": "Connecting to {{name}}…",
+  "connLoad.slow": "Still working…",
+  "connLoad.errorTitle": "Couldn't connect to {{name}}",
+  "connLoad.retry": "Retry",
+  "connLoad.editConnection": "Edit connection",
   "boardView.noGroupColumn": "No select column available to use for the board.",
   "galleryView.visual": "visual",
   "calendarView.noDateColumn": "No date column available to use for the calendar.",

@@ -45,6 +45,10 @@ import { useLang } from "@/lib/i18n/LanguageProvider";
 
 const VIEW_KINDS: ViewKind[] = ["table", "board", "calendar", "gallery"];
 const PAGE_SIZE = 100;
+const EMPTY_TABLES: TableMeta[] = [];
+const EMPTY_ROWS: Row[] = [];
+// How long a connection can take before we offer to cancel.
+const SLOW_CONNECTION_MS = 3000;
 
 interface Props {
   initialConnections: Connection[];
@@ -57,6 +61,19 @@ interface PendingGuard {
 }
 
 let historySeq = 0;
+
+function GridSkeleton() {
+  return (
+    <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 10 }}>
+      {Array.from({ length: 8 }, (_, i) => (
+        <div
+          key={i}
+          style={{ height: i === 0 ? 14 : 12, width: `${i === 0 ? 100 : 92 - ((i * 13) % 30)}%`, borderRadius: 6, background: "var(--border-3)", animation: "om-pulse 1.4s ease-in-out infinite", animationDelay: `${i * 0.06}s` }}
+        />
+      ))}
+    </div>
+  );
+}
 
 export function Workspace({ initialConnections, dockerDetected }: Props) {
   const router = useRouter();
@@ -89,7 +106,19 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     const resolved = active && initialConnections.some((c) => c.id === active) ? active : initialConnections[0]?.id;
     return resolved ? "main" : null;
   });
-  const [tables, setTables] = useState<TableMeta[]>([]);
+  // Tables and rows are keyed by the connection (and table) they came from, so switching
+  // never shows another connection's data, and reopening a tab shows what it had at once.
+  const [tablesByConnection, setTablesByConnection] = useState<Record<string, TableMeta[]>>({});
+  const [tablesErrors, setTablesErrors] = useState<Record<string, string>>({});
+  const [slowConnectionId, setSlowConnectionId] = useState<string | null>(null);
+  const tables = (activeConnectionId && tablesByConnection[activeConnectionId]) || EMPTY_TABLES;
+  const tablesError = activeConnectionId ? tablesErrors[activeConnectionId] ?? null : null;
+  const tablesPending = !!activeConnectionId && !tablesByConnection[activeConnectionId] && !tablesError;
+  const tablesByConnectionRef = useRef(tablesByConnection);
+  tablesByConnectionRef.current = tablesByConnection;
+  const activeConnectionIdRef = useRef(activeConnectionId);
+  activeConnectionIdRef.current = activeConnectionId;
+  const previousTabIdRef = useRef<string | null>(null);
   const [activeTable, setActiveTable] = useState<string | null>(() => searchParams.get("t"));
   const [hiddenCols, setHiddenCols] = useState<Record<string, Set<string>>>({});
 
@@ -107,8 +136,11 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   const [filters, setFilters] = useState<RowFilter[]>([]);
   const [sorts, setSorts] = useState<RowSort[]>([]);
   const [groupBy, setGroupBy] = useState("");
-  const [rows, setRows] = useState<Row[]>([]);
-  const [total, setTotal] = useState(0);
+  const [rowsByKey, setRowsByKey] = useState<Record<string, { rows: Row[]; total: number }>>({});
+  const rowsKey = activeConnectionId && activeTable ? `${activeConnectionId}\u0000${activeTable}` : null;
+  const rowsEntry = rowsKey ? rowsByKey[rowsKey] : undefined;
+  const rows = rowsEntry?.rows ?? EMPTY_ROWS;
+  const total = rowsEntry?.total ?? 0;
   const [page, setPage] = useState(0);
   const [loadingRows, setLoadingRows] = useState(false);
   const [autoRefreshByConnection, setAutoRefreshByConnection] = useState<Record<string, boolean>>({});
@@ -215,19 +247,35 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   // `silent` is the auto-refresh path: no loading state, no error toast, and state
   // is only replaced when the data actually changed, so the screen doesn't move.
   const loadTables = useCallback(async (connectionId: string, { silent = false } = {}) => {
+    if (!silent) {
+      setSlowConnectionId(null);
+      setTablesErrors((prev) => {
+        if (!(connectionId in prev)) return prev;
+        const next = { ...prev };
+        delete next[connectionId];
+        return next;
+      });
+    }
     try {
       const { tables } = await api.listTables(connectionId);
-      setTables((prev) => (silent && JSON.stringify(prev) === JSON.stringify(tables) ? prev : tables));
+      setTablesByConnection((prev) =>
+        JSON.stringify(prev[connectionId]) === JSON.stringify(tables) ? prev : { ...prev, [connectionId]: tables },
+      );
+      // The user may have moved to another connection while this was loading.
+      if (activeConnectionIdRef.current !== connectionId) return;
       setActiveTable((prev) => (prev && tables.some((t) => t.name === prev) ? prev : tables[0]?.name ?? null));
     } catch (err) {
       if (silent) return;
-      flash(err instanceof Error ? err.message : String(err));
-      setTables([]);
+      const message = err instanceof Error ? err.message : String(err);
+      // With tables already on screen, a failed refresh is just a notice; otherwise it replaces the loading screen.
+      if (tablesByConnectionRef.current[connectionId]) flash(message);
+      else setTablesErrors((prev) => ({ ...prev, [connectionId]: message }));
     }
   }, [flash]);
 
   const loadRows = useCallback(async ({ silent = false } = {}) => {
     if (!activeConnectionId || !activeTable) return;
+    const key = `${activeConnectionId}\u0000${activeTable}`;
     // Drop responses that land after a newer request (table/page/filter changed meanwhile).
     const seq = ++rowsRequestSeq.current;
     if (!silent) setLoadingRows(true);
@@ -239,8 +287,12 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
         offset: page * PAGE_SIZE,
       });
       if (seq !== rowsRequestSeq.current) return;
+      setRowsByKey((prev) => {
+        const cur = prev[key];
+        if (cur && cur.total === res.total && JSON.stringify(cur.rows) === JSON.stringify(res.rows)) return prev;
+        return { ...prev, [key]: { rows: res.rows, total: res.total } };
+      });
       if (silent) {
-        setRows((prev) => (JSON.stringify(prev) === JSON.stringify(res.rows) ? prev : res.rows));
         const pk = pkColumnRef.current;
         if (pk) {
           setDetailRow((d) => {
@@ -249,12 +301,13 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
             return fresh && JSON.stringify(fresh) !== JSON.stringify(d) ? fresh : d;
           });
         }
-      } else {
-        setRows(res.rows);
       }
-      setTotal(res.total);
     } catch (err) {
-      if (!silent && seq === rowsRequestSeq.current) flash(err instanceof Error ? err.message : String(err));
+      if (!silent && seq === rowsRequestSeq.current) {
+        flash(err instanceof Error ? err.message : String(err));
+        // Leave the loading placeholder for an empty grid rather than spinning forever.
+        setRowsByKey((prev) => (prev[key] ? prev : { ...prev, [key]: { rows: [], total: 0 } }));
+      }
     } finally {
       if (!silent && seq === rowsRequestSeq.current) setLoadingRows(false);
     }
@@ -262,8 +315,15 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
 
   useEffect(() => {
     if (activeConnectionId) loadTables(activeConnectionId);
-    else setTables([]);
   }, [activeConnectionId, loadTables]);
+
+  // After a few seconds without an answer, say so and offer to go back.
+  useEffect(() => {
+    if (!tablesPending || !activeConnectionId) return;
+    const connectionId = activeConnectionId;
+    const id = setTimeout(() => setSlowConnectionId(connectionId), SLOW_CONNECTION_MS);
+    return () => clearTimeout(id);
+  }, [tablesPending, activeConnectionId]);
 
   useEffect(() => {
     loadRows();
@@ -479,6 +539,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   function switchToTab(tabId: string) {
     const tab = tabs.find((t) => t.tabId === tabId);
     if (!tab || tabId === activeTabId) return;
+    previousTabIdRef.current = activeTabId;
     setActiveTabId(tabId);
     setActiveConnectionId(tab.connectionId);
     setActiveTable(tab.table);
@@ -503,6 +564,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     }
     const tabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     setTabs((prev) => [...prev, { tabId, connectionId, table: null, view: "table" as ViewKind }]);
+    previousTabIdRef.current = activeTabId;
     setActiveTabId(tabId);
     setActiveConnectionId(connectionId);
     setActiveTable(null);
@@ -524,6 +586,19 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       setActiveTable(null);
       setDetailRow(null);
       setRelationTrail([]);
+    }
+  }
+
+  // "Cancel" on a connection that is still loading: drop its tab and go back where the user was.
+  function cancelPendingConnection() {
+    if (!activeTabId) return;
+    const pendingTabId = activeTabId;
+    const previous = previousTabIdRef.current;
+    if (previous && previous !== pendingTabId && tabs.some((t) => t.tabId === previous)) {
+      switchToTab(previous);
+      setTabs((prev) => prev.filter((t) => t.tabId !== pendingTabId));
+    } else {
+      closeTab(pendingTabId);
     }
   }
 
@@ -550,6 +625,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   async function handleSaveConnection(input: ConnectionInput) {
     if (editingConnectionId) {
       await api.updateConnection(editingConnectionId, input);
+      // Settings changed (host, credentials…): what we had loaded may no longer apply.
+      if (editingConnectionId === activeConnectionId) loadTables(editingConnectionId);
     } else {
       const { connection } = await api.createConnection(input);
       switchToConnection(connection.id);
@@ -617,7 +694,12 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     const previous = row[colName];
     try {
       await api.updateRow(activeConnectionId, activeTable, rowId, pkColumn, { [colName]: value });
-      setRows((prev) => prev.map((r) => (r[pkColumn] === rowId ? { ...r, [colName]: value } : r)));
+      const key = `${activeConnectionId}\u0000${activeTable}`;
+      setRowsByKey((prev) => {
+        const cur = prev[key];
+        if (!cur) return prev;
+        return { ...prev, [key]: { ...cur, rows: cur.rows.map((r) => (r[pkColumn] === rowId ? { ...r, [colName]: value } : r)) } };
+      });
       if (detailRow && detailRow[pkColumn] === rowId) setDetailRow((d) => (d ? { ...d, [colName]: value } : d));
       const undo = async () => {
         await api.updateRow(activeConnectionId, activeTable, rowId, pkColumn, { [colName]: previous });
@@ -1372,6 +1454,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
         <Sidebar
           tables={tables}
+          status={tablesError ? "error" : tablesPending ? "loading" : "ready"}
           activeTable={activeTable}
           showColumns={dir === "query"}
           onSelectTable={selectTable}
@@ -1395,6 +1478,44 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
           {!activeConnectionId ? (
             <div style={{ flex: 1, display: "grid", placeItems: "center", color: "#a8a39a", fontSize: 13.5 }}>
               {t("empty.noConnection")}
+            </div>
+          ) : tablesError ? (
+            <div style={{ flex: 1, display: "grid", placeItems: "center", padding: 32 }}>
+              <div style={{ textAlign: "center", maxWidth: 440 }}>
+                <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 8 }}>
+                  {t("connLoad.errorTitle", { name: activeConnection?.name ?? "" })}
+                </div>
+                <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 18, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{tablesError}</div>
+                <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                  <button
+                    onClick={() => loadTables(activeConnectionId)}
+                    style={{ padding: "8px 14px", background: "var(--accent)", border: "1px solid var(--accent-hover)", borderRadius: 8, color: "#fff", fontWeight: 500, cursor: "pointer" }}
+                  >
+                    {t("connLoad.retry")}
+                  </button>
+                  <button
+                    onClick={() => { setEditingConnectionId(activeConnectionId); setConnectionFormOpen(true); }}
+                    style={{ padding: "8px 14px", background: "transparent", border: "1px solid var(--border-3)", borderRadius: 8, color: "var(--fg)", cursor: "pointer" }}
+                  >
+                    {t("connLoad.editConnection")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : tablesPending ? (
+            <div style={{ flex: 1, minHeight: 0, padding: "26px 32px 0", display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 13.5, color: "var(--muted)" }}>
+                <span>{slowConnectionId === activeConnectionId ? t("connLoad.slow") : t("connLoad.connecting", { name: activeConnection?.name ?? "" })}</span>
+                {slowConnectionId === activeConnectionId && (
+                  <button
+                    onClick={cancelPendingConnection}
+                    style={{ padding: "4px 10px", background: "transparent", border: "1px solid var(--border-3)", borderRadius: 7, color: "var(--fg)", fontSize: 12.5, cursor: "pointer" }}
+                  >
+                    {t("common.cancel")}
+                  </button>
+                )}
+              </div>
+              <GridSkeleton />
             </div>
           ) : !activeTable ? (
             <div style={{ flex: 1, display: "grid", placeItems: "center", color: "#a8a39a", fontSize: 13.5 }}>{t("empty.noTable")}</div>
@@ -1425,8 +1546,9 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
               </div>
 
               <div className="om-sb" style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "18px 32px 60px" }}>
-                {loadingRows && <div style={{ color: "#a8a39a", fontSize: 13, paddingBottom: 10 }}>{t("common.loading")}</div>}
-                {view === "table" && (
+                {loadingRows && rowsEntry && <div style={{ color: "#a8a39a", fontSize: 13, paddingBottom: 10 }}>{t("common.loading")}</div>}
+                {!rowsEntry && <GridSkeleton />}
+                {rowsEntry && view === "table" && (
                   <TableView
                     columns={orderedVisibleColumns}
                     rows={rows}
@@ -1459,7 +1581,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                     onEditDate={(row, col, value) => commitFieldChange(row, col.name, value)}
                   />
                 )}
-                {view === "board" && (
+                {rowsEntry && view === "board" && (
                   <BoardView
                     columns={visibleColumns}
                     rows={rows}
@@ -1468,8 +1590,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                     onAddCard={(groupValue) => handleAddRow(boardColumn ? { [boardColumn.name]: groupValue } : undefined)}
                   />
                 )}
-                {view === "gallery" && <GalleryView columns={visibleColumns} rows={rows} onRowOpen={setDetailRow} />}
-                {view === "calendar" && <CalendarView rows={rows} dateColumn={dateColumn} titleColumn={titleColumn} tagColumn={tagColumn} onRowOpen={setDetailRow} />}
+                {rowsEntry && view === "gallery" && <GalleryView columns={visibleColumns} rows={rows} onRowOpen={setDetailRow} />}
+                {rowsEntry && view === "calendar" && <CalendarView rows={rows} dateColumn={dateColumn} titleColumn={titleColumn} tagColumn={tagColumn} onRowOpen={setDetailRow} />}
               </div>
               <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
             </>
