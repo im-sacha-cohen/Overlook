@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { api } from "@/lib/client/api";
-import type { ColumnMeta, Connection, ConnectionInput, LogicalType, QueryResult, Row, RowFilter, RowSort, TableMeta, WriteOp } from "@/lib/types";
+import { api, userHeader } from "@/lib/client/api";
+import type { ColumnMeta, Connection, ConnectionInput, LogicalType, QueryResult, Row, RowFilter, RowSort, TableMeta, WriteOp, JournalEntry } from "@/lib/types";
 import { ENV_COLORS } from "@/lib/client/env";
 import { nowForColumn, toText } from "@/lib/client/format";
 import { HistoryEntry, timeNow } from "@/lib/client/history";
@@ -25,7 +25,7 @@ import { CsvImportModal } from "./CsvImportModal";
 import { SqlImportModal } from "./SqlImportModal";
 import { CreateTableModal } from "./CreateTableModal";
 import { BulkEditModal } from "./BulkEditModal";
-import { HistoryPanel } from "./HistoryPanel";
+import { JournalPanel } from "./JournalPanel";
 import { ConnectionForm } from "./ConnectionForm";
 import { ConnectionImportModal } from "./ConnectionTransfer";
 import { ProdGuardDialog } from "./ProdGuardDialog";
@@ -1050,7 +1050,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     try {
       const res = await fetch(`/api/connections/${activeConnectionId}/import-sql`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...userHeader() },
         body: JSON.stringify({ sql, confirm }),
         signal: controller.signal,
       });
@@ -1394,6 +1394,39 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     flash(t("toast.csvImported", { count: inserted }));
     setPanel(null);
     await loadRows();
+  }
+
+  // ---------- change log ----------
+  /** Reverses a journal entry after confirmation; resolves true once it's done. */
+  function undoJournalEntry(entry: JournalEntry): Promise<boolean> {
+    const d = entry.details;
+    const table = entry.tableName;
+    const pk = d?.pkColumn;
+    if (!activeConnectionId || entry.connectionId !== activeConnectionId || !table || !pk || !d) return Promise.resolve(false);
+    const connectionId = activeConnectionId;
+    const count = entry.action === "insertRow" ? 1 : d.before?.length ?? 0;
+    return new Promise<boolean>((resolve) => {
+      setPendingGuard({
+        label: t("journal.undoConfirm", { action: t(`journal.action.${entry.action}`), table, count }),
+        requireName: activeConnection?.envType === "prod",
+        run: async (confirm) => {
+          if (entry.action === "insertRow") {
+            const id = d.after?.[0]?.[pk] as string | number;
+            await api.deleteRow(connectionId, table, id, pk, confirm);
+          } else if (entry.action === "deleteRows") {
+            for (const row of d.before ?? []) await api.insertRow(connectionId, table, row);
+          } else {
+            for (const row of d.before ?? []) {
+              const { [pk]: id, ...values } = row;
+              await api.updateRow(connectionId, table, id as string | number, pk, values);
+            }
+          }
+          flash(t("journal.undone"));
+          if (table === activeTable) await loadRows();
+          resolve(true);
+        },
+      });
+    });
   }
 
   // ---------- query mode ----------
@@ -1764,20 +1797,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       )}
 
       {panel === "history" && (
-        <HistoryPanel
-          entries={history}
-          onClose={() => setPanel(null)}
-          onUndo={async (entry) => {
-            if (!entry.undo) return;
-            try {
-              await entry.undo();
-              setHistory((h) => h.filter((e) => e.id !== entry.id));
-              flash(t("toast.bulkEditUndone"));
-            } catch (err) {
-              flash(err instanceof Error ? err.message : String(err));
-            }
-          }}
-        />
+        <JournalPanel connectionId={activeConnectionId} tables={tables.map((tbl) => tbl.name)} onClose={() => setPanel(null)} onUndo={undoJournalEntry} />
       )}
 
       {connectionFormOpen && (

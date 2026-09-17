@@ -2,6 +2,7 @@ import { getAdapter } from "@/lib/db/registry";
 import { getConnection } from "@/lib/store/metadata";
 import { checkConfirm } from "@/lib/api/guard";
 import { errorResponse } from "@/lib/api/respond";
+import { journaled, describeOp } from "@/lib/api/journal";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -16,7 +17,13 @@ export async function POST(request: Request, { params }: Params) {
     if (!conn) return errorResponse(new Error("Connexion introuvable"), 404);
     const guard = checkConfirm(conn, body.confirm);
     if (!guard.ok) return errorResponse(new Error(guard.error), 412);
-    await getAdapter(id).dropTables(body.names, { ignoreForeignKeys: body.ignoreForeignKeys === true });
+    const op = { kind: "dropTables" as const, tables: body.names, ignoreForeignKeys: body.ignoreForeignKeys === true };
+    await journaled(
+      request,
+      id,
+      async () => ({ action: "dropTables", tableName: body.names.length === 1 ? body.names[0] : null, sql: await describeOp(id, op) }),
+      () => getAdapter(id).dropTables(op.tables, op),
+    );
     return Response.json({ dropped: body.names.length });
   } catch (err) {
     return errorResponse(err, 500);

@@ -1,6 +1,7 @@
 import type {
   Connection,
   ConnectionInput,
+  JournalEntry,
   LogicalType,
   QueryHistoryEntry,
   QueryResult,
@@ -15,10 +16,51 @@ import type {
 import type { ConnectionBundle } from "../connectionBundle";
 import type { ConnectionPrefs, TablePrefs } from "../prefs";
 
+const USER_NAME_KEY = "overlook:userName";
+
+/** The name shown as author in the journal, set in Settings and kept in this browser. */
+export function getUserName(): string {
+  try {
+    return localStorage.getItem(USER_NAME_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function setUserName(name: string): void {
+  try {
+    if (name.trim()) localStorage.setItem(USER_NAME_KEY, name.trim());
+    else localStorage.removeItem(USER_NAME_KEY);
+  } catch {
+    // Storage unavailable: the journal just won't show a name.
+  }
+}
+
+export function userHeader(): Record<string, string> {
+  const name = typeof window === "undefined" ? "" : getUserName();
+  return name ? { "X-Overlook-User": encodeURIComponent(name) } : {};
+}
+
+export interface JournalFilters {
+  connectionId?: string;
+  table?: string;
+  action?: string;
+  from?: string;
+  to?: string;
+  search?: string;
+  beforeId?: number;
+}
+
+export function journalQueryString(filters: JournalFilters): string {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) if (v !== undefined && v !== "") params.set(k, String(v));
+  return params.toString();
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: { "Content-Type": "application/json", ...userHeader(), ...init?.headers },
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -220,6 +262,11 @@ export const api = {
       body: JSON.stringify({ sql, allowWrite, confirm }),
     }),
 
+  listJournal: (filters: JournalFilters) => request<{ entries: JournalEntry[] }>(`/api/journal?${journalQueryString(filters)}`),
+  journalExportUrl: (filters: JournalFilters) => `/api/journal/export?${journalQueryString(filters)}`,
+  getSettings: () => request<{ journalRetentionDays: number }>("/api/settings"),
+  saveSettings: (settings: { journalRetentionDays: number }) =>
+    request<{ journalRetentionDays: number }>("/api/settings", { method: "PUT", body: JSON.stringify(settings) }),
   previewWrite: (connectionId: string, op: WriteOp) =>
     request<WritePreview>(`/api/connections/${connectionId}/preview`, { method: "POST", body: JSON.stringify(op) }),
   listSavedQueries: (connectionId: string) => request<{ queries: SavedQuery[] }>(`/api/connections/${connectionId}/saved-queries`),

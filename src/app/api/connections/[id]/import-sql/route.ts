@@ -2,6 +2,7 @@ import { getAdapter } from "@/lib/db/registry";
 import { getConnection } from "@/lib/store/metadata";
 import { checkConfirm } from "@/lib/api/guard";
 import { errorResponse } from "@/lib/api/respond";
+import { recordWrite } from "@/lib/api/journal";
 import { splitSqlStatements } from "@/lib/db/splitSqlStatements";
 
 type Params = { params: Promise<{ id: string }> };
@@ -47,6 +48,13 @@ export async function POST(request: Request, { params }: Params) {
           }
           send({ type: "progress", index: i + 1, total: statements.length, executed, failedCount: failed.length });
         }
+        recordWrite(
+          request,
+          id,
+          { action: "sqlScript", sql: body.sql },
+          executed,
+          cancelled ? "Import annulé" : failed.length > 0 ? `${failed.length} instruction(s) en échec sur ${statements.length}` : null,
+        );
         if (!cancelled) {
           send({ type: "done", executed, failed, cancelled });
           controller.close();

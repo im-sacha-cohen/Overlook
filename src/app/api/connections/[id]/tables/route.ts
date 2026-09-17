@@ -1,5 +1,6 @@
 import { getAdapter } from "@/lib/db/registry";
 import { errorResponse } from "@/lib/api/respond";
+import { journaled } from "@/lib/api/journal";
 import type { LogicalType } from "@/lib/types";
 
 type Params = { params: Promise<{ id: string }> };
@@ -19,7 +20,13 @@ export async function POST(request: Request, { params }: Params) {
   try {
     const body = (await request.json()) as { name: string; columns?: { name: string; type: LogicalType }[] };
     if (!body.name || !body.name.trim()) return errorResponse(new Error("Nom de table requis"));
-    await getAdapter(id).createTable(body.name, body.columns ?? []);
+    const columns = body.columns ?? [];
+    await journaled(
+      request,
+      id,
+      { action: "createTable", tableName: body.name, sql: `-- CREATE TABLE ${body.name} (${columns.map((c) => `${c.name} ${c.type}`).join(", ")})` },
+      () => getAdapter(id).createTable(body.name, columns),
+    );
     return Response.json({ ok: true }, { status: 201 });
   } catch (err) {
     return errorResponse(err, 500);

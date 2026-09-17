@@ -1,5 +1,6 @@
 import { getAdapter } from "@/lib/db/registry";
 import { errorResponse } from "@/lib/api/respond";
+import { journaled, describeInsert } from "@/lib/api/journal";
 import type { Row, RowFilter, RowSort } from "@/lib/types";
 
 type Params = { params: Promise<{ id: string; table: string }> };
@@ -30,7 +31,19 @@ export async function POST(request: Request, { params }: Params) {
   const { id, table } = await params;
   try {
     const values = (await request.json()) as Row;
-    const row = await getAdapter(id).insertRow(decodeURIComponent(table), values);
+    const tableName = decodeURIComponent(table);
+    const row = await journaled(
+      request,
+      id,
+      { action: "insertRow", tableName, sql: describeInsert(tableName, values) },
+      () => getAdapter(id).insertRow(tableName, values),
+      () => 1,
+      // Keep the inserted row, with its generated key, so the insert can be undone.
+      async (inserted) => {
+        const pkColumn = (await getAdapter(id).getTable(tableName)).columns.find((c) => c.isPrimaryKey)?.name;
+        return { pkColumn, after: [inserted] };
+      },
+    );
     return Response.json({ row }, { status: 201 });
   } catch (err) {
     return errorResponse(err, 500);

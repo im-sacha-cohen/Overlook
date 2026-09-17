@@ -59,6 +59,27 @@ export function getDb(): Database.Database {
       error TEXT
     );
     CREATE INDEX IF NOT EXISTS query_history_connection ON query_history (connectionId, id);
+    CREATE TABLE IF NOT EXISTS journal (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      connectionId TEXT NOT NULL,
+      connectionName TEXT NOT NULL,
+      envType TEXT NOT NULL,
+      at TEXT NOT NULL,
+      actor TEXT,
+      ip TEXT,
+      action TEXT NOT NULL,
+      tableName TEXT,
+      sql TEXT,
+      rows INTEGER,
+      details TEXT,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS journal_connection ON journal (connectionId, id);
+    CREATE INDEX IF NOT EXISTS journal_at ON journal (at);
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
   return db;
 }

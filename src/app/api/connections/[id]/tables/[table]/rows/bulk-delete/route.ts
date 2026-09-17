@@ -2,6 +2,7 @@ import { getAdapter } from "@/lib/db/registry";
 import { getConnection } from "@/lib/store/metadata";
 import { checkConfirm } from "@/lib/api/guard";
 import { errorResponse } from "@/lib/api/respond";
+import { journaled, describeOp, beforeRows } from "@/lib/api/journal";
 
 type Params = { params: Promise<{ id: string; table: string }> };
 
@@ -16,7 +17,19 @@ export async function POST(request: Request, { params }: Params) {
     if (!conn) return errorResponse(new Error("Connexion introuvable"), 404);
     const guard = checkConfirm(conn, body.confirm);
     if (!guard.ok) return errorResponse(new Error(guard.error), 412);
-    const deleted = await getAdapter(id).deleteRows(decodeURIComponent(table), body.pkColumn, body.ids);
+    const tableName = decodeURIComponent(table);
+    const deleted = await journaled(
+      request,
+      id,
+      async () => ({
+        action: "deleteRows",
+        tableName,
+        sql: await describeOp(id, { kind: "deleteRows", table: tableName, pkColumn: body.pkColumn, pkValues: body.ids }),
+        details: await beforeRows(id, tableName, body.pkColumn, body.ids),
+      }),
+      () => getAdapter(id).deleteRows(tableName, body.pkColumn, body.ids),
+      (n) => n,
+    );
     return Response.json({ deleted });
   } catch (err) {
     return errorResponse(err, 500);

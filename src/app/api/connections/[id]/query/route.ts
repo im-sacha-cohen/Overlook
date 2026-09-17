@@ -3,6 +3,7 @@ import { getConnection } from "@/lib/store/metadata";
 import { checkConfirm } from "@/lib/api/guard";
 import { isReadOnlyStatement } from "@/lib/api/sql-guard";
 import { errorResponse } from "@/lib/api/respond";
+import { journaled } from "@/lib/api/journal";
 import { recordQuery } from "@/lib/store/queries";
 
 type Params = { params: Promise<{ id: string }> };
@@ -29,7 +30,9 @@ export async function POST(request: Request, { params }: Params) {
 
     const started = Date.now();
     try {
-      const result = await getAdapter(id).runRawQuery(body.sql);
+      const result = readOnly
+        ? await getAdapter(id).runRawQuery(body.sql)
+        : await journaled(request, id, { action: "query", sql: body.sql }, () => getAdapter(id).runRawQuery(body.sql), (r) => r.rowCount);
       recordQuery(id, { sql: body.sql, durationMs: Date.now() - started, rowCount: result.rowCount, error: null });
       return Response.json(result);
     } catch (err) {

@@ -258,6 +258,14 @@ export class SqliteAdapter implements DatabaseAdapter {
     });
   }
 
+  async selectRowsByPk(table: string, pkColumn: string, pkValues: unknown[]): Promise<Row[]> {
+    if (pkValues.length === 0) return [];
+    assertKnownColumn(await this.getTable(table), pkColumn);
+    return this.db
+      .prepare(`SELECT * FROM ${q(table)} WHERE ${q(pkColumn)} IN (${pkValues.map(() => "?").join(", ")})`)
+      .all(...pkValues.map(coerceParam)) as Row[];
+  }
+
   /** Runs the statements in one transaction and returns the rows changed. */
   private runStatements(statements: SqlStatement[]): number {
     let changes = 0;

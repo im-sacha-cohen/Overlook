@@ -25,6 +25,8 @@ export interface DatabaseAdapter {
   /** The statements a write would run, without running them. */
   buildWrite(op: WriteOp): Promise<SqlStatement[]>;
   previewWrite(op: WriteOp): Promise<WritePreview>;
+  /** The rows whose primary key is in the list (for the journal's "before" values). */
+  selectRowsByPk(table: string, pkColumn: string, pkValues: unknown[]): Promise<Row[]>;
   testConnection(): Promise<void>;
   listTables(): Promise<TableMeta[]>;
   getTable(table: string): Promise<TableMeta>;
@@ -100,7 +102,7 @@ export function coerceRowValues(meta: TableMeta, values: Row): Row {
   return out;
 }
 
-function sqlLiteral(value: unknown): string {
+export function sqlLiteral(value: unknown): string {
   if (value === null || value === undefined) return "NULL";
   if (typeof value === "number" || typeof value === "bigint") return String(value);
   if (typeof value === "boolean") return value ? "TRUE" : "FALSE";

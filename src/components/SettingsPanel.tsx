@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { api, getUserName, setUserName } from "@/lib/client/api";
 import type { Connection } from "@/lib/types";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 import { LANGUAGES } from "@/lib/i18n/translations";
@@ -27,6 +28,24 @@ const sectionBtn: React.CSSProperties = {
 export function SettingsPanel({ connections, onClose, onConnectionsExported, onConnectionsImported }: Props) {
   const { t, lang, setLang } = useLang();
   const [view, setView] = useState<"main" | "export" | "import">("main");
+  const [userName, setUserNameState] = useState(getUserName);
+  const [retention, setRetention] = useState("");
+  const [retentionStatus, setRetentionStatus] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    api.getSettings().then((s) => setRetention(String(s.journalRetentionDays))).catch(() => {});
+  }, []);
+
+  async function saveRetention() {
+    try {
+      const saved = await api.saveSettings({ journalRetentionDays: Number(retention) });
+      setRetention(String(saved.journalRetentionDays));
+      setRetentionStatus({ ok: true, text: t("settings.saved") });
+    } catch (err) {
+      setRetentionStatus({ ok: false, text: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
   const title = view === "export" ? t("connTransfer.exportTitle") : view === "import" ? t("connTransfer.importTitle") : t("settings.title");
 
   return (
@@ -75,6 +94,48 @@ export function SettingsPanel({ connections, onClose, onConnectionsExported, onC
                 </button>
               ))}
             </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 12, color: "#8b877e", marginBottom: 4 }}>{t("settings.userName")}</div>
+            <div style={{ fontSize: 12, color: "#a8a39a", marginBottom: 8 }}>{t("settings.userNameHint")}</div>
+            <input
+              value={userName}
+              onChange={(e) => {
+                setUserNameState(e.target.value);
+                setUserName(e.target.value);
+              }}
+              maxLength={100}
+              style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: "1px solid #e8e5df", borderRadius: 8, fontSize: 13, outline: "none" }}
+            />
+          </div>
+
+          <div>
+            <div style={{ fontSize: 12, color: "#8b877e", marginBottom: 8 }}>{t("settings.retention")}</div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                saveRetention();
+              }}
+              style={{ display: "flex", alignItems: "center", gap: 8 }}
+            >
+              <input
+                type="number"
+                min={1}
+                max={3650}
+                value={retention}
+                onChange={(e) => {
+                  setRetention(e.target.value);
+                  setRetentionStatus(null);
+                }}
+                style={{ width: 90, padding: "8px 10px", border: "1px solid #e8e5df", borderRadius: 8, fontSize: 13, outline: "none" }}
+              />
+              <span style={{ fontSize: 13, color: "#6f6b62" }}>{t("settings.retentionDays")}</span>
+              <button type="submit" style={{ ...sectionBtn, flex: "none" }}>
+                {t("common.save")}
+              </button>
+              {retentionStatus && <span style={{ fontSize: 12, color: retentionStatus.ok ? "#3f9a5c" : "var(--env-prod-fg)" }}>{retentionStatus.text}</span>}
+            </form>
           </div>
 
           <div>

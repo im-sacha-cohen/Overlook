@@ -130,3 +130,46 @@ export interface WritePreview {
   rows: number | null;
 }
 
+
+export type JournalAction =
+  | "insertRow"
+  | "updateRow"
+  | "updateRows"
+  | "deleteRows"
+  | "importRows"
+  | "createTable"
+  | "dropTables"
+  | "addColumn"
+  | "renameColumn"
+  | "changeColumnType"
+  | "dropColumn"
+  | "query"
+  | "sqlScript"
+  | "dropDatabase";
+
+/** What a journal entry keeps to show a change and, when possible, undo it. */
+export interface JournalDetails {
+  pkColumn?: string;
+  /** Rows as they were before (updates: only the changed columns and the key). */
+  before?: Row[];
+  /** Values written (inserts: the row, updates: the new values). */
+  after?: Row[];
+  /** Before/after were cut to keep the journal small. */
+  truncated?: boolean;
+}
+
+export interface JournalEntry {
+  id: number;
+  connectionId: string;
+  connectionName: string;
+  envType: EnvType;
+  at: string;
+  actor: string | null;
+  ip: string | null;
+  action: JournalAction;
+  tableName: string | null;
+  sql: string | null;
+  rows: number | null;
+  details: JournalDetails | null;
+  error: string | null;
+}

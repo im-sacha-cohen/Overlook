@@ -347,6 +347,18 @@ export class PostgresAdapter implements DatabaseAdapter {
     });
   }
 
+  async selectRowsByPk(table: string, pkColumn: string, pkValues: unknown[]): Promise<Row[]> {
+    if (pkValues.length === 0) return [];
+    assertKnownColumn(await this.getTable(table), pkColumn);
+    const client = await this.pool.connect();
+    try {
+      const placeholders = pkValues.map((_, i) => `$${i + 1}`).join(", ");
+      return (await client.query(`SELECT * FROM ${q(table)} WHERE ${q(pkColumn)} IN (${placeholders})`, pkValues)).rows;
+    } finally {
+      client.release();
+    }
+  }
+
   private async runStatements(statements: SqlStatement[]): Promise<number> {
     const client = await this.pool.connect();
     try {

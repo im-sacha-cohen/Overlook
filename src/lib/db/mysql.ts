@@ -270,6 +270,16 @@ export class MySqlAdapter implements DatabaseAdapter {
     });
   }
 
+  async selectRowsByPk(table: string, pkColumn: string, pkValues: unknown[]): Promise<Row[]> {
+    if (pkValues.length === 0) return [];
+    assertKnownColumn(await this.getTable(table), pkColumn);
+    const [rows] = await this.pool.query<mysql.RowDataPacket[]>(
+      `SELECT * FROM ${q(table)} WHERE ${q(pkColumn)} IN (${pkValues.map(() => "?").join(", ")})`,
+      pkValues,
+    );
+    return rows as Row[];
+  }
+
   private async runStatements(statements: SqlStatement[]): Promise<void> {
     for (const st of statements) await this.pool.query(st.sql, st.params);
   }

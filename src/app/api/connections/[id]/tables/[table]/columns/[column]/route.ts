@@ -2,6 +2,7 @@ import { getAdapter } from "@/lib/db/registry";
 import { getConnection } from "@/lib/store/metadata";
 import { checkConfirm } from "@/lib/api/guard";
 import { errorResponse } from "@/lib/api/respond";
+import { journaled, describeOp } from "@/lib/api/journal";
 import type { LogicalType } from "@/lib/types";
 
 type Params = { params: Promise<{ id: string; table: string; column: string }> };
@@ -13,13 +14,27 @@ export async function PATCH(request: Request, { params }: Params) {
     const conn = getConnection(id);
     if (!conn) return errorResponse(new Error("Connexion introuvable"), 404);
 
+    const tableName = decodeURIComponent(table);
+    const columnName = decodeURIComponent(column);
     if (body.newName) {
-      await getAdapter(id).renameColumn(decodeURIComponent(table), decodeURIComponent(column), body.newName);
+      const newName = body.newName;
+      await journaled(
+        request,
+        id,
+        async () => ({ action: "renameColumn", tableName, sql: await describeOp(id, { kind: "renameColumn", table: tableName, oldName: columnName, newName }) }),
+        () => getAdapter(id).renameColumn(tableName, columnName, newName),
+      );
     }
     if (body.type) {
       const guard = checkConfirm(conn, body.confirm);
       if (!guard.ok) return errorResponse(new Error(guard.error), 412);
-      await getAdapter(id).changeColumnType(decodeURIComponent(table), decodeURIComponent(column), body.type);
+      const type = body.type;
+      await journaled(
+        request,
+        id,
+        async () => ({ action: "changeColumnType", tableName, sql: await describeOp(id, { kind: "changeColumnType", table: tableName, column: columnName, type }) }),
+        () => getAdapter(id).changeColumnType(tableName, columnName, type),
+      );
     }
     return Response.json({ ok: true });
   } catch (err) {
@@ -35,7 +50,14 @@ export async function DELETE(request: Request, { params }: Params) {
     if (!conn) return errorResponse(new Error("Connexion introuvable"), 404);
     const guard = checkConfirm(conn, body.confirm);
     if (!guard.ok) return errorResponse(new Error(guard.error), 412);
-    await getAdapter(id).dropColumn(decodeURIComponent(table), decodeURIComponent(column));
+    const tableName = decodeURIComponent(table);
+    const columnName = decodeURIComponent(column);
+    await journaled(
+      request,
+      id,
+      async () => ({ action: "dropColumn", tableName, sql: await describeOp(id, { kind: "dropColumn", table: tableName, column: columnName }) }),
+      () => getAdapter(id).dropColumn(tableName, columnName),
+    );
     return Response.json({ ok: true });
   } catch (err) {
     return errorResponse(err, 500);

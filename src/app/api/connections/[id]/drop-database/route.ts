@@ -2,6 +2,7 @@ import { getConnectionSecret, deleteConnection } from "@/lib/store/metadata";
 import { invalidateConnection } from "@/lib/db/registry";
 import { dropDatabase } from "@/lib/db/databaseAdmin";
 import { errorResponse } from "@/lib/api/respond";
+import { journaled } from "@/lib/api/journal";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -18,7 +19,7 @@ export async function POST(request: Request, { params }: Params) {
       );
     }
     invalidateConnection(id);
-    await dropDatabase(conn);
+    await journaled(request, id, { action: "dropDatabase", sql: `DROP DATABASE ${conn.database};` }, () => dropDatabase(conn));
     deleteConnection(id);
     return Response.json({ ok: true });
   } catch (err) {
