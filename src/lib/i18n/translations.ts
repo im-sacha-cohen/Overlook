@@ -74,6 +74,9 @@ export const fr: Dict = {
   "connBadge.delete": "Supprimer",
   "connBadge.noConnection": "Aucune connexion",
   "connBadge.connections": "Connexions",
+  "connBadge.healthOk": "Joignable",
+  "connBadge.healthChecking": "Test de la connexion…",
+  "connBadge.healthTimeout": "Pas de réponse après 8 s",
   "connBadge.noConnectionsSaved": "Aucune connexion enregistrée.",
   "connBadge.confirmDelete": "Supprimer la connexion « {{name}} » ? (les données de la base ne sont pas touchées)",
 
@@ -460,6 +463,9 @@ export const en: Dict = {
   "connBadge.delete": "Delete",
   "connBadge.noConnection": "No connection",
   "connBadge.connections": "Connections",
+  "connBadge.healthOk": "Reachable",
+  "connBadge.healthChecking": "Testing connection…",
+  "connBadge.healthTimeout": "No answer after 8 s",
   "connBadge.noConnectionsSaved": "No saved connections.",
   "connBadge.confirmDelete": "Delete connection \"{{name}}\"? (the database itself is not affected)",
 

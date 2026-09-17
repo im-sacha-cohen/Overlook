@@ -5,6 +5,14 @@ import { EnvPill } from "./EnvPill";
 import { ENV_COLORS } from "@/lib/client/env";
 import { ENGINE_LABELS, type Connection } from "@/lib/types";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { api } from "@/lib/client/api";
+
+type Health = { state: "checking" } | { state: "ok"; at: number } | { state: "error"; at: number; message: string };
+
+// Opening the switcher pings every connection; results are reused for a short while
+// so toggling the menu doesn't hammer the databases.
+const HEALTH_TTL_MS = 30_000;
+const HEALTH_TIMEOUT_MS = 8_000;
 
 interface Props {
   connections: Connection[];
@@ -19,6 +27,27 @@ export function ConnectionBadge({ connections, activeConnection, onSwitch, onAdd
   const { t } = useLang();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const [health, setHealth] = useState<Record<string, Health>>({});
+  // Same data as `health`, readable from the effect without re-running it on every result.
+  const healthRef = useRef<Record<string, Health>>({});
+
+  useEffect(() => {
+    if (!open) return;
+    const record = (id: string, h: Health) => {
+      healthRef.current = { ...healthRef.current, [id]: h };
+      setHealth(healthRef.current);
+    };
+    const now = Date.now();
+    for (const c of connections) {
+      const h = healthRef.current[c.id];
+      if (h && (h.state === "checking" || now - h.at < HEALTH_TTL_MS)) continue;
+      record(c.id, { state: "checking" });
+      const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error(t("connBadge.healthTimeout"))), HEALTH_TIMEOUT_MS));
+      Promise.race([api.testConnection({ id: c.id }), timeout])
+        .then(() => record(c.id, { state: "ok", at: Date.now() }))
+        .catch((err) => record(c.id, { state: "error", at: Date.now(), message: err instanceof Error ? err.message : String(err) }));
+    }
+  }, [open, connections, t]);
 
   useEffect(() => {
     if (!open) return;
@@ -131,8 +160,11 @@ export function ConnectionBadge({ connections, activeConnection, onSwitch, onAdd
                   <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {c.name}
                   </div>
-                  <div style={{ fontSize: 11, color: "#a8a39a" }}>
-                    {ENGINE_LABELS[c.engine]} · {c.database}
+                  <div style={{ fontSize: 11, color: "#a8a39a", display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+                    <HealthDot health={health[c.id]} />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {ENGINE_LABELS[c.engine]} · {c.database}
+                    </span>
                   </div>
                 </div>
                 <EnvPill env={c.envType} small />
@@ -189,5 +221,27 @@ export function ConnectionBadge({ connections, activeConnection, onSwitch, onAdd
         </div>
       )}
     </div>
+  );
+}
+
+function HealthDot({ health }: { health: Health | undefined }) {
+  const { t } = useLang();
+  const state = health?.state ?? "checking";
+  const color = state === "ok" ? "#3f9a5c" : state === "error" ? "#d0453a" : "#c9c4ba";
+  const title =
+    health?.state === "ok" ? t("connBadge.healthOk") : health?.state === "error" ? health.message : t("connBadge.healthChecking");
+  return (
+    <span
+      title={title}
+      aria-label={title}
+      style={{
+        width: 6,
+        height: 6,
+        borderRadius: "50%",
+        background: color,
+        flex: "none",
+        animation: state === "checking" ? "om-pulse 1.2s ease-in-out infinite" : undefined,
+      }}
+    />
   );
 }
