@@ -6,10 +6,15 @@ import {
   assertValidIdentifier,
   filterOpToSql,
   primaryKeyOf,
+  assertCreatableType,
+  previewWithAdapter,
   type DatabaseAdapter,
   type DropTablesOptions,
   type ImportReport,
   type SelectOptions,
+  type SqlStatement,
+  type WriteOp,
+  type WritePreview,
 } from "./adapter";
 import { splitSqlStatements } from "./splitSqlStatements";
 
@@ -280,24 +285,81 @@ export class PostgresAdapter implements DatabaseAdapter {
     }
   }
 
-  async updateRows(table: string, pkColumn: string, pkValues: unknown[], values: Row): Promise<number> {
-    if (pkValues.length === 0) return 0;
-    const meta = await this.getTable(table);
-    values = coerceRowValues(meta, values);
-    const cols = Object.keys(values).filter((k) => meta.columns.some((c) => c.name === k));
-    cols.forEach((c) => assertKnownColumn(meta, c));
-    assertKnownColumn(meta, pkColumn);
-    if (cols.length === 0) return 0;
-    const setClause = cols.map((c, i) => `${q(c)} = $${i + 1}`).join(", ");
-    const pkPlaceholders = pkValues.map((_, i) => `$${cols.length + i + 1}`).join(", ");
+  async buildWrite(op: WriteOp): Promise<SqlStatement[]> {
+    switch (op.kind) {
+      case "updateRows": {
+        const meta = await this.getTable(op.table);
+        assertKnownColumn(meta, op.pkColumn);
+        const values = coerceRowValues(meta, op.values);
+        const cols = Object.keys(values).filter((k) => meta.columns.some((c) => c.name === k));
+        if (cols.length === 0 || op.pkValues.length === 0) return [];
+        const setClause = cols.map((c, i) => `${q(c)} = $${i + 1}`).join(", ");
+        const pkPlaceholders = op.pkValues.map((_, i) => `$${cols.length + i + 1}`).join(", ");
+        return [
+          {
+            sql: `UPDATE ${q(op.table)} SET ${setClause} WHERE ${q(op.pkColumn)} IN (${pkPlaceholders})`,
+            params: [...cols.map((c) => values[c]), ...op.pkValues],
+          },
+        ];
+      }
+      case "deleteRows": {
+        const meta = await this.getTable(op.table);
+        assertKnownColumn(meta, op.pkColumn);
+        if (op.pkValues.length === 0) return [];
+        const placeholders = op.pkValues.map((_, i) => `$${i + 1}`).join(", ");
+        return [{ sql: `DELETE FROM ${q(op.table)} WHERE ${q(op.pkColumn)} IN (${placeholders})`, params: op.pkValues }];
+      }
+      case "addColumn":
+        assertValidIdentifier(op.name);
+        assertCreatableType(op.type);
+        return [{ sql: `ALTER TABLE ${q(op.table)} ADD COLUMN ${q(op.name)} ${CREATABLE_TYPE_SQL[op.type]}`, params: [] }];
+      case "renameColumn": {
+        assertValidIdentifier(op.newName);
+        assertKnownColumn(await this.getTable(op.table), op.oldName);
+        return [{ sql: `ALTER TABLE ${q(op.table)} RENAME COLUMN ${q(op.oldName)} TO ${q(op.newName)}`, params: [] }];
+      }
+      case "changeColumnType": {
+        assertCreatableType(op.type);
+        assertKnownColumn(await this.getTable(op.table), op.column);
+        const sqlType = CREATABLE_TYPE_SQL[op.type];
+        return [{ sql: `ALTER TABLE ${q(op.table)} ALTER COLUMN ${q(op.column)} TYPE ${sqlType} USING ${q(op.column)}::text::${sqlType}`, params: [] }];
+      }
+      case "dropColumn": {
+        assertKnownColumn(await this.getTable(op.table), op.column);
+        return [{ sql: `ALTER TABLE ${q(op.table)} DROP COLUMN ${q(op.column)}`, params: [] }];
+      }
+      case "dropTables":
+        op.tables.forEach(assertValidIdentifier);
+        return [{ sql: `DROP TABLE ${op.tables.map(q).join(", ")}${op.ignoreForeignKeys ? " CASCADE" : ""}`, params: [] }];
+    }
+  }
+
+  previewWrite(op: WriteOp): Promise<WritePreview> {
+    return previewWithAdapter(this, op, "dollar", async (table, pkColumn, pkValues) => {
+      const placeholders = pkValues.map((_, i) => `$${i + 1}`).join(", ");
+      const client = await this.pool.connect();
+      try {
+        const res = await client.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM ${q(table)} WHERE ${q(pkColumn)} IN (${placeholders})`, pkValues);
+        return Number(res.rows[0]?.count ?? 0);
+      } finally {
+        client.release();
+      }
+    });
+  }
+
+  private async runStatements(statements: SqlStatement[]): Promise<number> {
     const client = await this.pool.connect();
     try {
-      const sql = `UPDATE ${q(table)} SET ${setClause} WHERE ${q(pkColumn)} IN (${pkPlaceholders})`;
-      const res = await client.query(sql, [...cols.map((c) => values[c]), ...pkValues]);
-      return res.rowCount ?? 0;
+      let affected = 0;
+      for (const st of statements) affected += (await client.query(st.sql, st.params)).rowCount ?? 0;
+      return affected;
     } finally {
       client.release();
     }
+  }
+
+  async updateRows(table: string, pkColumn: string, pkValues: unknown[], values: Row): Promise<number> {
+    return this.runStatements(await this.buildWrite({ kind: "updateRows", table, pkColumn, pkValues, values }));
   }
 
   async deleteRow(table: string, pkColumn: string, pkValue: unknown): Promise<void> {
@@ -312,75 +374,27 @@ export class PostgresAdapter implements DatabaseAdapter {
   }
 
   async deleteRows(table: string, pkColumn: string, pkValues: unknown[]): Promise<number> {
-    if (pkValues.length === 0) return 0;
-    const meta = await this.getTable(table);
-    assertKnownColumn(meta, pkColumn);
-    const placeholders = pkValues.map((_, i) => `$${i + 1}`).join(", ");
-    const client = await this.pool.connect();
-    try {
-      const res = await client.query(`DELETE FROM ${q(table)} WHERE ${q(pkColumn)} IN (${placeholders})`, pkValues);
-      return res.rowCount ?? 0;
-    } finally {
-      client.release();
-    }
+    return this.runStatements(await this.buildWrite({ kind: "deleteRows", table, pkColumn, pkValues }));
   }
 
   async addColumn(table: string, name: string, type: LogicalType): Promise<void> {
-    assertValidIdentifier(name);
-    if (type === "relation" || type === "unknown") throw new Error(`Cannot create a column of type ${type}`);
-    const client = await this.pool.connect();
-    try {
-      await client.query(`ALTER TABLE ${q(table)} ADD COLUMN ${q(name)} ${CREATABLE_TYPE_SQL[type]}`);
-    } finally {
-      client.release();
-    }
+    await this.runStatements(await this.buildWrite({ kind: "addColumn", table, name, type }));
   }
 
   async renameColumn(table: string, oldName: string, newName: string): Promise<void> {
-    assertValidIdentifier(newName);
-    const meta = await this.getTable(table);
-    assertKnownColumn(meta, oldName);
-    const client = await this.pool.connect();
-    try {
-      await client.query(`ALTER TABLE ${q(table)} RENAME COLUMN ${q(oldName)} TO ${q(newName)}`);
-    } finally {
-      client.release();
-    }
+    await this.runStatements(await this.buildWrite({ kind: "renameColumn", table, oldName, newName }));
   }
 
   async changeColumnType(table: string, column: string, type: LogicalType): Promise<void> {
-    if (type === "relation" || type === "unknown") throw new Error(`Cannot change to type ${type}`);
-    const meta = await this.getTable(table);
-    assertKnownColumn(meta, column);
-    const client = await this.pool.connect();
-    try {
-      await client.query(
-        `ALTER TABLE ${q(table)} ALTER COLUMN ${q(column)} TYPE ${CREATABLE_TYPE_SQL[type]} USING ${q(column)}::text::${CREATABLE_TYPE_SQL[type]}`
-      );
-    } finally {
-      client.release();
-    }
+    await this.runStatements(await this.buildWrite({ kind: "changeColumnType", table, column, type }));
   }
 
   async dropColumn(table: string, column: string): Promise<void> {
-    const meta = await this.getTable(table);
-    assertKnownColumn(meta, column);
-    const client = await this.pool.connect();
-    try {
-      await client.query(`ALTER TABLE ${q(table)} DROP COLUMN ${q(column)}`);
-    } finally {
-      client.release();
-    }
+    await this.runStatements(await this.buildWrite({ kind: "dropColumn", table, column }));
   }
 
   async dropTables(tables: string[], { ignoreForeignKeys = false }: DropTablesOptions = {}): Promise<void> {
-    tables.forEach(assertValidIdentifier);
-    const client = await this.pool.connect();
-    try {
-      await client.query(`DROP TABLE ${tables.map(q).join(", ")}${ignoreForeignKeys ? " CASCADE" : ""}`);
-    } finally {
-      client.release();
-    }
+    await this.runStatements(await this.buildWrite({ kind: "dropTables", tables, ignoreForeignKeys }));
   }
 
   async bulkInsert(table: string, rows: Row[]): Promise<number> {

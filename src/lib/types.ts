@@ -109,3 +109,24 @@ export const ENGINE_DEFAULT_PORT: Record<Engine, number | null> = {
   mysql: 3306,
   sqlite: null,
 };
+
+/** A write the UI can preview before running (and that the journal describes after). */
+export type WriteOp =
+  | { kind: "updateRows"; table: string; pkColumn: string; pkValues: unknown[]; values: Row }
+  | { kind: "deleteRows"; table: string; pkColumn: string; pkValues: unknown[] }
+  | { kind: "addColumn"; table: string; name: string; type: LogicalType }
+  | { kind: "renameColumn"; table: string; oldName: string; newName: string }
+  | { kind: "changeColumnType"; table: string; column: string; type: LogicalType }
+  | { kind: "dropColumn"; table: string; column: string }
+  | { kind: "dropTables"; tables: string[]; ignoreForeignKeys?: boolean };
+
+export interface WritePreview {
+  /** Readable SQL, parameters inlined. */
+  sql: string;
+  /**
+   * Rows concerned: matched by an update/delete, holding the values a column
+   * change or drop touches, or held by the dropped tables. null when unknown.
+   */
+  rows: number | null;
+}
+

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/client/api";
-import type { ColumnMeta, Connection, ConnectionInput, LogicalType, QueryResult, Row, RowFilter, RowSort, TableMeta } from "@/lib/types";
+import type { ColumnMeta, Connection, ConnectionInput, LogicalType, QueryResult, Row, RowFilter, RowSort, TableMeta, WriteOp } from "@/lib/types";
 import { ENV_COLORS } from "@/lib/client/env";
 import { nowForColumn, toText } from "@/lib/client/format";
 import { HistoryEntry, timeNow } from "@/lib/client/history";
@@ -34,6 +34,7 @@ import { CommandPalette, type CmdItem } from "./CommandPalette";
 import { QueryConsole } from "./QueryConsole";
 import { EquivalentSqlBar } from "./EquivalentSqlBar";
 import { SavedViewsBar } from "./SavedViewsBar";
+import { WritePreviewBox } from "./WritePreviewBox";
 import { SelectionBar } from "./SelectionBar";
 import { Pagination } from "./Pagination";
 import { ExportModal, type ExportChoice } from "./ExportModal";
@@ -58,7 +59,12 @@ interface Props {
 
 interface PendingGuard {
   label: string;
-  run: (confirm: string) => Promise<void>;
+  /** Receives the typed connection name on production, nothing elsewhere. */
+  run: (confirm?: string) => Promise<void>;
+  /** The write to preview in the dialog. */
+  op?: WriteOp;
+  /** Ask for the connection name (production). Defaults to true. */
+  requireName?: boolean;
 }
 
 let historySeq = 0;
@@ -597,14 +603,23 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
 
   // ---------- guard helper ----------
   const runGuarded = useCallback(
-    (label: string, action: (confirm?: string) => Promise<void>) => {
+    (label: string, action: (confirm?: string) => Promise<void>, op?: WriteOp) => {
       if (activeConnection && activeConnection.envType === "prod") {
-        setPendingGuard({ label, run: (confirm: string) => action(confirm) });
+        setPendingGuard({ label, op, run: action });
       } else {
         action().catch((err) => flash(err instanceof Error ? err.message : String(err)));
       }
     },
     [activeConnection, flash]
+  );
+
+  // Bulk and schema changes: always show the SQL and rows concerned first, and on
+  // production also ask for the connection name.
+  const confirmWrite = useCallback(
+    (label: string, op: WriteOp, action: (confirm?: string) => Promise<void>) => {
+      setPendingGuard({ label, op, requireName: activeConnection?.envType === "prod", run: action });
+    },
+    [activeConnection]
   );
 
   const isSchemaLocked = activeConnection?.envType === "prod" && !unlockedConnections.has(activeConnection.id);
@@ -852,7 +867,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       });
       setDetailRow(null);
       await loadRows();
-    });
+    }, { kind: "deleteRows", table: activeTable, pkColumn, pkValues: [rowId] });
   }
 
   // ---------- multi-row selection ----------
@@ -878,7 +893,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     const ids = [...selectedIds];
     if (ids.length === 0) return;
     const deletedRows = rows.filter((r) => ids.includes(String(r[pkColumn])));
-    runGuarded(t("guard.bulkDeleteRows", { count: ids.length, table: activeTable }), async (confirm) => {
+    confirmWrite(t("guard.bulkDeleteRows", { count: ids.length, table: activeTable }), { kind: "deleteRows", table: activeTable, pkColumn, pkValues: ids }, async (confirm) => {
       await api.deleteRows(activeConnectionId, activeTable, pkColumn, ids, confirm);
       pushHistory(t("toast.rowsDeleted", { count: ids.length }), async () => {
         for (const r of deletedRows) await api.insertRow(activeConnectionId, activeTable, r);
@@ -911,26 +926,14 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       flash(t("toast.rowsUpdated", { count: ids.length }));
       await loadRows();
     };
-    if (activeConnection?.envType === "prod") {
-      await new Promise<void>((resolve, reject) => {
-        setPendingGuard({
-          label: t("guard.bulkEditField", { column: col.name, count: ids.length, table: activeTable }),
-          run: async (confirm) => {
-            try {
-              await api.updateRows(activeConnectionId, activeTable, pkColumn, ids, { [col.name]: value }, confirm);
-              await finish();
-              resolve();
-            } catch (err) {
-              reject(err);
-              throw err;
-            }
-          },
-        });
-      });
-      return;
-    }
-    await api.updateRows(activeConnectionId, activeTable, pkColumn, ids, { [col.name]: value });
-    await finish();
+    confirmWrite(
+      t("guard.bulkEditField", { column: col.name, count: ids.length, table: activeTable }),
+      { kind: "updateRows", table: activeTable, pkColumn, pkValues: ids, values: { [col.name]: value } },
+      async (confirm) => {
+        await api.updateRows(activeConnectionId, activeTable, pkColumn, ids, { [col.name]: value }, confirm);
+        await finish();
+      }
+    );
   }
 
   // ---------- export ----------
@@ -1264,8 +1267,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   }
 
   // ---------- schema panel ----------
-  function requireUnlockedOrGuard(label: string, action: (confirm?: string) => Promise<void>) {
-    runGuarded(label, action);
+  function requireUnlockedOrGuard(label: string, action: (confirm?: string) => Promise<void>, op?: WriteOp) {
+    runGuarded(label, action, op);
   }
 
   async function handleCreateTable(name: string, tableColumns: { name: string; type: LogicalType }[]) {
@@ -1292,16 +1295,20 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
 
   function handleRenameColumn(oldName: string, newName: string) {
     if (!activeConnectionId || !activeTable) return;
-    requireUnlockedOrGuard(t("guard.renameColumn", { old: oldName, new: newName, table: activeTable }), async () => {
-      await api.renameColumn(activeConnectionId, activeTable, oldName, newName);
-      pushHistory(t("history.columnRenamed", { old: oldName, new: newName }));
-      await loadTables(activeConnectionId);
-    });
+    requireUnlockedOrGuard(
+      t("guard.renameColumn", { old: oldName, new: newName, table: activeTable }),
+      async () => {
+        await api.renameColumn(activeConnectionId, activeTable, oldName, newName);
+        pushHistory(t("history.columnRenamed", { old: oldName, new: newName }));
+        await loadTables(activeConnectionId);
+      },
+      { kind: "renameColumn", table: activeTable, oldName, newName }
+    );
   }
 
   function handleChangeColumnType(name: string, type: LogicalType) {
     if (!activeConnectionId || !activeTable) return;
-    requireUnlockedOrGuard(t("guard.changeColumnType", { name, type, table: activeTable }), async (confirm) => {
+    confirmWrite(t("guard.changeColumnType", { name, type, table: activeTable }), { kind: "changeColumnType", table: activeTable, column: name, type }, async (confirm) => {
       await api.changeColumnType(activeConnectionId, activeTable, name, type, confirm);
       pushHistory(t("history.columnTypeChanged", { name, type }));
       await loadTables(activeConnectionId);
@@ -1311,7 +1318,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
 
   function handleDropColumn(name: string) {
     if (!activeConnectionId || !activeTable) return;
-    requireUnlockedOrGuard(t("guard.dropColumn", { name, table: activeTable }), async (confirm) => {
+    confirmWrite(t("guard.dropColumn", { name, table: activeTable }), { kind: "dropColumn", table: activeTable, column: name }, async (confirm) => {
       await api.dropColumn(activeConnectionId, activeTable, name, confirm);
       pushHistory(t("history.columnDropped", { name }));
       await loadTables(activeConnectionId);
@@ -1370,7 +1377,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     if (activeConnection?.envType === "prod") {
       // Prod still requires typing the connection name, after the options are chosen.
       setDropTablesRequest(null);
-      setPendingGuard({ label: t("guard.bulkDropTables", { count: names.length, names: names.join(", ") }), run: drop });
+      setPendingGuard({ label: t("guard.bulkDropTables", { count: names.length, names: names.join(", ") }), op: { kind: "dropTables", tables: names, ignoreForeignKeys }, run: drop });
       return;
     }
     // Errors propagate to the dialog, which stays open to show them.
@@ -1789,6 +1796,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
         <DropTablesDialog
           names={dropTablesRequest}
           engine={activeConnection.engine}
+          connectionId={activeConnection.id}
           onConfirm={(options) => confirmDropTables(dropTablesRequest, options)}
           onCancel={() => setDropTablesRequest(null)}
         />
@@ -1797,8 +1805,11 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
         <ProdGuardDialog
           connectionName={activeConnection.name}
           actionLabel={pendingGuard.label}
+          requireName={pendingGuard.requireName ?? true}
+          danger={pendingGuard.op && ["deleteRows", "dropColumn", "dropTables"].includes(pendingGuard.op.kind)}
+          details={pendingGuard.op && <WritePreviewBox connectionId={activeConnection.id} op={pendingGuard.op} />}
           onConfirm={async () => {
-            await pendingGuard.run(activeConnection.name);
+            await pendingGuard.run((pendingGuard.requireName ?? true) ? activeConnection.name : undefined);
             setPendingGuard(null);
           }}
           onCancel={() => setPendingGuard(null)}

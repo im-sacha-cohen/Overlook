@@ -1,6 +1,20 @@
 import mysql, { type Pool } from "mysql2/promise";
 import type { Connection, ColumnMeta, LogicalType, QueryResult, Row, TableMeta } from "../types";
-import { assertKnownColumn, assertValidIdentifier, coerceRowValues, filterOpToSql, type DatabaseAdapter, type DropTablesOptions, type ImportReport, type SelectOptions } from "./adapter";
+import {
+  assertCreatableType,
+  assertKnownColumn,
+  assertValidIdentifier,
+  coerceRowValues,
+  filterOpToSql,
+  previewWithAdapter,
+  type DatabaseAdapter,
+  type DropTablesOptions,
+  type ImportReport,
+  type SelectOptions,
+  type SqlStatement,
+  type WriteOp,
+  type WritePreview,
+} from "./adapter";
 import { normalizeMysqlDateLiterals, splitSqlStatements } from "./splitSqlStatements";
 
 const CREATABLE_TYPE_SQL: Record<Exclude<LogicalType, "relation" | "unknown">, string> = {
@@ -198,6 +212,68 @@ export class MySqlAdapter implements DatabaseAdapter {
     return values;
   }
 
+  async buildWrite(op: WriteOp): Promise<SqlStatement[]> {
+    switch (op.kind) {
+      case "updateRows": {
+        const meta = await this.getTable(op.table);
+        assertKnownColumn(meta, op.pkColumn);
+        const values = coerceRowValues(meta, op.values);
+        const cols = Object.keys(values).filter((k) => meta.columns.some((c) => c.name === k));
+        if (cols.length === 0 || op.pkValues.length === 0) return [];
+        return [
+          {
+            sql: `UPDATE ${q(op.table)} SET ${cols.map((c) => `${q(c)} = ?`).join(", ")} WHERE ${q(op.pkColumn)} IN (${op.pkValues.map(() => "?").join(", ")})`,
+            params: [...cols.map((c) => values[c]), ...op.pkValues],
+          },
+        ];
+      }
+      case "deleteRows": {
+        const meta = await this.getTable(op.table);
+        assertKnownColumn(meta, op.pkColumn);
+        if (op.pkValues.length === 0) return [];
+        return [{ sql: `DELETE FROM ${q(op.table)} WHERE ${q(op.pkColumn)} IN (${op.pkValues.map(() => "?").join(", ")})`, params: op.pkValues }];
+      }
+      case "addColumn":
+        assertValidIdentifier(op.name);
+        assertCreatableType(op.type);
+        return [{ sql: `ALTER TABLE ${q(op.table)} ADD COLUMN ${q(op.name)} ${CREATABLE_TYPE_SQL[op.type]}`, params: [] }];
+      case "renameColumn": {
+        assertValidIdentifier(op.newName);
+        assertKnownColumn(await this.getTable(op.table), op.oldName);
+        return [{ sql: `ALTER TABLE ${q(op.table)} RENAME COLUMN ${q(op.oldName)} TO ${q(op.newName)}`, params: [] }];
+      }
+      case "changeColumnType": {
+        assertCreatableType(op.type);
+        assertKnownColumn(await this.getTable(op.table), op.column);
+        return [{ sql: `ALTER TABLE ${q(op.table)} MODIFY COLUMN ${q(op.column)} ${CREATABLE_TYPE_SQL[op.type]}`, params: [] }];
+      }
+      case "dropColumn": {
+        assertKnownColumn(await this.getTable(op.table), op.column);
+        return [{ sql: `ALTER TABLE ${q(op.table)} DROP COLUMN ${q(op.column)}`, params: [] }];
+      }
+      case "dropTables": {
+        op.tables.forEach(assertValidIdentifier);
+        const drop = { sql: `DROP TABLE ${op.tables.map(q).join(", ")}`, params: [] };
+        if (!op.ignoreForeignKeys) return [drop];
+        return [{ sql: "SET FOREIGN_KEY_CHECKS = 0", params: [] }, drop, { sql: "SET FOREIGN_KEY_CHECKS = 1", params: [] }];
+      }
+    }
+  }
+
+  previewWrite(op: WriteOp): Promise<WritePreview> {
+    return previewWithAdapter(this, op, "question", async (table, pkColumn, pkValues) => {
+      const [rows] = await this.pool.query<mysql.RowDataPacket[]>(
+        `SELECT COUNT(*) AS count FROM ${q(table)} WHERE ${q(pkColumn)} IN (${pkValues.map(() => "?").join(", ")})`,
+        pkValues,
+      );
+      return Number(rows[0]?.count ?? 0);
+    });
+  }
+
+  private async runStatements(statements: SqlStatement[]): Promise<void> {
+    for (const st of statements) await this.pool.query(st.sql, st.params);
+  }
+
   async updateRow(table: string, pkColumn: string, pkValue: unknown, values: Row): Promise<void> {
     const meta = await this.getTable(table);
     values = coerceRowValues(meta, values);
@@ -213,19 +289,9 @@ export class MySqlAdapter implements DatabaseAdapter {
   }
 
   async updateRows(table: string, pkColumn: string, pkValues: unknown[], values: Row): Promise<number> {
-    if (pkValues.length === 0) return 0;
-    const meta = await this.getTable(table);
-    values = coerceRowValues(meta, values);
-    const cols = Object.keys(values).filter((k) => meta.columns.some((c) => c.name === k));
-    cols.forEach((c) => assertKnownColumn(meta, c));
-    assertKnownColumn(meta, pkColumn);
-    if (cols.length === 0) return 0;
-    const setClause = cols.map((c) => `${q(c)} = ?`).join(", ");
-    const placeholders = pkValues.map(() => "?").join(", ");
-    const [result] = await this.pool.query<mysql.ResultSetHeader>(
-      `UPDATE ${q(table)} SET ${setClause} WHERE ${q(pkColumn)} IN (${placeholders})`,
-      [...cols.map((c) => values[c]), ...pkValues]
-    );
+    const [st] = await this.buildWrite({ kind: "updateRows", table, pkColumn, pkValues, values });
+    if (!st) return 0;
+    const [result] = await this.pool.query<mysql.ResultSetHeader>(st.sql, st.params);
     return result.affectedRows;
   }
 
@@ -236,41 +302,26 @@ export class MySqlAdapter implements DatabaseAdapter {
   }
 
   async deleteRows(table: string, pkColumn: string, pkValues: unknown[]): Promise<number> {
-    if (pkValues.length === 0) return 0;
-    const meta = await this.getTable(table);
-    assertKnownColumn(meta, pkColumn);
-    const placeholders = pkValues.map(() => "?").join(", ");
-    const [result] = await this.pool.query<mysql.ResultSetHeader>(
-      `DELETE FROM ${q(table)} WHERE ${q(pkColumn)} IN (${placeholders})`,
-      pkValues
-    );
+    const [st] = await this.buildWrite({ kind: "deleteRows", table, pkColumn, pkValues });
+    if (!st) return 0;
+    const [result] = await this.pool.query<mysql.ResultSetHeader>(st.sql, st.params);
     return result.affectedRows;
   }
 
   async addColumn(table: string, name: string, type: LogicalType): Promise<void> {
-    assertValidIdentifier(name);
-    if (type === "relation" || type === "unknown") throw new Error(`Cannot create a column of type ${type}`);
-    await this.pool.query(`ALTER TABLE ${q(table)} ADD COLUMN ${q(name)} ${CREATABLE_TYPE_SQL[type]}`);
+    await this.runStatements(await this.buildWrite({ kind: "addColumn", table, name, type }));
   }
 
   async renameColumn(table: string, oldName: string, newName: string): Promise<void> {
-    assertValidIdentifier(newName);
-    const meta = await this.getTable(table);
-    assertKnownColumn(meta, oldName);
-    await this.pool.query(`ALTER TABLE ${q(table)} RENAME COLUMN ${q(oldName)} TO ${q(newName)}`);
+    await this.runStatements(await this.buildWrite({ kind: "renameColumn", table, oldName, newName }));
   }
 
   async changeColumnType(table: string, column: string, type: LogicalType): Promise<void> {
-    if (type === "relation" || type === "unknown") throw new Error(`Cannot change to type ${type}`);
-    const meta = await this.getTable(table);
-    assertKnownColumn(meta, column);
-    await this.pool.query(`ALTER TABLE ${q(table)} MODIFY COLUMN ${q(column)} ${CREATABLE_TYPE_SQL[type]}`);
+    await this.runStatements(await this.buildWrite({ kind: "changeColumnType", table, column, type }));
   }
 
   async dropColumn(table: string, column: string): Promise<void> {
-    const meta = await this.getTable(table);
-    assertKnownColumn(meta, column);
-    await this.pool.query(`ALTER TABLE ${q(table)} DROP COLUMN ${q(column)}`);
+    await this.runStatements(await this.buildWrite({ kind: "dropColumn", table, column }));
   }
 
   async dropTables(tables: string[], { ignoreForeignKeys = false }: DropTablesOptions = {}): Promise<void> {

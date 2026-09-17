@@ -1,4 +1,6 @@
-import type { ColumnMeta, LogicalType, QueryResult, Row, RowFilter, RowSort, TableMeta } from "../types";
+import type { ColumnMeta, LogicalType, QueryResult, Row, RowFilter, RowSort, TableMeta, WriteOp, WritePreview } from "../types";
+
+export type { WriteOp, WritePreview };
 
 export interface SelectOptions {
   filters?: RowFilter[];
@@ -14,7 +16,15 @@ export interface ImportReport {
   failed: { statement: number; sql: string; message: string }[];
 }
 
+export interface SqlStatement {
+  sql: string;
+  params: unknown[];
+}
+
 export interface DatabaseAdapter {
+  /** The statements a write would run, without running them. */
+  buildWrite(op: WriteOp): Promise<SqlStatement[]>;
+  previewWrite(op: WriteOp): Promise<WritePreview>;
   testConnection(): Promise<void>;
   listTables(): Promise<TableMeta[]>;
   getTable(table: string): Promise<TableMeta>;
@@ -88,4 +98,53 @@ export function coerceRowValues(meta: TableMeta, values: Row): Row {
       col && value === "" && col.logicalType !== "text" && col.logicalType !== "select" ? null : value;
   }
   return out;
+}
+
+function sqlLiteral(value: unknown): string {
+  if (value === null || value === undefined) return "NULL";
+  if (typeof value === "number" || typeof value === "bigint") return String(value);
+  if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+  const text = value instanceof Date ? value.toISOString() : typeof value === "object" ? JSON.stringify(value) : String(value);
+  const shown = text.length > 200 ? `${text.slice(0, 200)}…` : text;
+  return `'${shown.replace(/'/g, "''")}'`;
+}
+
+/**
+ * Inlines parameters into a statement, for display only: `?` placeholders
+ * (MySQL, SQLite) or `$n` ones (PostgreSQL). Placeholders inside quoted
+ * identifiers can't occur since identifiers are validated.
+ */
+export function inlineParams(statement: SqlStatement, style: "question" | "dollar"): string {
+  if (statement.params.length === 0) return statement.sql;
+  if (style === "dollar") return statement.sql.replace(/\$(\d+)/g, (m, n) => (Number(n) <= statement.params.length ? sqlLiteral(statement.params[Number(n) - 1]) : m));
+  let i = 0;
+  return statement.sql.replace(/\?/g, (m) => (i < statement.params.length ? sqlLiteral(statement.params[i++]) : m));
+}
+
+export function formatStatements(statements: SqlStatement[], style: "question" | "dollar"): string {
+  return statements.map((st) => `${inlineParams(st, style)};`).join("\n");
+}
+
+/** Shared by the adapters: build the statements, then say how many rows they concern. */
+export async function previewWithAdapter(
+  adapter: DatabaseAdapter,
+  op: WriteOp,
+  style: "question" | "dollar",
+  countByPk: (table: string, pkColumn: string, pkValues: unknown[]) => Promise<number>,
+): Promise<WritePreview> {
+  const statements = await adapter.buildWrite(op);
+  let rows: number | null = null;
+  if (op.kind === "updateRows" || op.kind === "deleteRows") {
+    rows = op.pkValues.length === 0 ? 0 : await countByPk(op.table, op.pkColumn, op.pkValues);
+  } else if (op.kind === "changeColumnType" || op.kind === "dropColumn") {
+    rows = (await adapter.getTable(op.table)).rowCount ?? null;
+  } else if (op.kind === "dropTables") {
+    const metas = await Promise.all(op.tables.map((t) => adapter.getTable(t)));
+    rows = metas.reduce((sum, m) => sum + (m.rowCount ?? 0), 0);
+  }
+  return { sql: formatStatements(statements, style), rows };
+}
+
+export function assertCreatableType(type: LogicalType): asserts type is Exclude<LogicalType, "relation" | "unknown"> {
+  if (type === "relation" || type === "unknown") throw new Error(`Cannot use a column of type ${type}`);
 }

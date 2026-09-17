@@ -3,15 +3,17 @@
 import { useState } from "react";
 import type { Engine } from "@/lib/types";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { WritePreviewBox } from "./WritePreviewBox";
 
 interface Props {
   names: string[];
   engine: Engine;
+  connectionId: string;
   onConfirm: (options: { ignoreForeignKeys: boolean }) => Promise<void>;
   onCancel: () => void;
 }
 
-export function DropTablesDialog({ names, engine, onConfirm, onCancel }: Props) {
+export function DropTablesDialog({ names, engine, connectionId, onConfirm, onCancel }: Props) {
   const { t } = useLang();
   const [ignoreForeignKeys, setIgnoreForeignKeys] = useState(false);
   const [running, setRunning] = useState(false);
@@ -60,6 +62,8 @@ export function DropTablesDialog({ names, engine, onConfirm, onCancel }: Props) 
             </label>
             <div style={{ fontSize: 12, color: "#8b877e", marginTop: 6, lineHeight: 1.5 }}>{t(`dropTables.ignoreForeignKeysHint.${engine}`)}</div>
           </div>
+
+          <WritePreviewBox connectionId={connectionId} op={{ kind: "dropTables", tables: names, ignoreForeignKeys }} />
 
           {error && (
             <div style={{ padding: "8px 10px", borderRadius: 8, fontSize: 12.5, background: "var(--env-prod-bg)", color: "var(--env-prod-fg)", border: "1px solid var(--env-prod-border)", lineHeight: 1.5 }}>

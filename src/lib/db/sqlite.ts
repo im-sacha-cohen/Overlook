@@ -1,6 +1,19 @@
 import Database from "better-sqlite3";
 import type { Connection, ColumnMeta, LogicalType, QueryResult, Row, TableMeta } from "../types";
-import { assertKnownColumn, assertValidIdentifier, filterOpToSql, type DatabaseAdapter, type DropTablesOptions, type ImportReport, type SelectOptions } from "./adapter";
+import {
+  assertCreatableType,
+  assertKnownColumn,
+  assertValidIdentifier,
+  filterOpToSql,
+  previewWithAdapter,
+  type DatabaseAdapter,
+  type DropTablesOptions,
+  type ImportReport,
+  type SelectOptions,
+  type SqlStatement,
+  type WriteOp,
+  type WritePreview,
+} from "./adapter";
 import { splitSqlStatements } from "./splitSqlStatements";
 
 const CREATABLE_TYPE_SQL: Record<Exclude<LogicalType, "relation" | "unknown">, string> = {
@@ -172,19 +185,90 @@ export class SqliteAdapter implements DatabaseAdapter {
       .run(...cols.map((c) => coerceParam(values[c])), coerceParam(pkValue));
   }
 
+  async buildWrite(op: WriteOp): Promise<SqlStatement[]> {
+    switch (op.kind) {
+      case "updateRows": {
+        const meta = await this.getTable(op.table);
+        assertKnownColumn(meta, op.pkColumn);
+        const cols = Object.keys(op.values).filter((k) => meta.columns.some((c) => c.name === k));
+        if (cols.length === 0 || op.pkValues.length === 0) return [];
+        return [
+          {
+            sql: `UPDATE ${q(op.table)} SET ${cols.map((c) => `${q(c)} = ?`).join(", ")} WHERE ${q(op.pkColumn)} IN (${op.pkValues.map(() => "?").join(", ")})`,
+            params: [...cols.map((c) => coerceParam(op.values[c])), ...op.pkValues.map(coerceParam)],
+          },
+        ];
+      }
+      case "deleteRows": {
+        const meta = await this.getTable(op.table);
+        assertKnownColumn(meta, op.pkColumn);
+        if (op.pkValues.length === 0) return [];
+        return [{ sql: `DELETE FROM ${q(op.table)} WHERE ${q(op.pkColumn)} IN (${op.pkValues.map(() => "?").join(", ")})`, params: op.pkValues.map(coerceParam) }];
+      }
+      case "addColumn":
+        assertValidIdentifier(op.name);
+        assertCreatableType(op.type);
+        return [{ sql: `ALTER TABLE ${q(op.table)} ADD COLUMN ${q(op.name)} ${CREATABLE_TYPE_SQL[op.type]}`, params: [] }];
+      case "renameColumn": {
+        assertValidIdentifier(op.newName);
+        assertKnownColumn(await this.getTable(op.table), op.oldName);
+        return [{ sql: `ALTER TABLE ${q(op.table)} RENAME COLUMN ${q(op.oldName)} TO ${q(op.newName)}`, params: [] }];
+      }
+      case "changeColumnType": {
+        // SQLite can't alter a column's type: rebuild the table around it.
+        assertCreatableType(op.type);
+        const meta = await this.getTable(op.table);
+        assertKnownColumn(meta, op.column);
+        const sqlType = CREATABLE_TYPE_SQL[op.type];
+        const tmpName = `${op.table}__overlook_tmp`;
+        const colDefs = meta.columns
+          .map((c) => {
+            const type = c.name === op.column ? sqlType : c.nativeType || "TEXT";
+            return `${q(c.name)} ${type}${c.isPrimaryKey ? " PRIMARY KEY" : ""}${c.nullable ? "" : " NOT NULL"}`;
+          })
+          .join(", ");
+        const colNames = meta.columns.map((c) => q(c.name)).join(", ");
+        const selectExprs = meta.columns.map((c) => (c.name === op.column ? `CAST(${q(c.name)} AS ${sqlType})` : q(c.name))).join(", ");
+        return [
+          { sql: `CREATE TABLE ${q(tmpName)} (${colDefs})`, params: [] },
+          { sql: `INSERT INTO ${q(tmpName)} (${colNames}) SELECT ${selectExprs} FROM ${q(op.table)}`, params: [] },
+          { sql: `DROP TABLE ${q(op.table)}`, params: [] },
+          { sql: `ALTER TABLE ${q(tmpName)} RENAME TO ${q(op.table)}`, params: [] },
+        ];
+      }
+      case "dropColumn": {
+        assertKnownColumn(await this.getTable(op.table), op.column);
+        return [{ sql: `ALTER TABLE ${q(op.table)} DROP COLUMN ${q(op.column)}`, params: [] }];
+      }
+      case "dropTables": {
+        op.tables.forEach(assertValidIdentifier);
+        const drops = this.dropOrder(op.tables).map((table) => ({ sql: `DROP TABLE ${q(table)}`, params: [] }));
+        if (!op.ignoreForeignKeys) return drops;
+        return [{ sql: "PRAGMA foreign_keys = OFF", params: [] }, ...drops, { sql: "PRAGMA foreign_keys = ON", params: [] }];
+      }
+    }
+  }
+
+  previewWrite(op: WriteOp): Promise<WritePreview> {
+    return previewWithAdapter(this, op, "question", async (table, pkColumn, pkValues) => {
+      const row = this.db
+        .prepare(`SELECT COUNT(*) AS count FROM ${q(table)} WHERE ${q(pkColumn)} IN (${pkValues.map(() => "?").join(", ")})`)
+        .get(...pkValues.map(coerceParam)) as { count: number };
+      return row.count;
+    });
+  }
+
+  /** Runs the statements in one transaction and returns the rows changed. */
+  private runStatements(statements: SqlStatement[]): number {
+    let changes = 0;
+    this.db.transaction(() => {
+      for (const st of statements) changes += this.db.prepare(st.sql).run(...st.params).changes;
+    })();
+    return changes;
+  }
+
   async updateRows(table: string, pkColumn: string, pkValues: unknown[], values: Row): Promise<number> {
-    if (pkValues.length === 0) return 0;
-    const meta = await this.getTable(table);
-    const cols = Object.keys(values).filter((k) => meta.columns.some((c) => c.name === k));
-    cols.forEach((c) => assertKnownColumn(meta, c));
-    assertKnownColumn(meta, pkColumn);
-    if (cols.length === 0) return 0;
-    const setClause = cols.map((c) => `${q(c)} = ?`).join(", ");
-    const placeholders = pkValues.map(() => "?").join(", ");
-    const info = this.db
-      .prepare(`UPDATE ${q(table)} SET ${setClause} WHERE ${q(pkColumn)} IN (${placeholders})`)
-      .run(...cols.map((c) => coerceParam(values[c])), ...pkValues.map(coerceParam));
-    return info.changes;
+    return this.runStatements(await this.buildWrite({ kind: "updateRows", table, pkColumn, pkValues, values }));
   }
 
   async deleteRow(table: string, pkColumn: string, pkValue: unknown): Promise<void> {
@@ -194,59 +278,23 @@ export class SqliteAdapter implements DatabaseAdapter {
   }
 
   async deleteRows(table: string, pkColumn: string, pkValues: unknown[]): Promise<number> {
-    if (pkValues.length === 0) return 0;
-    const meta = await this.getTable(table);
-    assertKnownColumn(meta, pkColumn);
-    const placeholders = pkValues.map(() => "?").join(", ");
-    const info = this.db
-      .prepare(`DELETE FROM ${q(table)} WHERE ${q(pkColumn)} IN (${placeholders})`)
-      .run(...pkValues.map(coerceParam));
-    return info.changes;
+    return this.runStatements(await this.buildWrite({ kind: "deleteRows", table, pkColumn, pkValues }));
   }
 
   async addColumn(table: string, name: string, type: LogicalType): Promise<void> {
-    assertValidIdentifier(name);
-    if (type === "relation" || type === "unknown") throw new Error(`Cannot create a column of type ${type}`);
-    this.db.exec(`ALTER TABLE ${q(table)} ADD COLUMN ${q(name)} ${CREATABLE_TYPE_SQL[type]}`);
+    this.runStatements(await this.buildWrite({ kind: "addColumn", table, name, type }));
   }
 
   async renameColumn(table: string, oldName: string, newName: string): Promise<void> {
-    assertValidIdentifier(newName);
-    const meta = await this.getTable(table);
-    assertKnownColumn(meta, oldName);
-    this.db.exec(`ALTER TABLE ${q(table)} RENAME COLUMN ${q(oldName)} TO ${q(newName)}`);
+    this.runStatements(await this.buildWrite({ kind: "renameColumn", table, oldName, newName }));
   }
 
   async changeColumnType(table: string, column: string, type: LogicalType): Promise<void> {
-    if (type === "relation" || type === "unknown") throw new Error(`Cannot change to type ${type}`);
-    const meta = await this.getTable(table);
-    assertKnownColumn(meta, column);
-    const tmpName = `${table}__overlook_tmp`;
-    const colDefs = meta.columns
-      .map((c) => {
-        const sqlType = c.name === column ? CREATABLE_TYPE_SQL[type] : c.nativeType || "TEXT";
-        const notnull = c.nullable ? "" : " NOT NULL";
-        const pk = c.isPrimaryKey ? " PRIMARY KEY" : "";
-        return `${q(c.name)} ${sqlType}${pk}${notnull}`;
-      })
-      .join(", ");
-    const colNames = meta.columns.map((c) => q(c.name)).join(", ");
-    const selectExprs = meta.columns
-      .map((c) => (c.name === column ? `CAST(${q(c.name)} AS ${CREATABLE_TYPE_SQL[type]})` : q(c.name)))
-      .join(", ");
-    const txn = this.db.transaction(() => {
-      this.db.exec(`CREATE TABLE ${q(tmpName)} (${colDefs})`);
-      this.db.exec(`INSERT INTO ${q(tmpName)} (${colNames}) SELECT ${selectExprs} FROM ${q(table)}`);
-      this.db.exec(`DROP TABLE ${q(table)}`);
-      this.db.exec(`ALTER TABLE ${q(tmpName)} RENAME TO ${q(table)}`);
-    });
-    txn();
+    this.runStatements(await this.buildWrite({ kind: "changeColumnType", table, column, type }));
   }
 
   async dropColumn(table: string, column: string): Promise<void> {
-    const meta = await this.getTable(table);
-    assertKnownColumn(meta, column);
-    this.db.exec(`ALTER TABLE ${q(table)} DROP COLUMN ${q(column)}`);
+    this.runStatements(await this.buildWrite({ kind: "dropColumn", table, column }));
   }
 
   // SQLite drops one table per statement and checks foreign keys on each, so a

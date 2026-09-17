@@ -9,6 +9,8 @@ import type {
   RowSort,
   SavedQuery,
   TableMeta,
+  WriteOp,
+  WritePreview,
 } from "../types";
 import type { ConnectionBundle } from "../connectionBundle";
 import type { ConnectionPrefs, TablePrefs } from "../prefs";
@@ -218,6 +220,8 @@ export const api = {
       body: JSON.stringify({ sql, allowWrite, confirm }),
     }),
 
+  previewWrite: (connectionId: string, op: WriteOp) =>
+    request<WritePreview>(`/api/connections/${connectionId}/preview`, { method: "POST", body: JSON.stringify(op) }),
   listSavedQueries: (connectionId: string) => request<{ queries: SavedQuery[] }>(`/api/connections/${connectionId}/saved-queries`),
   createSavedQuery: (connectionId: string, name: string, sql: string) =>
     request<{ query: SavedQuery }>(`/api/connections/${connectionId}/saved-queries`, {
