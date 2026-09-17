@@ -2,15 +2,22 @@
 
 import { useEffect, useRef, useState } from "react";
 
+// Modifier glyphs are tiny or missing in the mono font: drawn instead.
+const KEY_ICONS: Record<string, React.ReactNode> = {
+  "⇧": <path d="M8 2.5 3 8h3v5.5h4V8h3z" />,
+  "⌫": <path d="M6 3.5h7.5v9H6L2 8zM8 6l3.5 4M11.5 6 8 10" />,
+};
+
 // A key cap, e.g. <Kbd>F</Kbd>.
 export function Kbd({ children, dark }: { children: React.ReactNode; dark?: boolean }) {
+  const icon = typeof children === "string" ? KEY_ICONS[children] : undefined;
   return (
     <kbd
       style={{
         display: "inline-grid",
         placeItems: "center",
-        minWidth: 17,
-        height: 17,
+        minWidth: 18,
+        height: 18,
         padding: "0 4px",
         borderRadius: 4,
         fontFamily: "var(--font-mono)",
@@ -21,7 +28,13 @@ export function Kbd({ children, dark }: { children: React.ReactNode; dark?: bool
         color: dark ? "#fff" : "#8b877e",
       }}
     >
-      {children}
+      {icon ? (
+        <svg aria-label={String(children)} width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round">
+          {icon}
+        </svg>
+      ) : (
+        children
+      )}
     </kbd>
   );
 }
