@@ -125,6 +125,7 @@ export const fr: Dict = {
   "connBadge.confirmDelete": "Supprimer la connexion « {{name}} » ? (les données de la base ne sont pas touchées)",
 
   "connTabs.close": "Fermer l'onglet",
+  "connTabs.open": "Ouvrir une connexion",
 
   "pagination.previous": "‹ Précédent",
   "pagination.next": "Suivant ›",
@@ -641,6 +642,7 @@ export const en: Dict = {
   "connBadge.confirmDelete": "Delete connection \"{{name}}\"? (the database itself is not affected)",
 
   "connTabs.close": "Close tab",
+  "connTabs.open": "Open a connection",
 
   "pagination.previous": "‹ Previous",
   "pagination.next": "Next ›",

@@ -1586,6 +1586,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
         activeTabId={activeTabId}
         onSwitch={switchToTab}
         onClose={closeTab}
+        onOpenConnection={switchToConnection}
+        onAddConnection={() => { setEditingConnectionId(null); setConnectionFormOpen(true); }}
       />
 
       <TopBar

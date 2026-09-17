@@ -130,3 +130,21 @@ button {
     opacity: 0.35;
   }
 }
+
+/* Connection lists: actions show on hover so rows stay readable. */
+.om-conn-row:hover,
+.om-conn-row[data-active] {
+  background: #f4f2ed;
+}
+.om-conn-row .om-conn-actions {
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+.om-conn-row:hover .om-conn-actions,
+.om-conn-row:focus-within .om-conn-actions {
+  opacity: 1;
+}
+.om-conn-row .om-conn-actions button:hover {
+  background: #e9e6df;
+  color: var(--fg);
+}

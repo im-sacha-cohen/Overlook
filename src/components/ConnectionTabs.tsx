@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { ENV_COLORS } from "@/lib/client/env";
+import { ConnectionMenu } from "./ConnectionMenu";
 import type { Connection } from "@/lib/types";
 import type { ViewKind } from "./TableToolbar";
 import { useLang } from "@/lib/i18n/LanguageProvider";
@@ -20,10 +22,36 @@ interface Props {
   activeTabId: string | null;
   onSwitch: (tabId: string) => void;
   onClose: (tabId: string) => void;
+  /** Opens a connection in a tab (or focuses the tab it already has). */
+  onOpenConnection: (connectionId: string) => void;
+  onAddConnection: () => void;
 }
 
-export function ConnectionTabs({ tabs, connections, activeTabId, onSwitch, onClose }: Props) {
+export function ConnectionTabs({ tabs, connections, activeTabId, onSwitch, onClose, onOpenConnection, onAddConnection }: Props) {
   const { t } = useLang();
+  // The tab strip scrolls horizontally, so the menu is placed on the page, under the button.
+  const [menuAt, setMenuAt] = useState<{ left: number; top: number } | null>(null);
+  const plusRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuAt) return;
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (!menuRef.current?.contains(target) && !plusRef.current?.contains(target)) setMenuAt(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuAt(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuAt]);
+
+  const activeConnectionId = tabs.find((tab) => tab.tabId === activeTabId)?.connectionId ?? null;
   const resolved = tabs
     .map((tab) => {
       const conn = connections.find((c) => c.id === tab.connectionId);
@@ -105,6 +133,53 @@ export function ConnectionTabs({ tabs, connections, activeTabId, onSwitch, onClo
           </div>
         );
       })}
+      <button
+        ref={plusRef}
+        onClick={() => {
+          if (menuAt) return setMenuAt(null);
+          const rect = plusRef.current!.getBoundingClientRect();
+          setMenuAt({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 348)), top: rect.bottom + 4 });
+        }}
+        title={t("connTabs.open")}
+        aria-label={t("connTabs.open")}
+        style={{
+          flex: "none",
+          width: 26,
+          height: 26,
+          margin: "0 0 4px 4px",
+          display: "grid",
+          placeItems: "center",
+          background: menuAt ? "#e9e6df" : "transparent",
+          border: "none",
+          borderRadius: 7,
+          color: "#8b877e",
+          fontSize: 17,
+          lineHeight: 1,
+          cursor: "pointer",
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = "#e9e6df")}
+        onMouseLeave={(e) => {
+          if (!menuAt) e.currentTarget.style.background = "transparent";
+        }}
+      >
+        +
+      </button>
+      {menuAt && (
+        <div ref={menuRef} style={{ position: "fixed", left: menuAt.left, top: menuAt.top, zIndex: 50 }}>
+          <ConnectionMenu
+            connections={connections}
+            activeId={activeConnectionId}
+            onPick={(id) => {
+              setMenuAt(null);
+              onOpenConnection(id);
+            }}
+            onAddNew={() => {
+              setMenuAt(null);
+              onAddConnection();
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }
