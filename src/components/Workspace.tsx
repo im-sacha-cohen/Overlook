@@ -784,6 +784,35 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     setEditValue(toText(row[col.name]));
   }
 
+  function handlePasteCells(updates: { row: Row; values: Row }[]) {
+    if (!activeConnectionId || !activeTable || !pkColumn) return flash(t("toast.noPrimaryKey"));
+    const connectionId = activeConnectionId;
+    const table = activeTable;
+    const pk = pkColumn;
+    const cells = updates.reduce((n, u) => n + Object.keys(u.values).length, 0);
+    const run = async () => {
+      const previous = updates.map((u) => ({ id: u.row[pk] as string | number, values: Object.fromEntries(Object.keys(u.values).map((k) => [k, u.row[k]])) }));
+      for (const u of updates) await api.updateRow(connectionId, table, u.row[pk] as string | number, pk, u.values);
+      const undo = async () => {
+        for (const p of previous) await api.updateRow(connectionId, table, p.id, pk, p.values);
+        await loadRows();
+      };
+      pushHistory(t("history.cellsPasted", { count: cells }), undo);
+      showSaveIndicator(undo);
+      await loadRows();
+    };
+    // A single cell is an ordinary edit; a block gets a confirmation first.
+    if (cells === 1) {
+      run().catch((err) => flash(err instanceof Error ? err.message : String(err)));
+      return;
+    }
+    setPendingGuard({
+      label: t("guard.pasteCells", { cells, rows: updates.length, table }),
+      requireName: activeConnection?.envType === "prod",
+      run,
+    });
+  }
+
   async function commitFieldChange(row: Row, colName: string, value: unknown) {
     if (!activeConnectionId || !activeTable || !pkColumn) return;
     const rowId = row[pkColumn] as string | number;
@@ -1719,6 +1748,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                     getRelationLabel={getRelationLabel}
                     onEditRelation={(row, col, value) => commitFieldChange(row, col.name, value)}
                     onEditDate={(row, col, value) => commitFieldChange(row, col.name, value)}
+                    onPasteCells={handlePasteCells}
+                    onCellsCopied={(count) => flash(t("toast.cellsCopied", { count }))}
                   />
                 )}
                 {rowsEntry && view === "board" && (

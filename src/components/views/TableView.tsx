@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ColumnMeta, Row, RowSort } from "@/lib/types";
 import { formatValue, iconFor, pillStyle, toText } from "@/lib/client/format";
 import { groupRows } from "@/lib/client/group";
+import { parseTsv, pastedValue, toTsv } from "@/lib/client/cellClipboard";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 import { DateField } from "../DateField";
 import { RelationField } from "../RelationField";
@@ -38,6 +39,14 @@ interface Props {
   getRelationLabel: (col: ColumnMeta, row: Row) => string;
   onEditRelation: (row: Row, col: ColumnMeta, value: unknown) => void;
   onEditDate: (row: Row, col: ColumnMeta, value: string | null) => void;
+  /** Cells pasted over a selection: one entry per row, with the values that fit their column. */
+  onPasteCells: (updates: { row: Row; values: Row }[]) => void;
+  onCellsCopied: (count: number) => void;
+}
+
+interface CellPos {
+  r: number;
+  c: number;
 }
 
 const DEFAULT_WIDTH = 160;
@@ -73,6 +82,8 @@ export function TableView({
   getRelationLabel,
   onEditRelation,
   onEditDate,
+  onPasteCells,
+  onCellsCopied,
 }: Props) {
   const { t, lang } = useLang();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -82,6 +93,12 @@ export function TableView({
   const [relCtxMenu, setRelCtxMenu] = useState<{ x: number; y: number; col: ColumnMeta; value: unknown; row: Row } | null>(null);
   const dragState = useRef<{ colName: string; startX: number; startWidth: number } | null>(null);
   const relCtxMenuRef = useRef<HTMLDivElement>(null);
+  // Cell range for copy/paste: drag across cells, or Shift-click from the last clicked one.
+  const [range, setRange] = useState<{ anchor: CellPos; focus: CellPos } | null>(null);
+  const pressRef = useRef<CellPos | null>(null);
+  const anchorRef = useRef<CellPos | null>(null);
+  const suppressClickRef = useRef(false);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!relCtxMenu) return;
@@ -100,6 +117,96 @@ export function TableView({
   }, [relCtxMenu]);
 
   const groups = groupRows(rows, groupByColumn);
+  // Rows in the order they're drawn, which is what a range covers.
+  const visibleRows = groups.flatMap((g) => (collapsed.has(g.key) ? [] : g.rows));
+  const visibleIndex = new Map(visibleRows.map((r, i) => [r, i]));
+  const bounds = range
+    ? {
+        r0: Math.min(range.anchor.r, range.focus.r),
+        r1: Math.max(range.anchor.r, range.focus.r),
+        c0: Math.min(range.anchor.c, range.focus.c),
+        c1: Math.max(range.anchor.c, range.focus.c),
+      }
+    : null;
+  const inRange = (r: number, c: number) => !!bounds && r >= bounds.r0 && r <= bounds.r1 && c >= bounds.c0 && c <= bounds.c1;
+
+  // The latest values for the document listeners below.
+  const clipboardState = useRef({ bounds, visibleRows, columns, onPasteCells, onCellsCopied });
+  useEffect(() => {
+    clipboardState.current = { bounds, visibleRows, columns, onPasteCells, onCellsCopied };
+  });
+
+  useEffect(() => {
+    if (!range) return;
+    const typing = () => {
+      const el = document.activeElement;
+      return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || (el instanceof HTMLElement && el.isContentEditable);
+    };
+    const onCopy = (e: ClipboardEvent) => {
+      const { bounds: b, visibleRows: vr, columns: cols, onCellsCopied: copied } = clipboardState.current;
+      if (!b || typing() || !e.clipboardData) return;
+      const matrix: string[][] = [];
+      for (let r = b.r0; r <= b.r1; r++) {
+        const row = vr[r];
+        if (!row) continue;
+        matrix.push(cols.slice(b.c0, b.c1 + 1).map((c) => (row[c.name] === null || row[c.name] === undefined ? "" : toText(row[c.name]))));
+      }
+      e.clipboardData.setData("text/plain", toTsv(matrix));
+      e.preventDefault();
+      copied(matrix.length * (b.c1 - b.c0 + 1));
+    };
+    const onPaste = (e: ClipboardEvent) => {
+      const { bounds: b, visibleRows: vr, columns: cols, onPasteCells: paste } = clipboardState.current;
+      if (!b || typing() || !e.clipboardData) return;
+      const matrix = parseTsv(e.clipboardData.getData("text/plain"));
+      if (matrix.length === 0) return;
+      e.preventDefault();
+      // One value over a larger selection fills it; otherwise the block starts at its top-left cell.
+      const fill = matrix.length === 1 && matrix[0].length === 1;
+      const height = fill ? b.r1 - b.r0 + 1 : matrix.length;
+      const width = fill ? b.c1 - b.c0 + 1 : Math.max(...matrix.map((m) => m.length));
+      const updates: { row: Row; values: Row }[] = [];
+      for (let i = 0; i < height; i++) {
+        const row = vr[b.r0 + i];
+        if (!row) break;
+        const values: Row = {};
+        for (let j = 0; j < width; j++) {
+          const col = cols[b.c0 + j];
+          const text = fill ? matrix[0][0] : matrix[i]?.[j];
+          if (!col || text === undefined || col.isPrimaryKey) continue;
+          const value = pastedValue(text, col);
+          if (value !== undefined) values[col.name] = value;
+        }
+        if (Object.keys(values).length > 0) updates.push({ row, values });
+      }
+      if (updates.length > 0) paste(updates);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setRange(null);
+    };
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setRange(null);
+    };
+    document.addEventListener("copy", onCopy);
+    document.addEventListener("paste", onPaste);
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    return () => {
+      document.removeEventListener("copy", onCopy);
+      document.removeEventListener("paste", onPaste);
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onDown);
+    };
+  }, [range]);
+
+  useEffect(() => {
+    const onUp = () => {
+      pressRef.current = null;
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("mouseup", onUp);
+    return () => document.removeEventListener("mouseup", onUp);
+  }, []);
   const selectCol = pkColumn ? "30px " : "";
   const widthFor = (name: string) => liveWidths[name] ?? columnWidths[name] ?? DEFAULT_WIDTH;
   const gridCols = `${selectCol}30px ${columns.map((c) => `${widthFor(c.name)}px`).join(" ")} 1fr`;
@@ -147,7 +254,7 @@ export function TableView({
   }
 
   return (
-    <div data-clarity-mask="true" style={{ minWidth: "100%", display: "inline-block" }}>
+    <div ref={rootRef} data-clarity-mask="true" style={{ minWidth: "100%", display: "inline-block" }}>
       <div
         style={{
           display: "grid",
@@ -333,15 +440,41 @@ export function TableView({
                     >
                       ⤢
                     </div>
-                    {columns.map((c) => {
+                    {columns.map((c, colIndex) => {
                       const raw = row[c.name];
+                      const pos = { r: visibleIndex.get(row) ?? -1, c: colIndex };
+                      const selected = inRange(pos.r, pos.c);
                       const isEdit = !!editing && editing.rowId === rowId && editing.column === c.name;
                       const hoverKey = `${rowId}:${c.name}`;
                       const isRelation = c.logicalType === "relation";
                       return (
                         <div
                           key={c.name}
+                          onMouseDown={(e) => {
+                            if (e.button !== 0 || isEdit) return;
+                            if (e.shiftKey && anchorRef.current) {
+                              e.preventDefault();
+                              suppressClickRef.current = true;
+                              setRange({ anchor: anchorRef.current, focus: pos });
+                              return;
+                            }
+                            pressRef.current = pos;
+                            anchorRef.current = pos;
+                            if (range) setRange(null);
+                          }}
+                          onMouseMove={(e) => {
+                            const press = pressRef.current;
+                            if (!press || (e.buttons & 1) === 0 || (press.r === pos.r && press.c === pos.c)) return;
+                            suppressClickRef.current = true;
+                            document.body.style.userSelect = "none";
+                            window.getSelection()?.removeAllRanges();
+                            if (!range || range.focus.r !== pos.r || range.focus.c !== pos.c) setRange({ anchor: press, focus: pos });
+                          }}
                           onClick={() => {
+                            if (suppressClickRef.current) {
+                              suppressClickRef.current = false;
+                              return;
+                            }
                             if (isEdit) return;
                             isRelation ? onNavigateRelation(c, raw, row) : onCellClick(row, c);
                           }}
@@ -371,6 +504,8 @@ export function TableView({
                             padding: "9px 10px",
                             fontSize: 13.5,
                             borderRight: "1px solid #f2f0ea",
+                            background: selected ? "var(--accent-bg)" : undefined,
+                            boxShadow: selected ? "inset 0 0 0 1px var(--accent-border)" : undefined,
                             cursor: c.logicalType === "unknown" ? "default" : isRelation ? "pointer" : "text",
                           }}
                         >

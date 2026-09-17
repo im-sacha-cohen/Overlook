@@ -337,6 +337,9 @@ export const fr: Dict = {
   "history.columnDropped": "Colonne « {{name}} » supprimée",
   "history.csvImported": "{{count}} lignes importées depuis un CSV",
   "history.queryWrite": "Requête exécutée (écriture)",
+  "history.cellsPasted": "{{count}} cellule(s) collée(s)",
+  "toast.cellsCopied": "{{count}} cellule(s) copiée(s)",
+  "guard.pasteCells": "Coller {{cells}} cellule(s) sur {{rows}} ligne(s) de « {{table}} » ?",
 
   "cmdPalette.newTable": "Nouvelle table",
   "cmdPalette.tableTagShort": "table",
@@ -792,6 +795,9 @@ export const en: Dict = {
   "history.columnDropped": "Column \"{{name}}\" dropped",
   "history.csvImported": "{{count}} rows imported from a CSV",
   "history.queryWrite": "Query run (write)",
+  "history.cellsPasted": "{{count}} cell(s) pasted",
+  "toast.cellsCopied": "{{count}} cell(s) copied",
+  "guard.pasteCells": "Paste {{cells}} cell(s) over {{rows}} row(s) of \"{{table}}\"?",
 
   "cmdPalette.newTable": "New table",
   "cmdPalette.tableTagShort": "table",
