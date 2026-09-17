@@ -24,10 +24,12 @@ interface Props {
   ariaLabel?: string;
   /** Overrides for the field, e.g. a bordered look in the toolbar. */
   inputStyle?: React.CSSProperties;
+  /** What the list should match: "" when it opens, then what is typed (allowCustom keeps the value meanwhile). */
+  onQueryChange?: (query: string) => void;
 }
 
 // A select you can type into: the input filters the list, arrows move, Enter picks.
-export function Combobox({ value, options, onChange, allowCustom, filterOptions = true, placeholder, width = 120, autoFocus, style, ariaLabel, inputStyle }: Props) {
+export function Combobox({ value, options, onChange, allowCustom, filterOptions = true, placeholder, width = 120, autoFocus, style, ariaLabel, inputStyle, onQueryChange }: Props) {
   const { t } = useLang();
   const listId = useId();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -67,6 +69,10 @@ export function Combobox({ value, options, onChange, allowCustom, filterOptions 
     const idx = options.findIndex((o) => o.value === value);
     setActive(Math.max(0, allowCustom ? 0 : idx));
     setOpen(true);
+    // Opening shows every suggestion, not only those matching the current value;
+    // the text is selected so typing starts a new search.
+    onQueryChange?.("");
+    if (allowCustom) requestAnimationFrame(() => inputRef.current?.select());
   }
 
   function close() {
@@ -126,6 +132,7 @@ export function Combobox({ value, options, onChange, allowCustom, filterOptions 
           setActive(0);
           if (!open) setOpen(true);
           if (allowCustom) onChange(e.target.value);
+          onQueryChange?.(e.target.value);
         }}
         onKeyDown={onKeyDown}
         style={{

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ColumnMeta, FilterGroup, FilterMatch, Row, RowFilter, RowSort, TableMeta } from "@/lib/types";
+import type { ColumnMeta, FilterGroup, FilterMatch, Row, RowFilter, RowQuery, RowSort, TableMeta } from "@/lib/types";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 import { Combobox, MultiCombobox, type ComboOption } from "./Combobox";
 import { EquivalentSqlBar } from "./EquivalentSqlBar";
@@ -37,7 +37,7 @@ interface Props {
   /** Rows the view would show with these filters (the one being edited included). */
   onCountRows: (filters: RowFilter[]) => Promise<number>;
   /** `table`: where the column lives, when it is reached through a foreign key. */
-  onSuggestValues: (col: ColumnMeta, query: string, table?: string) => Promise<{ value: string; count: number }[]>;
+  onSuggestValues: (column: string, query: string, options: { via?: string[]; within: RowQuery }) => Promise<{ value: string; count: number; id?: string }[]>;
   /** Every table of the connection, to filter on columns of related tables. */
   tables: TableMeta[];
   /** The table on screen. */
@@ -48,24 +48,27 @@ interface Props {
 
 // A filter value with suggestions fetched for what was typed; any value can still be entered.
 // With `preview`, the typed value comes first with the number of rows it would leave.
-function SuggestedFilterValue({ col, value, placeholder, onChange, load, preview }: {
-  col: ColumnMeta;
+// Opening lists every value; typing narrows the list and puts the typed text first.
+function SuggestedFilterValue({ value, placeholder, onChange, load, preview }: {
   value: string;
   placeholder: string;
   onChange: (v: string) => void;
-  load: (col: ColumnMeta, query: string) => Promise<ComboOption[]>;
+  load: (query: string) => Promise<ComboOption[]>;
   preview?: (value: string) => Promise<ComboOption | null>;
 }) {
   const [options, setOptions] = useState<ComboOption[]>([]);
-  // Latest preview function without refetching on every render (it closes over the filters).
-  const previewRef = useRef(preview);
+  const [query, setQuery] = useState<string | null>(null);
+  // The loaders close over the other filters: keep the latest without refetching on every render.
+  const fns = useRef({ load, preview });
   useEffect(() => {
-    previewRef.current = preview;
+    fns.current = { load, preview };
   });
   useEffect(() => {
+    if (query === null) return;
     let stale = false;
     const timer = setTimeout(() => {
-      Promise.all([load(col, value), value.trim() && previewRef.current ? previewRef.current(value) : Promise.resolve(null)]).then(([o, first]) => {
+      const { load, preview } = fns.current;
+      Promise.all([load(query), query.trim() && preview ? preview(query) : Promise.resolve(null)]).then(([o, first]) => {
         if (!stale) setOptions(first ? [first, ...o.filter((x) => x.value !== first.value)] : o);
       });
     }, 200);
@@ -73,8 +76,8 @@ function SuggestedFilterValue({ col, value, placeholder, onChange, load, preview
       stale = true;
       clearTimeout(timer);
     };
-  }, [col, value, load]);
-  return <Combobox value={value} allowCustom filterOptions={false} width={130} options={options} placeholder={placeholder} onChange={onChange} />;
+  }, [query]);
+  return <Combobox value={value} allowCustom filterOptions={false} width={130} options={options} placeholder={placeholder} onChange={onChange} onQueryChange={setQuery} />;
 }
 
 const smallBtn: React.CSSProperties = {
@@ -137,11 +140,6 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
   ];
   // Filters can also test a column of the table a foreign key points to: "dossier › public_id".
   const tableByName = useMemo(() => new Map(tables.map((tb) => [tb.name, tb])), [tables]);
-  const relatedOwner = useMemo(() => {
-    const owner = new Map<ColumnMeta, string>();
-    for (const tb of tables) for (const c of tb.columns) owner.set(c, tb.name);
-    return owner;
-  }, [tables]);
   const filterKey = (f: Pick<RowFilter, "column" | "via">) => [...(f.via ?? []), f.column].join(">");
   const parseKey = (key: string): Pick<RowFilter, "column" | "via"> => {
     const parts = key.split(">");
@@ -202,19 +200,28 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
     },
     [onSuggestRelation, getRelationLabel, t]
   );
-  const loadValues = useCallback(
-    async (col: ColumnMeta, q: string): Promise<ComboOption[]> => (await onSuggestValues(col, q, relatedOwner.get(col))).map((v) => ({ value: v.value, hint: rowsLabel(v.count) })),
-    [onSuggestValues, relatedOwner, rowsLabel]
-  );
+  // Counts are taken among the rows the other filters keep, so they are the rows you'd see.
+  // Under "any", or inside a group, other filters don't simply narrow: count on the search alone.
+  const withinFor = (i: number): RowQuery =>
+    filterMatch === "all" && !filters[i].group ? { filters: filters.filter((_, j) => j !== i), filterGroups, search } : { search };
+  const hintFor = (count: number | undefined, id?: string) => [count === undefined ? null : rowsLabel(count), id ? t("toolbar.hintId", { id }) : null].filter(Boolean).join(" · ");
+  const loadValuesFor = (i: number) => async (q: string): Promise<ComboOption[]> => {
+    const f = filters[i];
+    return (await onSuggestValues(f.column, q, { via: f.via, within: withinFor(i) })).map((v) => ({ value: v.value, hint: hintFor(v.count, v.id) }));
+  };
+  // A foreign key: the related rows by label, with how many rows point at each.
+  const loadRelationFor = (i: number, col: ColumnMeta) => async (q: string): Promise<ComboOption[]> => {
+    const f = filters[i];
+    const [related, counts] = await Promise.all([loadRelation(col, q), onSuggestValues(f.column, "", { via: f.via, within: withinFor(i) }).catch(() => [])]);
+    const byKey = new Map(counts.map((c) => [c.value, c.count]));
+    return related.map((o) => ({ ...o, hint: hintFor(byKey.get(o.value) ?? 0, o.value) }));
+  };
   // Suggestions for "is one of": the column's own options, foreign keys or frequent values.
-  const loadChoices = useCallback(
-    async (col: ColumnMeta, q: string): Promise<ComboOption[]> => {
-      if (col.options?.length) return col.options.filter((o) => o.toLowerCase().includes(q.trim().toLowerCase())).map((o) => ({ value: o }));
-      if (col.references) return loadRelation(col, q);
-      return loadValues(col, q);
-    },
-    [loadRelation, loadValues]
-  );
+  const loadChoicesFor = (i: number, col: ColumnMeta) => async (q: string): Promise<ComboOption[]> => {
+    if (col.options?.length) return col.options.filter((o) => o.toLowerCase().includes(q.trim().toLowerCase())).map((o) => ({ value: o }));
+    if (col.references) return loadRelationFor(i, col)(q);
+    return loadValuesFor(i)(q);
+  };
   // Columns with a known set of values (roles in JSON, statuses, foreign keys) start on
   // the multi-select; free text starts on "contains".
   const defaultOp = (col?: ColumnMeta): RowFilter["op"] => {
@@ -382,11 +389,11 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
       />
       {opNeedsValue(f.op) &&
         (col && (f.op === "in" || f.op === "notIn") ? (
-          <MultiCombobox values={f.values ?? []} onChange={(values) => updateFilter(i, { values })} load={(q) => loadChoices(col, q)} placeholder={t("toolbar.valuesPlaceholder")} />
+          <MultiCombobox values={f.values ?? []} onChange={(values) => updateFilter(i, { values })} load={loadChoicesFor(i, col)} placeholder={t("toolbar.valuesPlaceholder")} />
         ) : col?.references && (f.op === "eq" || f.op === "neq") ? (
-          <SuggestedFilterValue value={f.value} placeholder={t("toolbar.valuePlaceholder")} onChange={(v) => updateFilter(i, { value: v })} col={col} load={loadRelation} preview={previewFor(i)} />
+          <SuggestedFilterValue value={f.value} placeholder={t("toolbar.valuePlaceholder")} onChange={(v) => updateFilter(i, { value: v })} load={loadRelationFor(i, col)} preview={previewFor(i)} />
         ) : col && !col.options?.length && SUGGESTED_TYPES.includes(col.logicalType) ? (
-          <SuggestedFilterValue value={f.value} placeholder={t("toolbar.valuePlaceholder")} onChange={(v) => updateFilter(i, { value: v })} col={col} load={loadValues} preview={previewFor(i)} />
+          <SuggestedFilterValue value={f.value} placeholder={t("toolbar.valuePlaceholder")} onChange={(v) => updateFilter(i, { value: v })} load={loadValuesFor(i)} preview={previewFor(i)} />
         ) : col?.options?.length ? (
           // A fixed set of values (statuses…) gets suggestions; anything else is a plain field.
           <Combobox value={f.value} allowCustom width={110} options={col.options.map((o) => ({ value: o }))} placeholder={t("toolbar.valuePlaceholder")} onChange={(v) => updateFilter(i, { value: v })} />

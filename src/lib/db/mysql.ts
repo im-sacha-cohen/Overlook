@@ -15,7 +15,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
-import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, loadRelatedTables, topDistinct } from "./where";
+import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, distinctQueryTables, distinctRows, loadRelatedTables, topDistinct } from "./where";
 import { normalizeMysqlDateLiterals, splitSqlStatements } from "./splitSqlStatements";
 import net from "node:net";
 import { mysqlSslOptions, type AdapterConnection } from "./network";
@@ -261,10 +261,12 @@ export class MySqlAdapter implements DatabaseAdapter {
     return aggregateResult(keys, rows[0]);
   }
 
-  async distinctValues(table: string, column: string, query?: string) {
-    const { sql, params } = buildDistinctValues("mysql", await this.getTable(table), column, query, 500);
+  async distinctValues(table: string, column: string, query?: string, options: { via?: string[]; within?: RowQuery } = {}) {
+    const meta = await this.getTable(table);
+    const lookup = await loadRelatedTables(meta, distinctQueryTables(column, options.via, options.within), (t) => this.getTable(t));
+    const { sql, params } = buildDistinctValues("mysql", meta, column, query, 500, { ...options, lookup });
     const [rows] = await this.pool.query<mysql.RowDataPacket[]>(sql, params);
-    return topDistinct(rows.map((r) => ({ value: String(r.value), count: Number(r.count) })), query);
+    return topDistinct(distinctRows(rows as { value: unknown; count: unknown; id?: unknown }[]), query);
   }
 
   async selectRowsByPk(table: string, pkColumn: string, pkValues: unknown[]): Promise<Row[]> {

@@ -162,10 +162,12 @@ export const api = {
     );
   },
 
-  distinctValues: (connectionId: string, table: string, column: string, query: string) => {
-    const params = new URLSearchParams({ column });
+  distinctValues: (connectionId: string, table: string, column: string, query: string, options: { via?: string[]; within?: RowQuery } = {}) => {
+    const params = rowQueryToParams(options.within ?? {});
+    params.set("column", column);
     if (query.trim()) params.set("q", query.trim());
-    return request<{ values: { value: string; count: number }[] }>(
+    if (options.via?.length) params.set("via", JSON.stringify(options.via));
+    return request<{ values: { value: string; count: number; id?: string }[] }>(
       `/api/connections/${connectionId}/tables/${encodeURIComponent(table)}/values?${params}`
     );
   },

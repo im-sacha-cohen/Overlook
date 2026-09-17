@@ -252,21 +252,59 @@ export function buildOrderBy(engine: Engine, meta: TableMeta, sorts: RowSort[] =
   return parts.length ? `ORDER BY ${parts.join(", ")}` : "";
 }
 
+/** A suggested filter value: how many rows of the table on screen hold it, and its row's key when there is one. */
+export interface DistinctValue {
+  value: string;
+  count: number;
+  id?: string;
+}
+
 /**
- * The most frequent values of a column, as text, for filter suggestions.
- * Optionally narrowed to values containing `query`.
+ * Suggestions for a filter value: the column's values with the number of rows of
+ * the table on screen holding each, among the rows the other filters keep
+ * (`within`). With `via`, the column belongs to a related table and rows are
+ * counted on the table on screen through the foreign keys. `id` is the key of the
+ * row holding the value (the related row, or the row itself) when only one does.
  */
-export function buildDistinctValues(engine: Engine, meta: TableMeta, column: string, query = "", limit = 50): { sql: string; params: unknown[] } {
-  assertKnownColumn(meta, column);
-  const params: unknown[] = [];
-  const text = asText(engine, quoteIdent(engine, column));
-  const where = [`${quoteIdent(engine, column)} IS NOT NULL`, `${text} <> ''`];
+export function buildDistinctValues(
+  engine: Engine,
+  meta: TableMeta,
+  column: string,
+  query = "",
+  limit = 50,
+  options: { via?: string[]; within?: RowQuery; lookup?: TableLookup } = {},
+): { sql: string; params: unknown[] } {
+  const { hops } = resolveFilterColumn(meta, { column, via: options.via, op: "eq", value: "" }, options.lookup);
+  const q = (name: string) => quoteIdent(engine, name);
+  const { where: within, params } = buildWhere(engine, meta, options.within ?? {}, options.lookup);
+  // The other filters narrow the table on screen first; related tables join onto it.
+  let from = within ? `(SELECT * FROM ${q(meta.name)} ${within}) t0` : `${q(meta.name)} t0`;
+  hops.forEach((h, i) => {
+    from += ` JOIN ${q(h.table)} t${i + 1} ON t${i}.${q(h.fk)} = t${i + 1}.${q(h.refColumn)}`;
+  });
+  const last = `t${hops.length}`;
+  const value = `${last}.${q(column)}`;
+  const text = asText(engine, value);
+  const pk = meta.columns.find((c) => c.isPrimaryKey)?.name;
+  const key = hops.length ? `${last}.${q(hops[hops.length - 1].refColumn)}` : pk ? `t0.${q(pk)}` : null;
+  const conditions = [`${value} IS NOT NULL`, `${text} <> ''`];
   if (query.trim()) {
     params.push(likeContains(query.trim()));
-    where.push(engine === "postgres" ? `${text} ILIKE $1${ESCAPE}` : `${text} LIKE ?${ESCAPE}`);
+    conditions.push(`${text} ${engine === "postgres" ? "ILIKE" : "LIKE"} ${engine === "postgres" ? `$${params.length}` : "?"}${ESCAPE}`);
   }
-  const sql = `SELECT ${text} AS value, COUNT(*) AS count FROM ${quoteIdent(engine, meta.name)} WHERE ${where.join(" AND ")} GROUP BY ${text} ORDER BY COUNT(*) DESC, ${text} LIMIT ${Math.max(1, Math.min(200, Math.floor(limit)))}`;
+  const id = key ? `, CASE WHEN COUNT(DISTINCT ${key}) = 1 THEN MIN(${key}) END AS id` : "";
+  const sql = `SELECT ${text} AS value, COUNT(*) AS count${id} FROM ${from} WHERE ${conditions.join(" AND ")} GROUP BY ${text} ORDER BY COUNT(*) DESC, ${text} LIMIT ${Math.max(1, Math.min(500, Math.floor(limit)))}`;
   return { sql, params };
+}
+
+/** Rows from the suggestions query as plain values. */
+export function distinctRows(rows: { value: unknown; count: unknown; id?: unknown }[]): DistinctValue[] {
+  return rows.map((r) => ({ value: String(r.value), count: Number(r.count), ...(r.id !== null && r.id !== undefined ? { id: String(r.id) } : {}) }));
+}
+
+/** The tables a suggestions query reaches: the other filters' and the column's own path. */
+export function distinctQueryTables(column: string, via: string[] | undefined, within: RowQuery | undefined): RowQuery {
+  return { filters: [...(within?.filters ?? []), { column, via, op: "eq", value: "" }] };
 }
 
 /**
@@ -274,7 +312,7 @@ export function buildDistinctValues(engine: Engine, meta: TableMeta, column: str
  * (roles…), count the elements instead, so each role is offered on its own —
  * only those matching `query`, not their neighbours in the same list.
  */
-export function topDistinct(rows: { value: string; count: number }[], query = "", limit = 50): { value: string; count: number }[] {
+export function topDistinct(rows: DistinctValue[], query = "", limit = 50): DistinctValue[] {
   const lists = rows.map((r) => {
     if (!r.value.trimStart().startsWith("[")) return null;
     try {

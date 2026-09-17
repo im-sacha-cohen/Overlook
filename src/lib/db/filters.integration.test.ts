@@ -158,7 +158,11 @@ for (const target of targets) {
     it("suggests frequent values and the elements of JSON lists", async () => {
       expect(await adapter.distinctValues(TABLE, "status")).toEqual([
         { value: "paid", count: 2 },
-        { value: "pending", count: 1 },
+        { value: "pending", count: 1, id: "2" },
+      ]);
+      expect(await adapter.distinctValues(TABLE, "status", "", { within: { filters: [{ column: "amount", op: "gt", value: "50" }] } })).toEqual([
+        { value: "paid", count: 1, id: "3" },
+        { value: "pending", count: 1, id: "2" },
       ]);
       expect(await adapter.distinctValues(TABLE, "roles", "ADMIN")).toEqual([{ value: "ROLE_ADMIN", count: 2 }]);
     });
@@ -236,6 +240,17 @@ for (const target of targets) {
       expect(await ids([{ column: "public_id", via: ["dossier_id"], op: "eq", value: "DOS-A" }])).toEqual([10, 11]);
       expect(await ids([{ column: "public_id", via: ["dossier_id"], op: "contains", value: "b" }, { column: "libelle", op: "eq", value: "kbis" }])).toEqual([12]);
       expect(await ids([{ column: "public_id", via: ["dossier_id"], op: "in", value: "", values: ["DOS-A", "DOS-B"] }])).toEqual([10, 11, 12]);
+    });
+
+    it("suggests a related column's values with the documents they would keep", async () => {
+      expect(await adapter.distinctValues("overlook_fk_document", "public_id", "", { via: ["dossier_id"] })).toEqual([
+        { value: "DOS-A", count: 2, id: "1" },
+        { value: "DOS-B", count: 1, id: "2" },
+      ]);
+      expect(await adapter.distinctValues("overlook_fk_document", "public_id", "dos", { via: ["dossier_id"], within: { filters: [{ column: "libelle", op: "eq", value: "kbis" }] } })).toEqual([
+        { value: "DOS-A", count: 1, id: "1" },
+        { value: "DOS-B", count: 1, id: "2" },
+      ]);
     });
 
     it("summarises over the related filter too", async () => {

@@ -246,9 +246,24 @@ describe("describeSelect", () => {
 describe("buildDistinctValues", () => {
   it("groups non-empty values, optionally narrowed", () => {
     expect(buildDistinctValues("postgres", meta, "status", "pa", 10)).toEqual({
-      sql: `SELECT "status"::text AS value, COUNT(*) AS count FROM "orders" WHERE "status" IS NOT NULL AND "status"::text <> '' AND "status"::text ILIKE $1 ESCAPE '!' GROUP BY "status"::text ORDER BY COUNT(*) DESC, "status"::text LIMIT 10`,
+      sql: `SELECT t0."status"::text AS value, COUNT(*) AS count, CASE WHEN COUNT(DISTINCT t0."id") = 1 THEN MIN(t0."id") END AS id FROM "orders" t0 WHERE t0."status" IS NOT NULL AND t0."status"::text <> '' AND t0."status"::text ILIKE $1 ESCAPE '!' GROUP BY t0."status"::text ORDER BY COUNT(*) DESC, t0."status"::text LIMIT 10`,
       params: ["%pa%"],
     });
+  });
+
+  it("counts on the rows the other filters keep, numbering placeholders after theirs", () => {
+    const { sql, params } = buildDistinctValues("postgres", meta, "status", "pa", 10, { within: { filters: [{ column: "amount", op: "gt", value: "5" }] } });
+    expect(sql).toContain(`FROM (SELECT * FROM "orders" WHERE "amount" > $1) t0 WHERE`);
+    expect(sql).toContain(`ILIKE $2 ESCAPE '!'`);
+    expect(params).toEqual(["5", "%pa%"]);
+  });
+
+  it("counts rows of the table on screen for a related column, with the related key as id", () => {
+    const dossier: TableMeta = { name: "dossier", rowCount: 0, columns: [col("id", "number"), col("public_id", "text")] };
+    const document: TableMeta = { name: "document", rowCount: 0, columns: [col("id", "number"), { ...col("dossier_id", "relation", "int"), references: { table: "dossier", column: "id" } }] };
+    expect(buildDistinctValues("mysql", document, "public_id", "", 50, { via: ["dossier_id"], lookup: (n) => (n === "dossier" ? dossier : undefined) }).sql).toBe(
+      "SELECT CAST(t1.`public_id` AS CHAR) AS value, COUNT(*) AS count, CASE WHEN COUNT(DISTINCT t1.`id`) = 1 THEN MIN(t1.`id`) END AS id FROM `document` t0 JOIN `dossier` t1 ON t0.`dossier_id` = t1.`id` WHERE t1.`public_id` IS NOT NULL AND CAST(t1.`public_id` AS CHAR) <> '' GROUP BY CAST(t1.`public_id` AS CHAR) ORDER BY COUNT(*) DESC, CAST(t1.`public_id` AS CHAR) LIMIT 50",
+    );
   });
 });
 

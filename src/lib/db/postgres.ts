@@ -16,7 +16,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
-import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, loadRelatedTables, topDistinct } from "./where";
+import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, distinctQueryTables, distinctRows, loadRelatedTables, topDistinct } from "./where";
 import { splitSqlStatements } from "./splitSqlStatements";
 import { tlsOptions, type AdapterConnection } from "./network";
 
@@ -334,11 +334,13 @@ export class PostgresAdapter implements DatabaseAdapter {
     }
   }
 
-  async distinctValues(table: string, column: string, query?: string) {
-    const { sql, params } = buildDistinctValues("postgres", await this.getTable(table), column, query, 500);
+  async distinctValues(table: string, column: string, query?: string, options: { via?: string[]; within?: RowQuery } = {}) {
+    const meta = await this.getTable(table);
+    const lookup = await loadRelatedTables(meta, distinctQueryTables(column, options.via, options.within), (t) => this.getTable(t));
+    const { sql, params } = buildDistinctValues("postgres", meta, column, query, 500, { ...options, lookup });
     const client = await this.pool.connect();
     try {
-      return topDistinct((await client.query(sql, params)).rows.map((r) => ({ value: String(r.value), count: Number(r.count) })), query);
+      return topDistinct(distinctRows((await client.query(sql, params)).rows), query);
     } finally {
       client.release();
     }

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api, userHeader } from "@/lib/client/api";
-import type { AggregateFn, ColumnMeta, Connection, ConnectionInput, FilterGroup, FilterMatch, LogicalType, QueryResult, Row, RowFilter, RowSort, TableMeta, WriteOp, JournalEntry } from "@/lib/types";
+import type { AggregateFn, ColumnMeta, Connection, ConnectionInput, FilterGroup, FilterMatch, LogicalType, QueryResult, Row, RowFilter, RowQuery, RowSort, TableMeta, WriteOp, JournalEntry } from "@/lib/types";
 import { ENV_COLORS } from "@/lib/client/env";
 import { nowForColumn, toText } from "@/lib/client/format";
 import { HistoryEntry, timeNow } from "@/lib/client/history";
@@ -1358,10 +1358,10 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   );
 
   const suggestColumnValues = useCallback(
-    async (col: ColumnMeta, query: string, table?: string) => {
+    async (column: string, query: string, options: { via?: string[]; within: RowQuery }) => {
       if (!activeConnectionId || !activeTable) return [];
       try {
-        return (await api.distinctValues(activeConnectionId, table ?? activeTable, col.name, query)).values;
+        return (await api.distinctValues(activeConnectionId, activeTable, column, query, options)).values;
       } catch {
         return [];
       }

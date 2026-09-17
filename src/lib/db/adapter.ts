@@ -1,6 +1,7 @@
 import type { AggregateFn, ColumnMeta, LogicalType, QueryResult, Row, RowQuery, RowSort, TableMeta, WriteOp, WritePreview } from "../types";
 
 export type { WriteOp, WritePreview };
+import type { DistinctValue } from "./where";
 
 export interface SelectOptions extends RowQuery {
   sorts?: RowSort[];
@@ -29,8 +30,8 @@ export interface DatabaseAdapter {
   getTable(table: string): Promise<TableMeta>;
   createTable(table: string, columns: { name: string; type: LogicalType }[]): Promise<void>;
   selectRows(table: string, opts: SelectOptions): Promise<{ rows: Row[]; total: number }>;
-  /** Most frequent values of a column (as text), for filter suggestions. */
-  distinctValues(table: string, column: string, query?: string): Promise<{ value: string; count: number }[]>;
+  /** Values of a column for filter suggestions; see buildDistinctValues for via/within. */
+  distinctValues(table: string, column: string, query?: string, options?: { via?: string[]; within?: RowQuery }): Promise<DistinctValue[]>;
   /** Summaries of columns over the rows a query keeps, keyed "column:fn". */
   aggregate(table: string, query: RowQuery, specs: { column: string; fn: AggregateFn }[]): Promise<Record<string, string | number | null>>;
   insertRow(table: string, values: Row): Promise<Row>;

@@ -14,7 +14,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
-import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, loadRelatedTables, topDistinct } from "./where";
+import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, distinctQueryTables, distinctRows, loadRelatedTables, topDistinct } from "./where";
 import { splitSqlStatements } from "./splitSqlStatements";
 import { assertNoFileAccess, resolveSqlitePath } from "./sqlitePath";
 
@@ -246,9 +246,11 @@ export class SqliteAdapter implements DatabaseAdapter {
     return aggregateResult(keys, this.db.prepare(sql).get(...params) as Record<string, unknown> | undefined);
   }
 
-  async distinctValues(table: string, column: string, query?: string) {
-    const { sql, params } = buildDistinctValues("sqlite", await this.getTable(table), column, query, 500);
-    return topDistinct((this.db.prepare(sql).all(...params) as { value: unknown; count: number }[]).map((r) => ({ value: String(r.value), count: Number(r.count) })), query);
+  async distinctValues(table: string, column: string, query?: string, options: { via?: string[]; within?: RowQuery } = {}) {
+    const meta = await this.getTable(table);
+    const lookup = await loadRelatedTables(meta, distinctQueryTables(column, options.via, options.within), (t) => this.getTable(t));
+    const { sql, params } = buildDistinctValues("sqlite", meta, column, query, 500, { ...options, lookup });
+    return topDistinct(distinctRows(this.db.prepare(sql).all(...params) as { value: unknown; count: unknown; id?: unknown }[]), query);
   }
 
   async selectRowsByPk(table: string, pkColumn: string, pkValues: unknown[]): Promise<Row[]> {
