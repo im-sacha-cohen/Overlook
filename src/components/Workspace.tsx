@@ -26,6 +26,7 @@ import { SqlImportModal } from "./SqlImportModal";
 import { CreateTableModal } from "./CreateTableModal";
 import { BulkEditModal } from "./BulkEditModal";
 import { JournalPanel } from "./JournalPanel";
+import { SchemaDiagram } from "./SchemaDiagram";
 import { ConnectionForm } from "./ConnectionForm";
 import { ConnectionImportModal } from "./ConnectionTransfer";
 import { ProdGuardDialog } from "./ProdGuardDialog";
@@ -167,7 +168,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   const [editValue, setEditValue] = useState("");
   const [detailRow, setDetailRow] = useState<Row | null>(null);
 
-  const [panel, setPanel] = useState<"schema" | "csv" | "sql-import" | "history" | "bulk-edit" | "create-table" | "settings" | null>(null);
+  const [panel, setPanel] = useState<"schema" | "diagram" | "csv" | "sql-import" | "history" | "bulk-edit" | "create-table" | "settings" | null>(null);
   const [connectionFormOpen, setConnectionFormOpen] = useState(false);
   const [importConnectionsOpen, setImportConnectionsOpen] = useState(false);
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
@@ -1612,6 +1613,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
           showColumns={dir === "query"}
           onSelectTable={selectTable}
           onOpenSchema={() => setPanel("schema")}
+          onOpenDiagram={() => setPanel("diagram")}
           onOpenCsv={() => setPanel("csv")}
           onOpenSqlImport={() => setPanel("sql-import")}
           onOpenHistory={() => setPanel("history")}
@@ -1824,6 +1826,18 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
             flash(t("toast.connectionsImported", { count: created.length }));
             await refreshConnections();
           }}
+        />
+      )}
+
+      {panel === "diagram" && activeConnectionId && (
+        <SchemaDiagram
+          connectionId={activeConnectionId}
+          tables={tables}
+          onOpenTable={(name) => {
+            setPanel(null);
+            selectTable(name);
+          }}
+          onClose={() => setPanel(null)}
         />
       )}
 
