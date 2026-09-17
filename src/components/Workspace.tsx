@@ -27,6 +27,7 @@ import { CreateTableModal } from "./CreateTableModal";
 import { BulkEditModal } from "./BulkEditModal";
 import { JournalPanel } from "./JournalPanel";
 import { SchemaDiagram } from "./SchemaDiagram";
+import { CompareView } from "./CompareView";
 import { ConnectionForm } from "./ConnectionForm";
 import { ConnectionImportModal } from "./ConnectionTransfer";
 import { ProdGuardDialog } from "./ProdGuardDialog";
@@ -168,7 +169,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   const [editValue, setEditValue] = useState("");
   const [detailRow, setDetailRow] = useState<Row | null>(null);
 
-  const [panel, setPanel] = useState<"schema" | "diagram" | "csv" | "sql-import" | "history" | "bulk-edit" | "create-table" | "settings" | null>(null);
+  const [panel, setPanel] = useState<"schema" | "diagram" | "compare" | "csv" | "sql-import" | "history" | "bulk-edit" | "create-table" | "settings" | null>(null);
   const [connectionFormOpen, setConnectionFormOpen] = useState(false);
   const [importConnectionsOpen, setImportConnectionsOpen] = useState(false);
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
@@ -1614,6 +1615,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
           onSelectTable={selectTable}
           onOpenSchema={() => setPanel("schema")}
           onOpenDiagram={() => setPanel("diagram")}
+          onOpenCompare={() => setPanel("compare")}
           onOpenCsv={() => setPanel("csv")}
           onOpenSqlImport={() => setPanel("sql-import")}
           onOpenHistory={() => setPanel("history")}
@@ -1828,6 +1830,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
           }}
         />
       )}
+
+      {panel === "compare" && <CompareView connections={connections} initialLeft={activeConnectionId} onClose={() => setPanel(null)} />}
 
       {panel === "diagram" && activeConnectionId && (
         <SchemaDiagram

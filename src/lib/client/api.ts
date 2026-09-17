@@ -15,6 +15,7 @@ import type {
 } from "../types";
 import type { ConnectionBundle } from "../connectionBundle";
 import type { ConnectionPrefs, TablePrefs } from "../prefs";
+import type { DataDiff, SchemaDiff } from "../compare";
 
 const USER_NAME_KEY = "overlook:userName";
 
@@ -267,6 +268,10 @@ export const api = {
   getSettings: () => request<{ journalRetentionDays: number }>("/api/settings"),
   saveSettings: (settings: { journalRetentionDays: number }) =>
     request<{ journalRetentionDays: number }>("/api/settings", { method: "PUT", body: JSON.stringify(settings) }),
+  compareSchemas: (left: string, right: string) =>
+    request<SchemaDiff>("/api/compare/schema", { method: "POST", body: JSON.stringify({ left, right }) }),
+  compareData: (left: string, right: string, table: string) =>
+    request<DataDiff>("/api/compare/data", { method: "POST", body: JSON.stringify({ left, right, table }) }),
   previewWrite: (connectionId: string, op: WriteOp) =>
     request<WritePreview>(`/api/connections/${connectionId}/preview`, { method: "POST", body: JSON.stringify(op) }),
   listSavedQueries: (connectionId: string) => request<{ queries: SavedQuery[] }>(`/api/connections/${connectionId}/saved-queries`),

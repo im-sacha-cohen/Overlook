@@ -13,6 +13,7 @@ interface Props {
   onSelectTable: (name: string) => void;
   onOpenSchema: () => void;
   onOpenDiagram: () => void;
+  onOpenCompare: () => void;
   onOpenCsv: () => void;
   onOpenSqlImport: () => void;
   onOpenHistory: () => void;
@@ -37,6 +38,7 @@ export function Sidebar({
   onSelectTable,
   onOpenSchema,
   onOpenDiagram,
+  onOpenCompare,
   onOpenCsv,
   onOpenSqlImport,
   onOpenHistory,
@@ -214,6 +216,7 @@ export function Sidebar({
         </div>
         <SidebarAction icon="⌗" label={t("sidebar.schema")} onClick={onOpenSchema} />
         <SidebarAction icon="⊶" label={t("sidebar.diagram")} onClick={onOpenDiagram} />
+        <SidebarAction icon="⇄" label={t("sidebar.compare")} onClick={onOpenCompare} />
         <div style={{ position: "relative" }}>
           <div ref={importBtnRef}>
             <SidebarAction icon="↧" label={t("sidebar.import")} onClick={() => setImportMenuOpen((v) => !v)} />
