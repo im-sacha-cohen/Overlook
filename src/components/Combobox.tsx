@@ -142,7 +142,7 @@ export function Combobox({ value, options, onChange, allowCustom, filterOptions 
           textOverflow: "ellipsis",
           boxShadow: open ? "0 0 0 3px var(--accent-bg)" : "none",
           ...inputStyle,
-          ...(open ? { borderColor: "var(--accent-border)" } : {}),
+          ...(open ? { border: "1px solid var(--accent-border)" } : {}),
         }}
       />
       <span

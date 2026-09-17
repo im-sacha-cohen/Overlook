@@ -207,7 +207,7 @@ export function DateField({ column, value, autoOpen, onCommit, onClose, placehol
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        style={{ ...fieldStyle, ...triggerStyle, ...(open ? { borderColor: "oklch(0.7 0.1 250)" } : {}) }}
+        style={{ ...fieldStyle, ...triggerStyle, ...(open ? { border: "1px solid oklch(0.7 0.1 250)" } : {}) }}
       >
         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: selected ? "inherit" : "#b4afa5" }}>
           {selected ? formatValue(value, column, lang) : (placeholder ?? t("dateField.empty"))}

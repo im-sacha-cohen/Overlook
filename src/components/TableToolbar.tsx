@@ -32,6 +32,8 @@ interface Props {
   getRelationLabel: (col: ColumnMeta, row: Row) => string;
   /** Most frequent values of a column matching what was typed. */
   onSuggestValues: (col: ColumnMeta, query: string) => Promise<{ value: string; count: number }[]>;
+  /** False while a dialog or panel covers the table, so its keys don't reach the toolbar. */
+  shortcutsEnabled: boolean;
 }
 
 // A filter value with suggestions fetched for what was typed; any value can still be entered.
@@ -96,25 +98,13 @@ function CountBadge({ n }: { n: number }) {
 // Columns whose repeated values (roles, statuses stored as text…) are worth suggesting.
 const SUGGESTED_TYPES: ColumnMeta["logicalType"][] = ["text", "json", "unknown"];
 
-export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, filters, onFiltersChange, filterMatch, onFilterMatchChange, sorts, onSortsChange, search, onSearchChange, onAddRow, sql, onSuggestRelation, getRelationLabel, onSuggestValues }: Props) {
+export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, filters, onFiltersChange, filterMatch, onFilterMatchChange, sorts, onSortsChange, search, onSearchChange, onAddRow, sql, onSuggestRelation, getRelationLabel, onSuggestValues, shortcutsEnabled }: Props) {
   const { t } = useLang();
   const searchRef = useRef<HTMLInputElement>(null);
   // The filter/sort just added opens its column picker straight away.
   const [showSql, setShowSql] = useState(false);
   const [justAdded, setJustAdded] = useState<{ kind: "filter" | "sort"; index: number } | null>(null);
 
-  // "/" jumps to the search box, as in most data tools.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
-      const el = document.activeElement;
-      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || (el instanceof HTMLElement && el.isContentEditable)) return;
-      e.preventDefault();
-      searchRef.current?.focus();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
   const selectableCols = columns.filter((c) => !c.hidden);
   const groupableCols = columns.filter((c) => c.logicalType === "select" || c.logicalType === "checkbox");
   const VIEWS: [ViewKind, string][] = [
@@ -202,11 +192,43 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
         value={value}
         placeholder={placeholder}
         onCommit={(v) => onChange(v ?? "")}
-        triggerStyle={{ height: 22, padding: "0 7px", fontSize: 12.5, borderColor: "transparent", borderRadius: 5 }}
+        triggerStyle={{ height: 22, padding: "0 7px", fontSize: 12.5, border: "1px solid transparent", borderRadius: 5 }}
       />
     </div>
   );
   const valueStyle: React.CSSProperties = { width: 110, height: 22, border: "1px solid transparent", background: "#fff", borderRadius: 5, padding: "0 7px", fontSize: 12.5, color: "#26241f", outline: "none", fontFamily: "inherit" };
+
+  const addFilter = () => {
+    setJustAdded({ kind: "filter", index: filters.length });
+    onFiltersChange([...filters, newFilter(selectableCols[0])]);
+  };
+  const addSort = () => {
+    setJustAdded({ kind: "sort", index: sorts.length });
+    onSortsChange([...sorts, { column: selectableCols[0]?.name ?? "", dir: "asc" }]);
+  };
+  const clearAll = () => {
+    onFiltersChange([]);
+    onSortsChange([]);
+    onFilterMatchChange("all");
+  };
+
+  // Shortcuts outside text fields: "/" search, F filter, S sort, ⇧⌫ clear filters and sorts.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!shortcutsEnabled || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      const el = document.activeElement;
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || (el instanceof HTMLElement && el.isContentEditable)) return;
+      const key = e.key.toLowerCase();
+      if (key === "/") searchRef.current?.focus();
+      else if (key === "f" && !e.shiftKey) addFilter();
+      else if (key === "s" && !e.shiftKey) addSort();
+      else if (key === "backspace" && e.shiftKey && (filters.length > 0 || sorts.length > 0)) clearAll();
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   return (
     <div className="om-toolbar">
@@ -267,11 +289,8 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
           />
           <button
             style={{ ...smallBtn, display: "inline-flex", alignItems: "center", gap: 5 }}
-            title={t("toolbar.addFilterHint")}
-            onClick={() => {
-              setJustAdded({ kind: "filter", index: filters.length });
-              onFiltersChange([...filters, newFilter(selectableCols[0])]);
-            }}
+            title={`${t("toolbar.addFilterHint")} (F)`}
+            onClick={addFilter}
           >
             <FilterIcon />
             {t("toolbar.addFilter")}
@@ -279,18 +298,15 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
           </button>
           <button
             style={{ ...smallBtn, display: "inline-flex", alignItems: "center", gap: 5 }}
-            title={t("toolbar.addSortHint")}
-            onClick={() => {
-              setJustAdded({ kind: "sort", index: sorts.length });
-              onSortsChange([...sorts, { column: selectableCols[0]?.name ?? "", dir: "asc" }]);
-            }}
+            title={`${t("toolbar.addSortHint")} (S)`}
+            onClick={addSort}
           >
             <SortIcon />
             {t("toolbar.addSort")}
             <CountBadge n={sorts.length} />
           </button>
           <button
-            style={{ ...smallBtn, fontFamily: "var(--font-mono)", fontSize: 11.5, ...(showSql ? { background: "var(--accent-bg)", borderColor: "var(--accent-border)", color: "var(--accent-hover)" } : {}) }}
+            style={{ ...smallBtn, fontFamily: "var(--font-mono)", fontSize: 11.5, ...(showSql ? { background: "var(--accent-bg)", border: "1px solid var(--accent-border)", color: "var(--accent-hover)" } : {}) }}
             aria-pressed={showSql}
             title={t("toolbar.showSqlHint")}
             onClick={() => setShowSql((v) => !v)}
@@ -429,12 +445,8 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
             </div>
           ))}
           <button
-            onClick={() => {
-              onFiltersChange([]);
-              onSortsChange([]);
-              onFilterMatchChange("all");
-            }}
-            title={t("toolbar.clearAllHint")}
+            onClick={clearAll}
+            title={`${t("toolbar.clearAllHint")} (⇧⌫)`}
             style={{ height: 28, padding: "0 9px", background: "transparent", border: "1px dashed #d9d5cc", borderRadius: 8, fontSize: 12.5, color: "#8b877e", cursor: "pointer" }}
             onMouseEnter={(e) => (e.currentTarget.style.color = "var(--env-prod-fg)")}
             onMouseLeave={(e) => (e.currentTarget.style.color = "#8b877e")}

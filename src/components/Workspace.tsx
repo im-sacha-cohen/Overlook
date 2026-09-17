@@ -1788,6 +1788,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                   onSuggestRelation={suggestRelationValues}
                   getRelationLabel={getRelationLabel}
                   onSuggestValues={suggestColumnValues}
+                  shortcutsEnabled={!panel && !cmdOpen && !connectionFormOpen && !dropTablesRequest && !pendingGuard && !exportModalOpen}
                 />
               </div>
 
