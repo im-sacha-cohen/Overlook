@@ -14,7 +14,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
-import { buildDistinctValues, buildOrderBy, buildWhere } from "./where";
+import { buildDistinctValues, buildOrderBy, buildWhere, topDistinct } from "./where";
 import { splitSqlStatements } from "./splitSqlStatements";
 import { assertNoFileAccess, resolveSqlitePath } from "./sqlitePath";
 
@@ -124,7 +124,7 @@ export class SqliteAdapter implements DatabaseAdapter {
 
   async selectRows(table: string, opts: SelectOptions) {
     const meta = await this.getTable(table);
-    const { where, params } = buildWhere("sqlite", meta, opts.filters, opts.search);
+    const { where, params } = buildWhere("sqlite", meta, opts.filters, opts.search, opts.filterMatch);
     const orderBy = buildOrderBy("sqlite", meta, opts.sorts);
     const limit = opts.limit ?? 100;
     const offset = opts.offset ?? 0;
@@ -240,8 +240,8 @@ export class SqliteAdapter implements DatabaseAdapter {
   }
 
   async distinctValues(table: string, column: string, query?: string) {
-    const { sql, params } = buildDistinctValues("sqlite", await this.getTable(table), column, query);
-    return (this.db.prepare(sql).all(...params) as { value: unknown; count: number }[]).map((r) => ({ value: String(r.value), count: Number(r.count) }));
+    const { sql, params } = buildDistinctValues("sqlite", await this.getTable(table), column, query, 500);
+    return topDistinct((this.db.prepare(sql).all(...params) as { value: unknown; count: number }[]).map((r) => ({ value: String(r.value), count: Number(r.count) })), query);
   }
 
   async selectRowsByPk(table: string, pkColumn: string, pkValues: unknown[]): Promise<Row[]> {

@@ -15,7 +15,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
-import { buildDistinctValues, buildOrderBy, buildWhere } from "./where";
+import { buildDistinctValues, buildOrderBy, buildWhere, topDistinct } from "./where";
 import { normalizeMysqlDateLiterals, splitSqlStatements } from "./splitSqlStatements";
 import net from "node:net";
 import { mysqlSslOptions, type AdapterConnection } from "./network";
@@ -155,7 +155,7 @@ export class MySqlAdapter implements DatabaseAdapter {
 
   async selectRows(table: string, opts: SelectOptions) {
     const meta = await this.getTable(table);
-    const { where, params } = buildWhere("mysql", meta, opts.filters, opts.search);
+    const { where, params } = buildWhere("mysql", meta, opts.filters, opts.search, opts.filterMatch);
     const orderBy = buildOrderBy("mysql", meta, opts.sorts);
     const limit = opts.limit ?? 100;
     const offset = opts.offset ?? 0;
@@ -254,9 +254,9 @@ export class MySqlAdapter implements DatabaseAdapter {
   }
 
   async distinctValues(table: string, column: string, query?: string) {
-    const { sql, params } = buildDistinctValues("mysql", await this.getTable(table), column, query);
+    const { sql, params } = buildDistinctValues("mysql", await this.getTable(table), column, query, 500);
     const [rows] = await this.pool.query<mysql.RowDataPacket[]>(sql, params);
-    return rows.map((r) => ({ value: String(r.value), count: Number(r.count) }));
+    return topDistinct(rows.map((r) => ({ value: String(r.value), count: Number(r.count) })), query);
   }
 
   async selectRowsByPk(table: string, pkColumn: string, pkValues: unknown[]): Promise<Row[]> {

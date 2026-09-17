@@ -1,4 +1,4 @@
-import type { ColumnMeta, Engine, LogicalType, RowFilter, RowSort, TableMeta } from "../types";
+import type { ColumnMeta, Engine, FilterMatch, LogicalType, RowFilter, RowSort, TableMeta } from "../types";
 import { assertKnownColumn, assertValidIdentifier, inlineParams } from "./adapter";
 
 /*
@@ -6,13 +6,15 @@ import { assertKnownColumn, assertValidIdentifier, inlineParams } from "./adapte
  * shows the exact statement a table view runs. Pure: no driver imports.
  */
 
-export const FILTER_OPS: RowFilter["op"][] = ["eq", "neq", "contains", "notContains", "gt", "lt", "between", "empty", "notEmpty"];
+export const FILTER_OPS: RowFilter["op"][] = ["eq", "neq", "in", "notIn", "contains", "notContains", "gt", "lt", "between", "empty", "notEmpty"];
 
 /** Operators that make sense for a column, in menu order. */
 export function opsFor(type: LogicalType | undefined): RowFilter["op"][] {
-  if (type === "number" || type === "date") return ["eq", "neq", "gt", "lt", "between", "empty", "notEmpty"];
-  if (type === "select" || type === "checkbox" || type === "relation") return ["eq", "neq", "empty", "notEmpty"];
-  return ["eq", "neq", "contains", "notContains", "empty", "notEmpty"];
+  if (type === "date") return ["eq", "neq", "gt", "lt", "between", "empty", "notEmpty"];
+  if (type === "number") return ["eq", "neq", "in", "notIn", "gt", "lt", "between", "empty", "notEmpty"];
+  if (type === "checkbox") return ["eq", "neq", "empty", "notEmpty"];
+  if (type === "select" || type === "relation") return ["eq", "neq", "in", "notIn", "empty", "notEmpty"];
+  return ["eq", "neq", "in", "notIn", "contains", "notContains", "empty", "notEmpty"];
 }
 
 export function opNeedsValue(op: RowFilter["op"]): boolean {
@@ -22,6 +24,7 @@ export function opNeedsValue(op: RowFilter["op"]): boolean {
 /** A filter still being typed changes nothing rather than emptying the grid. */
 export function isActiveFilter(f: RowFilter): boolean {
   if (!opNeedsValue(f.op)) return true;
+  if (f.op === "in" || f.op === "notIn") return (f.values ?? []).some((v) => v !== "");
   if (f.op === "between") return f.value !== "" || (f.value2 ?? "") !== "";
   return f.value !== "";
 }
@@ -56,7 +59,13 @@ export function dateSpanEnd(value: string): string | null {
   return hasTime ? `${iso.slice(0, 10)} ${iso.slice(11, 19)}${suffix}` : iso.slice(0, 10);
 }
 
-export function buildWhere(engine: Engine, meta: TableMeta, filters: RowFilter[] = [], search?: string): { where: string; params: unknown[] } {
+// A JSON column may hold a list (["ROLE_ADMIN","ROLE_USER"]): "is one of" then also
+// matches a list containing the value, as suggestions offer its elements.
+function holdsLists(col: ColumnMeta): boolean {
+  return col.logicalType === "json";
+}
+
+export function buildWhere(engine: Engine, meta: TableMeta, filters: RowFilter[] = [], search?: string, match: FilterMatch = "all"): { where: string; params: unknown[] } {
   const params: unknown[] = [];
   const p = (v: unknown) => {
     params.push(v);
@@ -64,12 +73,20 @@ export function buildWhere(engine: Engine, meta: TableMeta, filters: RowFilter[]
   };
   const like = engine === "postgres" ? "ILIKE" : "LIKE";
   const clauses: string[] = [];
+  const filterClauses: string[] = [];
 
   for (const f of filters) {
     const colMeta: ColumnMeta = assertKnownColumn(meta, f.column);
     if (!isActiveFilter(f)) continue;
     const col = quoteIdent(engine, f.column);
     const spanEnd = (v: string) => (colMeta.logicalType === "date" ? dateSpanEnd(v) : null);
+    const clauses = filterClauses;
+    const oneOf = () => {
+      const values = [...new Set((f.values ?? []).filter((v) => v !== ""))];
+      const parts = [`${asText(engine, col)} IN (${values.map((v) => p(v)).join(", ")})`];
+      if (holdsLists(colMeta)) for (const v of values) parts.push(`${asText(engine, col)} LIKE ${p(`%${JSON.stringify(v)}%`)}`);
+      return parts.length === 1 ? parts[0] : `(${parts.join(" OR ")})`;
+    };
     switch (f.op) {
       case "eq": {
         const end = spanEnd(f.value);
@@ -81,6 +98,12 @@ export function buildWhere(engine: Engine, meta: TableMeta, filters: RowFilter[]
         clauses.push(end ? `(${col} < ${p(f.value)} OR ${col} >= ${p(end)})` : `${asText(engine, col)} <> ${p(f.value)}`);
         break;
       }
+      case "in":
+        clauses.push(oneOf());
+        break;
+      case "notIn":
+        clauses.push(`(${col} IS NULL OR NOT ${oneOf()})`);
+        break;
       case "contains":
         clauses.push(`${asText(engine, col)} ${like} ${p(`%${f.value}%`)}`);
         break;
@@ -111,6 +134,9 @@ export function buildWhere(engine: Engine, meta: TableMeta, filters: RowFilter[]
         break;
     }
   }
+
+  if (filterClauses.length === 1) clauses.push(filterClauses[0]);
+  else if (filterClauses.length > 1) clauses.push(match === "any" ? `(${filterClauses.join(" OR ")})` : filterClauses.join(" AND "));
 
   const term = search?.trim();
   if (term && meta.columns.length > 0) {
@@ -152,13 +178,40 @@ export function buildDistinctValues(engine: Engine, meta: TableMeta, column: str
   return { sql, params };
 }
 
+/**
+ * Suggestions from grouped values: when every value is a JSON list of scalars
+ * (roles…), count the elements instead, so each role is offered on its own —
+ * only those matching `query`, not their neighbours in the same list.
+ */
+export function topDistinct(rows: { value: string; count: number }[], query = "", limit = 50): { value: string; count: number }[] {
+  const lists = rows.map((r) => {
+    if (!r.value.trimStart().startsWith("[")) return null;
+    try {
+      const parsed: unknown = JSON.parse(r.value);
+      return Array.isArray(parsed) && parsed.every((x) => ["string", "number", "boolean"].includes(typeof x)) ? parsed.map(String) : null;
+    } catch {
+      return null;
+    }
+  });
+  if (rows.length === 0 || lists.some((l) => l === null)) return rows.slice(0, limit);
+  const needle = query.trim().toLowerCase();
+  const counts = new Map<string, number>();
+  rows.forEach((r, i) => {
+    for (const el of new Set(lists[i])) if (!needle || el.toLowerCase().includes(needle)) counts.set(el, (counts.get(el) ?? 0) + r.count);
+  });
+  return [...counts]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+    .slice(0, limit);
+}
+
 /** The page query a table view runs, with values inlined — for display only. */
 export function describeSelect(
   engine: Engine,
   meta: TableMeta,
-  opts: { filters?: RowFilter[]; sorts?: RowSort[]; search?: string; limit: number; offset: number },
+  opts: { filters?: RowFilter[]; filterMatch?: FilterMatch; sorts?: RowSort[]; search?: string; limit: number; offset: number },
 ): string {
-  const { where, params } = buildWhere(engine, meta, opts.filters, opts.search);
+  const { where, params } = buildWhere(engine, meta, opts.filters, opts.search, opts.filterMatch);
   const orderBy = buildOrderBy(engine, meta, opts.sorts);
   const sql = [`SELECT * FROM ${quoteIdent(engine, meta.name)}`, where, orderBy, `LIMIT ${opts.limit}`, opts.offset ? `OFFSET ${opts.offset}` : ""].filter(Boolean).join(" ");
   return `${inlineParams({ sql, params }, engine === "postgres" ? "dollar" : "question")};`;

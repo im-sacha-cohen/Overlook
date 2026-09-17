@@ -7,6 +7,7 @@ import type {
   QueryResult,
   Row,
   RowFilter,
+  FilterMatch,
   RowSort,
   SavedQuery,
   TableMeta,
@@ -140,11 +141,12 @@ export const api = {
   selectRows: (
     connectionId: string,
     table: string,
-    opts: { filters?: RowFilter[]; sorts?: RowSort[]; search?: string; limit?: number; offset?: number }
+    opts: { filters?: RowFilter[]; filterMatch?: FilterMatch; sorts?: RowSort[]; search?: string; limit?: number; offset?: number }
   ) => {
     const params = new URLSearchParams();
     if (opts.search?.trim()) params.set("search", opts.search.trim());
     if (opts.filters?.length) params.set("filters", JSON.stringify(opts.filters));
+    if (opts.filterMatch === "any") params.set("match", "any");
     if (opts.sorts?.length) params.set("sorts", JSON.stringify(opts.sorts));
     if (opts.limit) params.set("limit", String(opts.limit));
     if (opts.offset) params.set("offset", String(opts.offset));

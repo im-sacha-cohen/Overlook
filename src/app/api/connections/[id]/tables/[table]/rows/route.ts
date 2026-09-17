@@ -14,8 +14,10 @@ export async function GET(request: Request, { params }: Params) {
     const search = url.searchParams.get("search");
     const limit = url.searchParams.get("limit");
     const offset = url.searchParams.get("offset");
+    const match = url.searchParams.get("match");
     const result = await getAdapter(id).selectRows(decodeURIComponent(table), {
       filters: filters ? (JSON.parse(filters) as RowFilter[]) : undefined,
+      filterMatch: match === "any" ? "any" : "all",
       sorts: sorts ? (JSON.parse(sorts) as RowSort[]) : undefined,
       search: search ?? undefined,
       limit: limit ? Number(limit) : undefined,

@@ -1,9 +1,11 @@
-import type { ColumnMeta, LogicalType, QueryResult, Row, RowFilter, RowSort, TableMeta, WriteOp, WritePreview } from "../types";
+import type { ColumnMeta, FilterMatch, LogicalType, QueryResult, Row, RowFilter, RowSort, TableMeta, WriteOp, WritePreview } from "../types";
 
 export type { WriteOp, WritePreview };
 
 export interface SelectOptions {
   filters?: RowFilter[];
+  /** "any": a row matching one filter is enough. Defaults to "all". */
+  filterMatch?: FilterMatch;
   sorts?: RowSort[];
   /** Free text matched against every column (as text), case-insensitively. */
   search?: string;

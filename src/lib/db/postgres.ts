@@ -16,7 +16,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
-import { buildDistinctValues, buildOrderBy, buildWhere } from "./where";
+import { buildDistinctValues, buildOrderBy, buildWhere, topDistinct } from "./where";
 import { splitSqlStatements } from "./splitSqlStatements";
 import { tlsOptions, type AdapterConnection } from "./network";
 
@@ -205,7 +205,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   async selectRows(table: string, opts: SelectOptions) {
     const meta = await this.getTable(table);
-    const { where, params } = buildWhere("postgres", meta, opts.filters, opts.search);
+    const { where, params } = buildWhere("postgres", meta, opts.filters, opts.search, opts.filterMatch);
     const orderBy = buildOrderBy("postgres", meta, opts.sorts);
     const limit = opts.limit ?? 100;
     const offset = opts.offset ?? 0;
@@ -323,10 +323,10 @@ export class PostgresAdapter implements DatabaseAdapter {
   }
 
   async distinctValues(table: string, column: string, query?: string) {
-    const { sql, params } = buildDistinctValues("postgres", await this.getTable(table), column, query);
+    const { sql, params } = buildDistinctValues("postgres", await this.getTable(table), column, query, 500);
     const client = await this.pool.connect();
     try {
-      return (await client.query(sql, params)).rows.map((r) => ({ value: String(r.value), count: Number(r.count) }));
+      return topDistinct((await client.query(sql, params)).rows.map((r) => ({ value: String(r.value), count: Number(r.count) })), query);
     } finally {
       client.release();
     }

@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ColumnMeta, Row, RowSort } from "@/lib/types";
-import { formatValue, iconFor, pillStyle, toText } from "@/lib/client/format";
+import { formatValue, pillStyle, toText } from "@/lib/client/format";
 import { groupRows } from "@/lib/client/group";
 import { parseTsv, pastedValue, toTsv } from "@/lib/client/cellClipboard";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 import { DateField } from "../DateField";
 import { RelationField } from "../RelationField";
+import { TypeIcon } from "../TypeIcon";
 
 interface Props {
   columns: ColumnMeta[];
@@ -325,7 +326,7 @@ export function TableView({
                 background: dragCol && dragCol !== c.name ? "var(--hover-bg)" : undefined,
               }}
             >
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "#c2bdb3" }}>{iconFor(c.logicalType)}</span>
+              <TypeIcon type={c.logicalType} />
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
               {sort && <span style={{ fontSize: 10, color: "#b4afa5" }}>{sort.dir === "asc" ? "↑" : "↓"}</span>}
               <div

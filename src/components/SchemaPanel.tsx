@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { iconFor, ddlPreview } from "@/lib/client/format";
+import { ddlPreview } from "@/lib/client/format";
 import type { LogicalType, TableMeta } from "@/lib/types";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { TypeIcon } from "./TypeIcon";
 
 interface Props {
   table: TableMeta;
@@ -60,7 +61,7 @@ export function SchemaPanel({ table, locked, onUnlock, onRenameColumn, onChangeC
         <div style={{ padding: "18px 20px 40px", display: "flex", flexDirection: "column", gap: 8, opacity: locked ? 0.55 : 1, pointerEvents: locked ? "none" : "auto" }}>
           {table.columns.map((c) => (
             <div key={c.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", border: "1px solid #f0eeE9", borderRadius: 9 }}>
-              <span style={{ color: "#c2bdb3", fontFamily: "var(--font-mono)", fontSize: 11 }}>{iconFor(c.logicalType)}</span>
+              <TypeIcon type={c.logicalType} />
               <input
                 defaultValue={c.name}
                 onBlur={(e) => {

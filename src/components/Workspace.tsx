@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api, userHeader } from "@/lib/client/api";
-import type { ColumnMeta, Connection, ConnectionInput, LogicalType, QueryResult, Row, RowFilter, RowSort, TableMeta, WriteOp, JournalEntry } from "@/lib/types";
+import type { ColumnMeta, Connection, ConnectionInput, FilterMatch, LogicalType, QueryResult, Row, RowFilter, RowSort, TableMeta, WriteOp, JournalEntry } from "@/lib/types";
 import { ENV_COLORS } from "@/lib/client/env";
 import { nowForColumn, toText } from "@/lib/client/format";
 import { HistoryEntry, timeNow } from "@/lib/client/history";
@@ -35,7 +35,7 @@ import { DropTablesDialog } from "./DropTablesDialog";
 import { CommandPalette, type CmdItem } from "./CommandPalette";
 import { QueryConsole } from "./QueryConsole";
 import { EquivalentSqlBar } from "./EquivalentSqlBar";
-import { describeSelect } from "@/lib/db/where";
+import { describeSelect, isActiveFilter } from "@/lib/db/where";
 import { SavedViewsBar } from "./SavedViewsBar";
 import { WritePreviewBox } from "./WritePreviewBox";
 import { SelectionBar } from "./SelectionBar";
@@ -144,6 +144,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   const relatedCache = useRef(new Map<string, Row | null>());
   const [relationTrail, setRelationTrail] = useState<TrailEntry[]>([]);
   const [filters, setFilters] = useState<RowFilter[]>([]);
+  const [filterMatch, setFilterMatch] = useState<FilterMatch>("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sorts, setSorts] = useState<RowSort[]>([]);
@@ -317,6 +318,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     try {
       const res = await api.selectRows(activeConnectionId, activeTable, {
         filters,
+        filterMatch,
         sorts,
         search: debouncedSearch,
         limit: PAGE_SIZE,
@@ -347,7 +349,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     } finally {
       if (!silent && seq === rowsRequestSeq.current) setLoadingRows(false);
     }
-  }, [activeConnectionId, activeTable, filters, sorts, debouncedSearch, page, flash]);
+  }, [activeConnectionId, activeTable, filters, filterMatch, sorts, debouncedSearch, page, flash]);
 
   useEffect(() => {
     if (activeConnectionId) loadTables(activeConnectionId);
@@ -462,6 +464,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     setSavedViews(prefs.savedViews);
     setActiveViewId(prefs.activeViewId);
     setFilters(prefs.filters);
+    setFilterMatch(prefs.filterMatch);
     setSorts(prefs.sorts);
     setGroupBy(prefs.groupBy);
     setColumnOrder(prefs.columnOrder);
@@ -479,6 +482,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       savedViews,
       activeViewId,
       filters,
+      filterMatch,
       sorts,
       groupBy,
       view,
@@ -493,23 +497,24 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       });
     }, 400);
     return () => clearTimeout(id);
-  }, [activeConnectionId, activeTable, savedViews, activeViewId, filters, sorts, groupBy, view, columnOrder, columnWidths, hiddenCols]);
+  }, [activeConnectionId, activeTable, savedViews, activeViewId, filters, filterMatch, sorts, groupBy, view, columnOrder, columnWidths, hiddenCols]);
 
   // ---------- saved views ----------
   const currentViewState = useMemo(
-    () => ({ filters, sorts, groupBy, view, hiddenColumns: [...(rowsKey ? hiddenCols[rowsKey] ?? [] : [])].sort() }),
-    [filters, sorts, groupBy, view, hiddenCols, rowsKey],
+    () => ({ filters, filterMatch, sorts, groupBy, view, hiddenColumns: [...(rowsKey ? hiddenCols[rowsKey] ?? [] : [])].sort() }),
+    [filters, filterMatch, sorts, groupBy, view, hiddenCols, rowsKey],
   );
   const activeSavedView = savedViews.find((v) => v.id === activeViewId) ?? null;
   const activeViewDirty = useMemo(() => {
     if (!activeSavedView) return false;
     const v = activeSavedView;
-    const saved = { filters: v.filters, sorts: v.sorts, groupBy: v.groupBy, view: v.view, hiddenColumns: [...v.hiddenColumns].sort() };
+    const saved = { filters: v.filters, filterMatch: v.filterMatch, sorts: v.sorts, groupBy: v.groupBy, view: v.view, hiddenColumns: [...v.hiddenColumns].sort() };
     return JSON.stringify(saved) !== JSON.stringify(currentViewState);
   }, [activeSavedView, currentViewState]);
 
   function applyViewState(state: Omit<SavedView, "id" | "name">) {
     setFilters(state.filters);
+    setFilterMatch(state.filterMatch);
     setSorts(state.sorts);
     setGroupBy(state.groupBy);
     setView(state.view);
@@ -547,7 +552,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
 
   useEffect(() => {
     setPage(0);
-  }, [filters, sorts, debouncedSearch]);
+  }, [filters, filterMatch, sorts, debouncedSearch]);
 
   useEffect(() => {
     setHistory([]);
@@ -1544,15 +1549,17 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     }
   }
 
+  const activeFilterCount = useMemo(() => filters.filter(isActiveFilter).length, [filters]);
+
   const equivalentSql = useMemo(() => {
     if (!activeTable || !activeConnection || columns.length === 0) return "";
     try {
-      return describeSelect(activeConnection.engine, { name: activeTable, columns, rowCount: 0 }, { filters, sorts, search: debouncedSearch, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
+      return describeSelect(activeConnection.engine, { name: activeTable, columns, rowCount: 0 }, { filters, filterMatch, sorts, search: debouncedSearch, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
     } catch {
       // A saved filter can name a column that no longer exists; the grid reports that error.
       return "";
     }
-  }, [activeTable, activeConnection, filters, sorts, debouncedSearch, columns, page]);
+  }, [activeTable, activeConnection, filters, filterMatch, sorts, debouncedSearch, columns, page]);
 
   // ---------- derived view helpers ----------
   const boardColumn = useMemo(() => {
@@ -1746,7 +1753,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                 <RelationTrail trail={relationTrail} currentTable={activeTable} onJump={goToTrailIndex} onClear={clearRelationTrail} />
                 <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
                   <div style={{ fontSize: 27, fontWeight: 600, letterSpacing: "-0.02em" }}>{activeTable}</div>
-                  {!pkColumn && <div style={{ fontSize: 12.5, color: "var(--env-prod-fg)" }}>Aucune clé primaire — édition désactivée</div>}
+                  {!pkColumn && <div style={{ fontSize: 12.5, color: "var(--env-prod-fg)" }}>{t("toolbar.noPrimaryKey")}</div>}
                 </div>
                 <SavedViewsBar
                   views={savedViews}
@@ -1770,6 +1777,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                   onSetGroupBy={setGroupBy}
                   filters={filters}
                   onFiltersChange={setFilters}
+                  filterMatch={filterMatch}
+                  onFilterMatchChange={setFilterMatch}
                   sorts={sorts}
                   onSortsChange={setSorts}
                   search={search}
@@ -1790,6 +1799,25 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                 {/* Takes no room: refreshing rows must not push the grid down. */}
                 <div className="om-loadbar" role="progressbar" aria-label={t("common.loading")} />
                 {!rowsEntry && <GridSkeleton />}
+                {rowsEntry && total === 0 && !loadingRows && (activeFilterCount > 0 || debouncedSearch.trim()) && (
+                  <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 12, padding: "9px 12px", background: "var(--accent-bg)", border: "1px solid var(--accent-border)", borderRadius: 8, fontSize: 13, color: "#4b473f" }}>
+                    <span>
+                      {t("emptyFiltered.noMatch")}
+                      {activeFilterCount > 0 && ` · ${t(activeFilterCount > 1 ? "emptyFiltered.filters_other" : "emptyFiltered.filters_one", { count: activeFilterCount })}`}
+                      {debouncedSearch.trim() && ` · ${t("emptyFiltered.search", { term: debouncedSearch.trim() })}`}
+                    </span>
+                    <button
+                      onClick={() => {
+                        setFilters([]);
+                        setSearch("");
+                        setDebouncedSearch("");
+                      }}
+                      style={{ padding: "3px 9px", background: "#fff", border: "1px solid var(--accent-border)", borderRadius: 6, fontSize: 12.5, color: "var(--accent-hover)", cursor: "pointer" }}
+                    >
+                      {t("emptyFiltered.clear")}
+                    </button>
+                  </div>
+                )}
                 {rowsEntry && view === "table" && (
                   <TableView
                     columns={orderedVisibleColumns}

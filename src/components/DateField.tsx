@@ -22,6 +22,8 @@ interface Props {
    * typed, and clearing it goes back to the whole day.
    */
   optionalTime?: boolean;
+  /** Extra shortcuts under the calendar (filters: "today", "last 7 days"…). */
+  presets?: { label: string; onPick: () => void }[];
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -55,7 +57,7 @@ const POPOVER_WIDTH = 252;
 // Only used to decide whether to flip before the first measurement.
 const POPOVER_HEIGHT = 300;
 
-export function DateField({ column, value, autoOpen, onCommit, onClose, placeholder, triggerStyle, optionalTime }: Props) {
+export function DateField({ column, value, autoOpen, onCommit, onClose, placeholder, triggerStyle, optionalTime, presets }: Props) {
   const { t, lang } = useLang();
   const selected = parseDateValue(value);
   const withTime = !isDateOnlyColumn(column);
@@ -293,6 +295,24 @@ export function DateField({ column, value, autoOpen, onCommit, onClose, placehol
                 }}
                 style={{ flex: 1, border: "1px solid #e8e5df", borderRadius: 6, padding: "4px 6px", fontSize: 13, background: "#fff" }}
               />
+            </div>
+          )}
+
+          {presets && presets.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 10 }}>
+              {presets.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => {
+                    p.onPick();
+                    close();
+                  }}
+                  style={{ padding: "3px 8px", background: "var(--accent-bg)", border: "1px solid var(--accent-border)", borderRadius: 12, fontSize: 12, color: "var(--accent-hover)", cursor: "pointer" }}
+                >
+                  {p.label}
+                </button>
+              ))}
             </div>
           )}
 

@@ -2,11 +2,12 @@
 
 import { useRef, useState } from "react";
 import type { ColumnMeta, Row } from "@/lib/types";
-import { iconFor, toEditableText, toText } from "@/lib/client/format";
+import { toEditableText, toText } from "@/lib/client/format";
 import type { HistoryEntry } from "@/lib/client/history";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 import { DateField } from "./DateField";
 import { RelationField, fieldInputStyle } from "./RelationField";
+import { TypeIcon } from "./TypeIcon";
 
 interface Props {
   row: Row;
@@ -103,7 +104,7 @@ export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, 
         {columns.map((c) => (
           <div key={c.name} style={{ display: "grid", gridTemplateColumns: "132px 1fr", gap: 10, alignItems: "center", minHeight: 34 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "#8b877e", overflow: "hidden" }}>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: "#c2bdb3" }}>{iconFor(c.logicalType)}</span>
+              <TypeIcon type={c.logicalType} style={{ fontSize: 10.5 }} />
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
             </div>
             <div>

@@ -90,11 +90,16 @@ export interface TableMeta {
 
 export interface RowFilter {
   column: string;
-  op: "eq" | "neq" | "contains" | "notContains" | "gt" | "lt" | "between" | "empty" | "notEmpty";
+  op: "eq" | "neq" | "in" | "notIn" | "contains" | "notContains" | "gt" | "lt" | "between" | "empty" | "notEmpty";
   value: string;
   /** Upper bound of "between". */
   value2?: string;
+  /** The candidates of "in" / "notIn". */
+  values?: string[];
 }
+
+/** Whether rows must match every filter or at least one. */
+export type FilterMatch = "all" | "any";
 
 export interface RowSort {
   column: string;
