@@ -8,7 +8,7 @@ import { ENV_COLORS } from "@/lib/client/env";
 import { nowForColumn, toText } from "@/lib/client/format";
 import { HistoryEntry, timeNow } from "@/lib/client/history";
 import { clearLegacyColumnLayout, orderColumns, readLegacyColumnLayouts } from "@/lib/client/columnLayout";
-import { EMPTY_PREFS, type TablePrefs } from "@/lib/prefs";
+import { EMPTY_PREFS, type SavedView, type TablePrefs } from "@/lib/prefs";
 import { loadOpenTabs, saveOpenTabs } from "@/lib/client/openTabs";
 import { TopBar } from "./TopBar";
 import { ConnectionTabs, type WorkspaceTab } from "./ConnectionTabs";
@@ -33,6 +33,7 @@ import { DropTablesDialog } from "./DropTablesDialog";
 import { CommandPalette, type CmdItem } from "./CommandPalette";
 import { QueryConsole } from "./QueryConsole";
 import { EquivalentSqlBar } from "./EquivalentSqlBar";
+import { SavedViewsBar } from "./SavedViewsBar";
 import { SelectionBar } from "./SelectionBar";
 import { Pagination } from "./Pagination";
 import { ExportModal, type ExportChoice } from "./ExportModal";
@@ -138,6 +139,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sorts, setSorts] = useState<RowSort[]>([]);
   const [groupBy, setGroupBy] = useState("");
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
+  const [activeViewId, setActiveViewId] = useState("");
   const [rowsByKey, setRowsByKey] = useState<Record<string, { rows: Row[]; total: number }>>({});
   const rowsKey = activeConnectionId && activeTable ? `${activeConnectionId}\u0000${activeTable}` : null;
   const rowsEntry = rowsKey ? rowsByKey[rowsKey] : undefined;
@@ -432,6 +435,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       return;
     }
     const prefs = prefsRef.current.tables[activeTable] ?? EMPTY_PREFS;
+    setSavedViews(prefs.savedViews);
+    setActiveViewId(prefs.activeViewId);
     setFilters(prefs.filters);
     setSorts(prefs.sorts);
     setGroupBy(prefs.groupBy);
@@ -447,6 +452,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     if (!activeConnectionId || !activeTable) return;
     if (hydratedKey.current !== `${activeConnectionId}:${activeTable}`) return;
     const prefs: TablePrefs = {
+      savedViews,
+      activeViewId,
       filters,
       sorts,
       groupBy,
@@ -462,7 +469,52 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       });
     }, 400);
     return () => clearTimeout(id);
-  }, [activeConnectionId, activeTable, filters, sorts, groupBy, view, columnOrder, columnWidths, hiddenCols]);
+  }, [activeConnectionId, activeTable, savedViews, activeViewId, filters, sorts, groupBy, view, columnOrder, columnWidths, hiddenCols]);
+
+  // ---------- saved views ----------
+  const currentViewState = useMemo(
+    () => ({ filters, sorts, groupBy, view, hiddenColumns: [...(rowsKey ? hiddenCols[rowsKey] ?? [] : [])].sort() }),
+    [filters, sorts, groupBy, view, hiddenCols, rowsKey],
+  );
+  const activeSavedView = savedViews.find((v) => v.id === activeViewId) ?? null;
+  const activeViewDirty = useMemo(() => {
+    if (!activeSavedView) return false;
+    const v = activeSavedView;
+    const saved = { filters: v.filters, sorts: v.sorts, groupBy: v.groupBy, view: v.view, hiddenColumns: [...v.hiddenColumns].sort() };
+    return JSON.stringify(saved) !== JSON.stringify(currentViewState);
+  }, [activeSavedView, currentViewState]);
+
+  function applyViewState(state: Omit<SavedView, "id" | "name">) {
+    setFilters(state.filters);
+    setSorts(state.sorts);
+    setGroupBy(state.groupBy);
+    setView(state.view);
+    if (rowsKey) setHiddenCols((prev) => ({ ...prev, [rowsKey]: new Set(state.hiddenColumns) }));
+  }
+
+  function applySavedView(id: string) {
+    const v = savedViews.find((x) => x.id === id);
+    if (!v) return;
+    applyViewState(v);
+    setActiveViewId(id);
+  }
+
+  function clearSavedView() {
+    // Back to the plain table: no filter, sort or grouping, every column shown.
+    applyViewState({ ...EMPTY_PREFS, hiddenColumns: [] });
+    setActiveViewId("");
+  }
+
+  function saveNewView(name: string) {
+    const id = crypto.randomUUID();
+    setSavedViews((prev) => [...prev, { id, name, ...currentViewState }]);
+    setActiveViewId(id);
+  }
+
+  function updateActiveView() {
+    if (!activeViewId) return;
+    setSavedViews((prev) => prev.map((v) => (v.id === activeViewId ? { ...v, ...currentViewState } : v)));
+  }
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedSearch(search), 300);
@@ -1563,6 +1615,20 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                   <div style={{ fontSize: 27, fontWeight: 600, letterSpacing: "-0.02em" }}>{activeTable}</div>
                   {!pkColumn && <div style={{ fontSize: 12.5, color: "var(--env-prod-fg)" }}>Aucune clé primaire — édition désactivée</div>}
                 </div>
+                <SavedViewsBar
+                  views={savedViews}
+                  activeViewId={activeViewId}
+                  dirty={activeViewDirty}
+                  onApply={applySavedView}
+                  onClear={clearSavedView}
+                  onSaveNew={saveNewView}
+                  onUpdate={updateActiveView}
+                  onRename={(id, name) => setSavedViews((prev) => prev.map((v) => (v.id === id ? { ...v, name } : v)))}
+                  onDelete={(id) => {
+                    setSavedViews((prev) => prev.filter((v) => v.id !== id));
+                    if (id === activeViewId) setActiveViewId("");
+                  }}
+                />
                 <TableToolbar
                   view={view}
                   onSetView={setView}

@@ -209,6 +209,10 @@ export function QueryConsole({ connectionId, onRun }: Props) {
               onChange={(e) => setNaming(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Escape") setNaming(null);
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  saveAs(naming);
+                }
               }}
               placeholder={t("queryConsole.namePlaceholder")}
               style={{ ...smallBtn, width: 180, cursor: "text", outline: "none", background: "#fff" }}

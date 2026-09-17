@@ -5,7 +5,21 @@ import type { RowFilter, RowSort } from "./types";
 export type ViewKind = "table" | "board" | "calendar" | "gallery";
 export const VIEW_KINDS: ViewKind[] = ["table", "board", "calendar", "gallery"];
 
+/** A named set of filters/sorts/grouping the user can switch back to. */
+export interface SavedView {
+  id: string;
+  name: string;
+  filters: RowFilter[];
+  sorts: RowSort[];
+  groupBy: string;
+  view: ViewKind;
+  hiddenColumns: string[];
+}
+
 export interface TablePrefs {
+  savedViews: SavedView[];
+  /** The saved view last applied, "" when none. */
+  activeViewId: string;
   filters: RowFilter[];
   sorts: RowSort[];
   groupBy: string;
@@ -16,6 +30,8 @@ export interface TablePrefs {
 }
 
 export const EMPTY_PREFS: TablePrefs = {
+  savedViews: [],
+  activeViewId: "",
   filters: [],
   sorts: [],
   groupBy: "",
@@ -37,22 +53,59 @@ function names(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, MAX_ITEMS).map((x) => x.slice(0, 200)) : [];
 }
 
-export function sanitizeTablePrefs(raw: unknown): TablePrefs {
-  const p = (raw ?? {}) as Record<string, unknown>;
-  const filters = Array.isArray(p.filters)
-    ? p.filters
+function sanitizeFilters(raw: unknown): RowFilter[] {
+  return Array.isArray(raw)
+    ? raw
         .map((f) => (f ?? {}) as Record<string, unknown>)
         .filter((f) => typeof f.column === "string" && FILTER_OPS.includes(f.op as RowFilter["op"]))
         .slice(0, MAX_ITEMS)
         .map((f): RowFilter => ({ column: str(f.column), op: f.op as RowFilter["op"], value: str(f.value, 1000) }))
     : [];
-  const sorts = Array.isArray(p.sorts)
-    ? p.sorts
+}
+
+function sanitizeSorts(raw: unknown): RowSort[] {
+  return Array.isArray(raw)
+    ? raw
         .map((s) => (s ?? {}) as Record<string, unknown>)
         .filter((s) => typeof s.column === "string")
         .slice(0, MAX_ITEMS)
         .map((s): RowSort => ({ column: str(s.column), dir: s.dir === "desc" ? "desc" : "asc" }))
     : [];
+}
+
+function sanitizeView(raw: unknown): ViewKind {
+  return VIEW_KINDS.includes(raw as ViewKind) ? (raw as ViewKind) : "table";
+}
+
+function sanitizeSavedViews(raw: unknown): SavedView[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: SavedView[] = [];
+  for (const item of raw.slice(0, MAX_ITEMS)) {
+    const v = (item ?? {}) as Record<string, unknown>;
+    const id = str(v.id, 64);
+    const name = str(v.name).trim();
+    if (!id || !name || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      name,
+      filters: sanitizeFilters(v.filters),
+      sorts: sanitizeSorts(v.sorts),
+      groupBy: str(v.groupBy),
+      view: sanitizeView(v.view),
+      hiddenColumns: names(v.hiddenColumns),
+    });
+  }
+  return out;
+}
+
+export function sanitizeTablePrefs(raw: unknown): TablePrefs {
+  const p = (raw ?? {}) as Record<string, unknown>;
+  const filters = sanitizeFilters(p.filters);
+  const sorts = sanitizeSorts(p.sorts);
+  const savedViews = sanitizeSavedViews(p.savedViews);
+  const activeViewId = str(p.activeViewId, 64);
   const widths: Record<string, number> = {};
   if (p.columnWidths && typeof p.columnWidths === "object") {
     for (const [name, value] of Object.entries(p.columnWidths as Record<string, unknown>).slice(0, MAX_ITEMS)) {
@@ -61,10 +114,12 @@ export function sanitizeTablePrefs(raw: unknown): TablePrefs {
     }
   }
   return {
+    savedViews,
+    activeViewId: savedViews.some((v) => v.id === activeViewId) ? activeViewId : "",
     filters,
     sorts,
     groupBy: str(p.groupBy),
-    view: VIEW_KINDS.includes(p.view as ViewKind) ? (p.view as ViewKind) : "table",
+    view: sanitizeView(p.view),
     columnOrder: names(p.columnOrder),
     columnWidths: widths,
     hiddenColumns: names(p.hiddenColumns),
@@ -89,6 +144,7 @@ export function isEmptyConnectionPrefs(p: ConnectionPrefs): boolean {
 
 export function isEmptyPrefs(p: TablePrefs): boolean {
   return (
+    p.savedViews.length === 0 &&
     p.filters.length === 0 &&
     p.sorts.length === 0 &&
     p.groupBy === "" &&
