@@ -132,7 +132,8 @@ export class MySqlAdapter implements DatabaseAdapter {
 
   private buildWhere(meta: TableMeta, opts: SelectOptions): { where: string; params: unknown[] } {
     const filters = opts.filters ?? [];
-    if (filters.length === 0) return { where: "", params: [] };
+    const search = opts.search?.trim();
+    if (filters.length === 0 && !search) return { where: "", params: [] };
     const params: unknown[] = [];
     const clauses = filters.map((f) => {
       assertKnownColumn(meta, f.column);
@@ -144,6 +145,9 @@ export class MySqlAdapter implements DatabaseAdapter {
       }
       return `CAST(${q(f.column)} AS CHAR) ${op} ?`;
     });
+    if (search && meta.columns.length > 0) {
+      clauses.push(`(${meta.columns.map((c) => { params.push(`%${search.toLowerCase()}%`); return `LOWER(CAST(${q(c.name)} AS CHAR)) LIKE ?`; }).join(" OR ")})`);
+    }
     return { where: `WHERE ${clauses.join(" AND ")}`, params };
   }
 

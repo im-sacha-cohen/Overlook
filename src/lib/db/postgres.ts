@@ -224,7 +224,8 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   private buildWhere(meta: TableMeta, opts: SelectOptions): { where: string; params: unknown[] } {
     const filters = opts.filters ?? [];
-    if (filters.length === 0) return { where: "", params: [] };
+    const search = opts.search?.trim();
+    if (filters.length === 0 && !search) return { where: "", params: [] };
     const params: unknown[] = [];
     const clauses = filters.map((f) => {
       assertKnownColumn(meta, f.column);
@@ -236,6 +237,10 @@ export class PostgresAdapter implements DatabaseAdapter {
       }
       return `${q(f.column)}::text ${op} $${params.length}`;
     });
+    if (search && meta.columns.length > 0) {
+      params.push(`%${search}%`);
+      clauses.push(`(${meta.columns.map((c) => `${q(c.name)}::text ILIKE $${params.length}`).join(" OR ")})`);
+    }
     return { where: `WHERE ${clauses.join(" AND ")}`, params };
   }
 

@@ -134,6 +134,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   const relatedCache = useRef(new Map<string, Row | null>());
   const [relationTrail, setRelationTrail] = useState<TrailEntry[]>([]);
   const [filters, setFilters] = useState<RowFilter[]>([]);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sorts, setSorts] = useState<RowSort[]>([]);
   const [groupBy, setGroupBy] = useState("");
   const [rowsByKey, setRowsByKey] = useState<Record<string, { rows: Row[]; total: number }>>({});
@@ -289,6 +291,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       const res = await api.selectRows(activeConnectionId, activeTable, {
         filters,
         sorts,
+        search: debouncedSearch,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       });
@@ -317,7 +320,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     } finally {
       if (!silent && seq === rowsRequestSeq.current) setLoadingRows(false);
     }
-  }, [activeConnectionId, activeTable, filters, sorts, page, flash]);
+  }, [activeConnectionId, activeTable, filters, sorts, debouncedSearch, page, flash]);
 
   useEffect(() => {
     if (activeConnectionId) loadTables(activeConnectionId);
@@ -421,6 +424,9 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     setEditing(null);
     setSelectedIds(new Set());
     setPage(0);
+    // A search is a quick look: it doesn't follow you to another table.
+    setSearch("");
+    setDebouncedSearch("");
     if (!activeConnectionId || !activeTable || prefsRef.current.connectionId !== activeConnectionId) {
       hydratedKey.current = null;
       return;
@@ -459,8 +465,13 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   }, [activeConnectionId, activeTable, filters, sorts, groupBy, view, columnOrder, columnWidths, hiddenCols]);
 
   useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(id);
+  }, [search]);
+
+  useEffect(() => {
     setPage(0);
-  }, [filters, sorts]);
+  }, [filters, sorts, debouncedSearch]);
 
   useEffect(() => {
     setHistory([]);
@@ -1355,13 +1366,15 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
 
   const equivalentSql = useMemo(() => {
     if (!activeTable) return "";
-    const where = filters
+    const clauses = filters
       .filter((f) => f.value !== "")
-      .map((f) => `${f.column} ${f.op === "neq" ? "<>" : f.op === "eq" ? "=" : "ilike"} '${f.op === "contains" ? `%${f.value}%` : f.value}'`)
-      .join(" and ");
+      .map((f) => `${f.column} ${f.op === "neq" ? "<>" : f.op === "eq" ? "=" : "ilike"} '${f.op === "contains" ? `%${f.value}%` : f.value}'`);
+    const term = debouncedSearch.trim();
+    if (term && columns.length > 0) clauses.push(`(${columns.map((c) => `${c.name} ilike '%${term}%'`).join(" or ")})`);
+    const where = clauses.join(" and ");
     const order = sorts.map((s) => `${s.column} ${s.dir}`).join(", ");
     return `select ${visibleColumns.map((c) => c.name).join(", ") || "*"} from ${activeTable}${where ? ` where ${where}` : ""}${order ? ` order by ${order}` : ""} limit 200;`;
-  }, [activeTable, filters, sorts, visibleColumns]);
+  }, [activeTable, filters, sorts, debouncedSearch, columns, visibleColumns]);
 
   // ---------- derived view helpers ----------
   const boardColumn = useMemo(() => {
@@ -1560,6 +1573,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                   onFiltersChange={setFilters}
                   sorts={sorts}
                   onSortsChange={setSorts}
+                  search={search}
+                  onSearchChange={setSearch}
                   onAddRow={() => handleAddRow()}
                 />
               </div>

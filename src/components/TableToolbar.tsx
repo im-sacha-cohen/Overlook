@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import type { ColumnMeta, RowFilter, RowSort } from "@/lib/types";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 
@@ -15,6 +16,8 @@ interface Props {
   onFiltersChange: (f: RowFilter[]) => void;
   sorts: RowSort[];
   onSortsChange: (s: RowSort[]) => void;
+  search: string;
+  onSearchChange: (s: string) => void;
   onAddRow: () => void;
 }
 
@@ -31,8 +34,22 @@ const smallBtn: React.CSSProperties = {
   cursor: "pointer",
 };
 
-export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, filters, onFiltersChange, sorts, onSortsChange, onAddRow }: Props) {
+export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, filters, onFiltersChange, sorts, onSortsChange, search, onSearchChange, onAddRow }: Props) {
   const { t } = useLang();
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // "/" jumps to the search box, as in most data tools.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = document.activeElement;
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || (el instanceof HTMLElement && el.isContentEditable)) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const selectableCols = columns.filter((c) => !c.hidden);
   const groupableCols = columns.filter((c) => c.logicalType === "select" || c.logicalType === "checkbox");
   const VIEWS: [ViewKind, string][] = [
@@ -70,6 +87,32 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
           </button>
         ))}
         <div style={{ display: "flex", flex: "0 1 auto", minWidth: 0, flexWrap: "wrap", justifyContent: "flex-end", marginLeft: "auto", alignItems: "center", gap: 6, paddingBottom: 6 }}>
+          <div style={{ position: "relative", flex: "0 1 200px", minWidth: 120 }}>
+            <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", color: "#a8a39a", fontSize: 12, pointerEvents: "none" }}>⌕</span>
+            <input
+              ref={searchRef}
+              value={search}
+              onChange={(e) => onSearchChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  onSearchChange("");
+                  e.currentTarget.blur();
+                }
+              }}
+              placeholder={t("toolbar.searchPlaceholder")}
+              title={t("toolbar.searchHint")}
+              style={{ ...smallBtn, width: "100%", height: 27, padding: "0 22px 0 24px", cursor: "text", outline: "none", boxSizing: "border-box" }}
+            />
+            {search && (
+              <button
+                onClick={() => onSearchChange("")}
+                aria-label={t("common.close")}
+                style={{ position: "absolute", right: 3, top: "50%", transform: "translateY(-50%)", width: 20, height: 20, display: "grid", placeItems: "center", background: "transparent", border: "none", color: "#9a958b", cursor: "pointer" }}
+              >
+                ×
+              </button>
+            )}
+          </div>
           <select value={groupBy} onChange={(e) => onSetGroupBy(e.target.value)} style={{ ...smallBtn, height: 27, padding: "0 6px", cursor: "pointer" }}>
             <option value="">{t("toolbar.noGroup")}</option>
             {groupableCols.map((c) => (

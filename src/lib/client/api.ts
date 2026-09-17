@@ -93,9 +93,10 @@ export const api = {
   selectRows: (
     connectionId: string,
     table: string,
-    opts: { filters?: RowFilter[]; sorts?: RowSort[]; limit?: number; offset?: number }
+    opts: { filters?: RowFilter[]; sorts?: RowSort[]; search?: string; limit?: number; offset?: number }
   ) => {
     const params = new URLSearchParams();
+    if (opts.search?.trim()) params.set("search", opts.search.trim());
     if (opts.filters?.length) params.set("filters", JSON.stringify(opts.filters));
     if (opts.sorts?.length) params.set("sorts", JSON.stringify(opts.sorts));
     if (opts.limit) params.set("limit", String(opts.limit));

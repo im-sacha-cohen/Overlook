@@ -108,7 +108,8 @@ export class SqliteAdapter implements DatabaseAdapter {
 
   private buildWhere(meta: TableMeta, opts: SelectOptions): { where: string; params: unknown[] } {
     const filters = opts.filters ?? [];
-    if (filters.length === 0) return { where: "", params: [] };
+    const search = opts.search?.trim();
+    if (filters.length === 0 && !search) return { where: "", params: [] };
     const params: unknown[] = [];
     const clauses = filters.map((f) => {
       assertKnownColumn(meta, f.column);
@@ -116,6 +117,9 @@ export class SqliteAdapter implements DatabaseAdapter {
       params.push(op === "LIKE" ? `%${f.value}%` : f.value);
       return `CAST(${q(f.column)} AS TEXT) ${op} ?`;
     });
+    if (search && meta.columns.length > 0) {
+      clauses.push(`(${meta.columns.map((c) => { params.push(`%${search}%`); return `CAST(${q(c.name)} AS TEXT) LIKE ?`; }).join(" OR ")})`);
+    }
     return { where: `WHERE ${clauses.join(" AND ")}`, params };
   }
 

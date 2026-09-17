@@ -3,6 +3,8 @@ import type { ColumnMeta, LogicalType, QueryResult, Row, RowFilter, RowSort, Tab
 export interface SelectOptions {
   filters?: RowFilter[];
   sorts?: RowSort[];
+  /** Free text matched against every column (as text), case-insensitively. */
+  search?: string;
   limit?: number;
   offset?: number;
 }

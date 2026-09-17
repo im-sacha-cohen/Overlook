@@ -10,11 +10,13 @@ export async function GET(request: Request, { params }: Params) {
     const url = new URL(request.url);
     const filters = url.searchParams.get("filters");
     const sorts = url.searchParams.get("sorts");
+    const search = url.searchParams.get("search");
     const limit = url.searchParams.get("limit");
     const offset = url.searchParams.get("offset");
     const result = await getAdapter(id).selectRows(decodeURIComponent(table), {
       filters: filters ? (JSON.parse(filters) as RowFilter[]) : undefined,
       sorts: sorts ? (JSON.parse(sorts) as RowSort[]) : undefined,
+      search: search ?? undefined,
       limit: limit ? Number(limit) : undefined,
       offset: offset ? Number(offset) : undefined,
     });
