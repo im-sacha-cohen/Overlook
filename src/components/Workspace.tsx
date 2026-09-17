@@ -35,6 +35,7 @@ import { DropTablesDialog } from "./DropTablesDialog";
 import { CommandPalette, type CmdItem } from "./CommandPalette";
 import { QueryConsole } from "./QueryConsole";
 import { EquivalentSqlBar } from "./EquivalentSqlBar";
+import { describeSelect } from "@/lib/db/where";
 import { SavedViewsBar } from "./SavedViewsBar";
 import { WritePreviewBox } from "./WritePreviewBox";
 import { SelectionBar } from "./SelectionBar";
@@ -202,7 +203,22 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     return activeTableMeta.columns.map((c) => ({ ...c, hidden: hidden?.has(c.name) ?? false }));
   }, [activeTableMeta, hiddenCols, rowsKey]);
   const visibleColumns = useMemo(() => columns.filter((c) => !c.hidden), [columns]);
-  const orderedVisibleColumns = useMemo(() => orderColumns(visibleColumns, columnOrder), [visibleColumns, columnOrder]);
+  // Without a saved order, columns empty in every loaded row go last. Worked out once
+  // per table from its first page, so filtering or paging never reshuffles the grid.
+  const [autoOrders, setAutoOrders] = useState<Record<string, string[]>>({});
+  const autoOrder = rowsKey ? autoOrders[rowsKey] : undefined;
+  useEffect(() => {
+    if (!rowsKey || autoOrder || !rowsEntry || rowsEntry.rows.length === 0 || !activeTableMeta) return;
+    const isEmpty = (v: unknown) => v === null || v === undefined || v === "";
+    const names = activeTableMeta.columns.map((c) => c.name);
+    const filled = names.filter((n) => rowsEntry.rows.some((r) => !isEmpty(r[n])));
+    const empty = names.filter((n) => !filled.includes(n));
+    setAutoOrders((prev) => ({ ...prev, [rowsKey]: [...filled, ...empty] }));
+  }, [rowsKey, autoOrder, rowsEntry, activeTableMeta]);
+  const orderedVisibleColumns = useMemo(
+    () => orderColumns(visibleColumns, columnOrder.length > 0 ? columnOrder : (autoOrder ?? [])),
+    [visibleColumns, columnOrder, autoOrder]
+  );
   const pkColumn = useMemo(() => columns.find((c) => c.isPrimaryKey)?.name ?? null, [columns]);
   const pkColumnRef = useRef(pkColumn);
   pkColumnRef.current = pkColumn;
@@ -698,6 +714,18 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     } else {
       closeTab(pendingTabId);
     }
+  }
+
+  function openTableInNewTab(table: string) {
+    if (!activeConnectionId) return;
+    const tabId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setTabs((prev) => [...prev, { tabId, connectionId: activeConnectionId, table, view: "table" as ViewKind }]);
+    previousTabIdRef.current = activeTabId;
+    setActiveTabId(tabId);
+    setActiveTable(table);
+    setView("table");
+    setDetailRow(null);
+    setRelationTrail([]);
   }
 
   function openRelationInNewTab(col: ColumnMeta, value: unknown) {
@@ -1212,6 +1240,32 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     [activeConnectionId, getTableLabelColumn]
   );
 
+  // Filter suggestions: typed text may be the key itself or its label, so search every column.
+  const suggestRelationValues = useCallback(
+    async (col: ColumnMeta, query: string): Promise<Row[]> => {
+      if (!activeConnectionId || !col.references) return [];
+      try {
+        const res = await api.selectRows(activeConnectionId, col.references.table, { search: query.trim(), limit: 20 });
+        return res.rows;
+      } catch {
+        return [];
+      }
+    },
+    [activeConnectionId]
+  );
+
+  const suggestColumnValues = useCallback(
+    async (col: ColumnMeta, query: string) => {
+      if (!activeConnectionId || !activeTable) return [];
+      try {
+        return (await api.distinctValues(activeConnectionId, activeTable, col.name, query)).values;
+      } catch {
+        return [];
+      }
+    },
+    [activeConnectionId, activeTable]
+  );
+
   const getRelationLabel = useCallback(
     (col: ColumnMeta, row: Row): string => {
       if (!col.references) return "";
@@ -1491,16 +1545,14 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   }
 
   const equivalentSql = useMemo(() => {
-    if (!activeTable) return "";
-    const clauses = filters
-      .filter((f) => f.value !== "")
-      .map((f) => `${f.column} ${f.op === "neq" ? "<>" : f.op === "eq" ? "=" : "ilike"} '${f.op === "contains" ? `%${f.value}%` : f.value}'`);
-    const term = debouncedSearch.trim();
-    if (term && columns.length > 0) clauses.push(`(${columns.map((c) => `${c.name} ilike '%${term}%'`).join(" or ")})`);
-    const where = clauses.join(" and ");
-    const order = sorts.map((s) => `${s.column} ${s.dir}`).join(", ");
-    return `select ${visibleColumns.map((c) => c.name).join(", ") || "*"} from ${activeTable}${where ? ` where ${where}` : ""}${order ? ` order by ${order}` : ""} limit 200;`;
-  }, [activeTable, filters, sorts, debouncedSearch, columns, visibleColumns]);
+    if (!activeTable || !activeConnection || columns.length === 0) return "";
+    try {
+      return describeSelect(activeConnection.engine, { name: activeTable, columns, rowCount: 0 }, { filters, sorts, search: debouncedSearch, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
+    } catch {
+      // A saved filter can name a column that no longer exists; the grid reports that error.
+      return "";
+    }
+  }, [activeTable, activeConnection, filters, sorts, debouncedSearch, columns, page]);
 
   // ---------- derived view helpers ----------
   const boardColumn = useMemo(() => {
@@ -1635,6 +1687,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
           onExportSelectedTables={openExportModal}
           onOpenCreateTable={() => setPanel("create-table")}
           onOpenSettings={() => setPanel("settings")}
+          onOpenTableInNewTab={openTableInNewTab}
+          tableHref={(name) => `${pathname}?${new URLSearchParams({ c: activeConnectionId ?? "", t: name })}`}
         />
 
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
@@ -1721,11 +1775,20 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                   search={search}
                   onSearchChange={setSearch}
                   onAddRow={() => handleAddRow()}
+                  sql={equivalentSql}
+                  onSuggestRelation={suggestRelationValues}
+                  getRelationLabel={getRelationLabel}
+                  onSuggestValues={suggestColumnValues}
                 />
               </div>
 
-              <div className="om-sb" style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "18px 32px 60px" }}>
-                {loadingRows && rowsEntry && <div style={{ color: "#a8a39a", fontSize: 13, paddingBottom: 10 }}>{t("common.loading")}</div>}
+              <div
+                className={`om-sb om-rows${loadingRows && rowsEntry ? " om-rows-loading" : ""}`}
+                aria-busy={loadingRows}
+                style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "18px 32px 60px" }}
+              >
+                {/* Takes no room: refreshing rows must not push the grid down. */}
+                <div className="om-loadbar" role="progressbar" aria-label={t("common.loading")} />
                 {!rowsEntry && <GridSkeleton />}
                 {rowsEntry && view === "table" && (
                   <TableView

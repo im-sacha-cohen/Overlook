@@ -90,8 +90,10 @@ export interface TableMeta {
 
 export interface RowFilter {
   column: string;
-  op: "eq" | "neq" | "contains";
+  op: "eq" | "neq" | "contains" | "notContains" | "gt" | "lt" | "between" | "empty" | "notEmpty";
   value: string;
+  /** Upper bound of "between". */
+  value2?: string;
 }
 
 export interface RowSort {

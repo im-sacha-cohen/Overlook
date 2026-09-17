@@ -4,7 +4,6 @@ import {
   assertKnownColumn,
   coerceRowValues,
   assertValidIdentifier,
-  filterOpToSql,
   primaryKeyOf,
   ReadOnlyViolation,
   assertCreatableType,
@@ -17,6 +16,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
+import { buildDistinctValues, buildOrderBy, buildWhere } from "./where";
 import { splitSqlStatements } from "./splitSqlStatements";
 import { tlsOptions, type AdapterConnection } from "./network";
 
@@ -205,19 +205,14 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   async selectRows(table: string, opts: SelectOptions) {
     const meta = await this.getTable(table);
-    const { where, params } = this.buildWhere(meta, opts);
-    const orderBy = (opts.sorts ?? [])
-      .map((s) => {
-        assertKnownColumn(meta, s.column);
-        return `${q(s.column)} ${s.dir === "desc" ? "DESC" : "ASC"}`;
-      })
-      .join(", ");
+    const { where, params } = buildWhere("postgres", meta, opts.filters, opts.search);
+    const orderBy = buildOrderBy("postgres", meta, opts.sorts);
     const limit = opts.limit ?? 100;
     const offset = opts.offset ?? 0;
 
     const client = await this.pool.connect();
     try {
-      const sql = `SELECT * FROM ${q(table)} ${where} ${orderBy ? `ORDER BY ${orderBy}` : ""} LIMIT ${limit} OFFSET ${offset}`;
+      const sql = `SELECT * FROM ${q(table)} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`;
       const { rows } = await client.query(sql, params);
       const countRes = await client.query<{ count: string }>(
         `SELECT COUNT(*)::text AS count FROM ${q(table)} ${where}`,
@@ -227,28 +222,6 @@ export class PostgresAdapter implements DatabaseAdapter {
     } finally {
       client.release();
     }
-  }
-
-  private buildWhere(meta: TableMeta, opts: SelectOptions): { where: string; params: unknown[] } {
-    const filters = opts.filters ?? [];
-    const search = opts.search?.trim();
-    if (filters.length === 0 && !search) return { where: "", params: [] };
-    const params: unknown[] = [];
-    const clauses = filters.map((f) => {
-      assertKnownColumn(meta, f.column);
-      const op = filterOpToSql(f.op);
-      if (op === "LIKE") {
-        params.push(`%${f.value}%`);
-      } else {
-        params.push(f.value);
-      }
-      return `${q(f.column)}::text ${op} $${params.length}`;
-    });
-    if (search && meta.columns.length > 0) {
-      params.push(`%${search}%`);
-      clauses.push(`(${meta.columns.map((c) => `${q(c.name)}::text ILIKE $${params.length}`).join(" OR ")})`);
-    }
-    return { where: `WHERE ${clauses.join(" AND ")}`, params };
   }
 
   async insertRow(table: string, values: Row): Promise<Row> {
@@ -347,6 +320,16 @@ export class PostgresAdapter implements DatabaseAdapter {
         client.release();
       }
     });
+  }
+
+  async distinctValues(table: string, column: string, query?: string) {
+    const { sql, params } = buildDistinctValues("postgres", await this.getTable(table), column, query);
+    const client = await this.pool.connect();
+    try {
+      return (await client.query(sql, params)).rows.map((r) => ({ value: String(r.value), count: Number(r.count) }));
+    } finally {
+      client.release();
+    }
   }
 
   async selectRowsByPk(table: string, pkColumn: string, pkValues: unknown[]): Promise<Row[]> {

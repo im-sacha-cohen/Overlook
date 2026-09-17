@@ -148,3 +148,76 @@ button {
   background: #e9e6df;
   color: var(--fg);
 }
+
+/* Rows refreshing (filter, sort, page): a thin bar and a dimmed grid, no layout shift.
+   The delays keep quick answers from flickering. */
+.om-loadbar {
+  position: sticky;
+  top: -18px;
+  z-index: 5;
+  height: 0;
+  margin-top: -18px;
+  margin-bottom: 18px;
+  overflow: visible;
+  pointer-events: none;
+}
+.om-loadbar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.om-rows-loading .om-loadbar::after {
+  opacity: 1;
+  transition-delay: 0.12s;
+  animation: om-loadbar 1s ease-in-out infinite;
+}
+@keyframes om-loadbar {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+.om-rows > :not(.om-loadbar) {
+  transition: opacity 0.15s ease;
+}
+.om-rows-loading > :not(.om-loadbar) {
+  opacity: 0.55;
+  transition-delay: 0.12s;
+}
+
+/* Table toolbar: one line; only a genuinely narrow pane lets the actions wrap below the view tabs. */
+.om-toolbar {
+  container-type: inline-size;
+}
+.om-toolbar .om-narrow-only {
+  display: none;
+}
+@container (max-width: 880px) {
+  .om-toolbar .om-wide-only {
+    display: none;
+  }
+  .om-toolbar .om-narrow-only {
+    display: inline;
+    font-size: 15px;
+  }
+}
+@container (max-width: 700px) {
+  .om-toolbar-row {
+    flex-wrap: wrap !important;
+  }
+  .om-toolbar-actions {
+    flex-basis: 100% !important;
+    flex-wrap: wrap !important;
+  }
+}

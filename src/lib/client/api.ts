@@ -154,6 +154,14 @@ export const api = {
     );
   },
 
+  distinctValues: (connectionId: string, table: string, column: string, query: string) => {
+    const params = new URLSearchParams({ column });
+    if (query.trim()) params.set("q", query.trim());
+    return request<{ values: { value: string; count: number }[] }>(
+      `/api/connections/${connectionId}/tables/${encodeURIComponent(table)}/values?${params}`
+    );
+  },
+
   insertRow: (connectionId: string, table: string, values: Row) =>
     request<{ row: Row }>(`/api/connections/${connectionId}/tables/${encodeURIComponent(table)}/rows`, {
       method: "POST",

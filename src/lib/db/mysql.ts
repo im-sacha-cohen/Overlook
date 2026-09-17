@@ -6,7 +6,6 @@ import {
   assertValidIdentifier,
   ReadOnlyViolation,
   coerceRowValues,
-  filterOpToSql,
   previewWithAdapter,
   type DatabaseAdapter,
   type DropTablesOptions,
@@ -16,6 +15,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
+import { buildDistinctValues, buildOrderBy, buildWhere } from "./where";
 import { normalizeMysqlDateLiterals, splitSqlStatements } from "./splitSqlStatements";
 import net from "node:net";
 import { mysqlSslOptions, type AdapterConnection } from "./network";
@@ -153,41 +153,15 @@ export class MySqlAdapter implements DatabaseAdapter {
     return { name: table, columns, rowCount: Number(countRows[0]?.count ?? 0) };
   }
 
-  private buildWhere(meta: TableMeta, opts: SelectOptions): { where: string; params: unknown[] } {
-    const filters = opts.filters ?? [];
-    const search = opts.search?.trim();
-    if (filters.length === 0 && !search) return { where: "", params: [] };
-    const params: unknown[] = [];
-    const clauses = filters.map((f) => {
-      assertKnownColumn(meta, f.column);
-      const op = filterOpToSql(f.op);
-      if (op === "LIKE") {
-        params.push(`%${f.value}%`);
-      } else {
-        params.push(f.value);
-      }
-      return `CAST(${q(f.column)} AS CHAR) ${op} ?`;
-    });
-    if (search && meta.columns.length > 0) {
-      clauses.push(`(${meta.columns.map((c) => { params.push(`%${search.toLowerCase()}%`); return `LOWER(CAST(${q(c.name)} AS CHAR)) LIKE ?`; }).join(" OR ")})`);
-    }
-    return { where: `WHERE ${clauses.join(" AND ")}`, params };
-  }
-
   async selectRows(table: string, opts: SelectOptions) {
     const meta = await this.getTable(table);
-    const { where, params } = this.buildWhere(meta, opts);
-    const orderBy = (opts.sorts ?? [])
-      .map((s) => {
-        assertKnownColumn(meta, s.column);
-        return `${q(s.column)} ${s.dir === "desc" ? "DESC" : "ASC"}`;
-      })
-      .join(", ");
+    const { where, params } = buildWhere("mysql", meta, opts.filters, opts.search);
+    const orderBy = buildOrderBy("mysql", meta, opts.sorts);
     const limit = opts.limit ?? 100;
     const offset = opts.offset ?? 0;
 
     const [rows] = await this.pool.query<mysql.RowDataPacket[]>(
-      `SELECT * FROM ${q(table)} ${where} ${orderBy ? `ORDER BY ${orderBy}` : ""} LIMIT ${limit} OFFSET ${offset}`,
+      `SELECT * FROM ${q(table)} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`,
       params
     );
     const [countRows] = await this.pool.query<mysql.RowDataPacket[]>(
@@ -277,6 +251,12 @@ export class MySqlAdapter implements DatabaseAdapter {
       );
       return Number(rows[0]?.count ?? 0);
     });
+  }
+
+  async distinctValues(table: string, column: string, query?: string) {
+    const { sql, params } = buildDistinctValues("mysql", await this.getTable(table), column, query);
+    const [rows] = await this.pool.query<mysql.RowDataPacket[]>(sql, params);
+    return rows.map((r) => ({ value: String(r.value), count: Number(r.count) }));
   }
 
   async selectRowsByPk(table: string, pkColumn: string, pkValues: unknown[]): Promise<Row[]> {

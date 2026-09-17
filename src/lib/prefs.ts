@@ -1,6 +1,7 @@
 // View preferences, per connection and per table. Stored server-side in the metadata
 // database so they survive a browser change, and carried in connection exports.
 import type { RowFilter, RowSort } from "./types";
+import { FILTER_OPS } from "./db/where";
 
 export type ViewKind = "table" | "board" | "calendar" | "gallery";
 export const VIEW_KINDS: ViewKind[] = ["table", "board", "calendar", "gallery"];
@@ -41,7 +42,6 @@ export const EMPTY_PREFS: TablePrefs = {
   hiddenColumns: [],
 };
 
-const FILTER_OPS: RowFilter["op"][] = ["eq", "neq", "contains"];
 // Generous but bounded: preferences arrive from the client and from imported files.
 const MAX_ITEMS = 200;
 
@@ -59,7 +59,7 @@ function sanitizeFilters(raw: unknown): RowFilter[] {
         .map((f) => (f ?? {}) as Record<string, unknown>)
         .filter((f) => typeof f.column === "string" && FILTER_OPS.includes(f.op as RowFilter["op"]))
         .slice(0, MAX_ITEMS)
-        .map((f): RowFilter => ({ column: str(f.column), op: f.op as RowFilter["op"], value: str(f.value, 1000) }))
+        .map((f): RowFilter => ({ column: str(f.column), op: f.op as RowFilter["op"], value: str(f.value, 1000), ...(typeof f.value2 === "string" ? { value2: str(f.value2, 1000) } : {}) }))
     : [];
 }
 

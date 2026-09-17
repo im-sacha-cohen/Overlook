@@ -4,7 +4,6 @@ import {
   assertCreatableType,
   assertKnownColumn,
   assertValidIdentifier,
-  filterOpToSql,
   previewWithAdapter,
   ReadOnlyViolation,
   type DatabaseAdapter,
@@ -15,6 +14,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
+import { buildDistinctValues, buildOrderBy, buildWhere } from "./where";
 import { splitSqlStatements } from "./splitSqlStatements";
 import { assertNoFileAccess, resolveSqlitePath } from "./sqlitePath";
 
@@ -122,36 +122,14 @@ export class SqliteAdapter implements DatabaseAdapter {
     return { name: table, columns, rowCount: countRow.count };
   }
 
-  private buildWhere(meta: TableMeta, opts: SelectOptions): { where: string; params: unknown[] } {
-    const filters = opts.filters ?? [];
-    const search = opts.search?.trim();
-    if (filters.length === 0 && !search) return { where: "", params: [] };
-    const params: unknown[] = [];
-    const clauses = filters.map((f) => {
-      assertKnownColumn(meta, f.column);
-      const op = filterOpToSql(f.op);
-      params.push(op === "LIKE" ? `%${f.value}%` : f.value);
-      return `CAST(${q(f.column)} AS TEXT) ${op} ?`;
-    });
-    if (search && meta.columns.length > 0) {
-      clauses.push(`(${meta.columns.map((c) => { params.push(`%${search}%`); return `CAST(${q(c.name)} AS TEXT) LIKE ?`; }).join(" OR ")})`);
-    }
-    return { where: `WHERE ${clauses.join(" AND ")}`, params };
-  }
-
   async selectRows(table: string, opts: SelectOptions) {
     const meta = await this.getTable(table);
-    const { where, params } = this.buildWhere(meta, opts);
-    const orderBy = (opts.sorts ?? [])
-      .map((s) => {
-        assertKnownColumn(meta, s.column);
-        return `${q(s.column)} ${s.dir === "desc" ? "DESC" : "ASC"}`;
-      })
-      .join(", ");
+    const { where, params } = buildWhere("sqlite", meta, opts.filters, opts.search);
+    const orderBy = buildOrderBy("sqlite", meta, opts.sorts);
     const limit = opts.limit ?? 100;
     const offset = opts.offset ?? 0;
     const rows = this.db
-      .prepare(`SELECT * FROM ${q(table)} ${where} ${orderBy ? `ORDER BY ${orderBy}` : ""} LIMIT ${limit} OFFSET ${offset}`)
+      .prepare(`SELECT * FROM ${q(table)} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`)
       .all(...params) as Row[];
     const countRow = this.db.prepare(`SELECT COUNT(*) AS count FROM ${q(table)} ${where}`).get(...params) as {
       count: number;
@@ -259,6 +237,11 @@ export class SqliteAdapter implements DatabaseAdapter {
         .get(...pkValues.map(coerceParam)) as { count: number };
       return row.count;
     });
+  }
+
+  async distinctValues(table: string, column: string, query?: string) {
+    const { sql, params } = buildDistinctValues("sqlite", await this.getTable(table), column, query);
+    return (this.db.prepare(sql).all(...params) as { value: unknown; count: number }[]).map((r) => ({ value: String(r.value), count: Number(r.count) }));
   }
 
   async selectRowsByPk(table: string, pkColumn: string, pkValues: unknown[]): Promise<Row[]> {

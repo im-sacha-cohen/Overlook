@@ -32,6 +32,8 @@ export interface DatabaseAdapter {
   getTable(table: string): Promise<TableMeta>;
   createTable(table: string, columns: { name: string; type: LogicalType }[]): Promise<void>;
   selectRows(table: string, opts: SelectOptions): Promise<{ rows: Row[]; total: number }>;
+  /** Most frequent values of a column (as text), for filter suggestions. */
+  distinctValues(table: string, column: string, query?: string): Promise<{ value: string; count: number }[]>;
   insertRow(table: string, values: Row): Promise<Row>;
   updateRow(table: string, pkColumn: string, pkValue: unknown, values: Row): Promise<void>;
   updateRows(table: string, pkColumn: string, pkValues: unknown[], values: Row): Promise<number>;
@@ -84,12 +86,6 @@ export function assertKnownColumn(meta: TableMeta, name: string): ColumnMeta {
 
 export function primaryKeyOf(meta: TableMeta): ColumnMeta | null {
   return meta.columns.find((c) => c.isPrimaryKey) ?? null;
-}
-
-export function filterOpToSql(op: RowFilter["op"]): string {
-  if (op === "eq") return "=";
-  if (op === "neq") return "<>";
-  return "LIKE";
 }
 
 /**

@@ -28,6 +28,9 @@ interface Props {
   onExportSelectedTables: () => void;
   onOpenCreateTable: () => void;
   onOpenSettings: () => void;
+  onOpenTableInNewTab: (name: string) => void;
+  /** Link to a table in this connection, for opening it in another browser tab. */
+  tableHref: (name: string) => string;
 }
 
 export function Sidebar({
@@ -52,9 +55,11 @@ export function Sidebar({
   onBulkDropTables,
   onExportSelectedTables,
   onOpenSettings,
+  onOpenTableInNewTab,
+  tableHref,
 }: Props) {
   const { t } = useLang();
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; table: string } | null>(null);
   // Last table clicked without Shift: the fixed end of a Shift-click range.
   const rangeAnchor = useRef<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -156,7 +161,7 @@ export function Sidebar({
                     rangeAnchor.current = t.name;
                     onSelectOnlyTable(t.name);
                   }
-                  setMenu({ x: e.clientX, y: e.clientY });
+                  setMenu({ x: e.clientX, y: e.clientY, table: t.name });
                 }}
                 style={{
                   display: "flex",
@@ -286,9 +291,29 @@ export function Sidebar({
             animation: "om-pop 0.1s ease",
           }}
         >
-          <div style={{ padding: "5px 10px 7px", fontSize: 11, color: "#a8a39a" }}>
-            {selectedTables.size} {t(selectedTables.size > 1 ? "sidebar.tablesSelected_other" : "sidebar.tablesSelected_one")}
-          </div>
+          {selectedTables.size <= 1 ? (
+            <>
+              <MenuItem
+                label={t("sidebar.openInNewTab")}
+                onClick={() => {
+                  onOpenTableInNewTab(menu.table);
+                  setMenu(null);
+                }}
+              />
+              <MenuItem
+                label={t("sidebar.openInBrowserTab")}
+                onClick={() => {
+                  window.open(tableHref(menu.table), "_blank", "noopener");
+                  setMenu(null);
+                }}
+              />
+              <div style={{ height: 1, margin: "4px 6px", background: "#f0eee8" }} />
+            </>
+          ) : (
+            <div style={{ padding: "5px 10px 7px", fontSize: 11, color: "#a8a39a" }}>
+              {selectedTables.size} {t("sidebar.tablesSelected_other")}
+            </div>
+          )}
           <MenuItem
             label={t("sidebar.export")}
             onClick={() => {

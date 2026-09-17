@@ -13,6 +13,15 @@ interface Props {
   autoOpen?: boolean;
   onCommit: (value: string | null) => void;
   onClose?: () => void;
+  /** Shown when there is no date (defaults to the "empty" label). */
+  placeholder?: string;
+  /** Overrides for the trigger, e.g. a compact field in the filter bar. */
+  triggerStyle?: React.CSSProperties;
+  /**
+   * Filters: picking a day gives "YYYY-MM-DD"; the time is only added once one is
+   * typed, and clearing it goes back to the whole day.
+   */
+  optionalTime?: boolean;
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -46,10 +55,12 @@ const POPOVER_WIDTH = 252;
 // Only used to decide whether to flip before the first measurement.
 const POPOVER_HEIGHT = 300;
 
-export function DateField({ column, value, autoOpen, onCommit, onClose }: Props) {
+export function DateField({ column, value, autoOpen, onCommit, onClose, placeholder, triggerStyle, optionalTime }: Props) {
   const { t, lang } = useLang();
   const selected = parseDateValue(value);
   const withTime = !isDateOnlyColumn(column);
+  const dayOnlyValue = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const hasTime = withTime && !!selected && !(optionalTime && dayOnlyValue);
 
   const [open, setOpen] = useState(!!autoOpen);
   const [cursor, setCursor] = useState(() => startOfMonth(selected ?? new Date()));
@@ -108,6 +119,7 @@ export function DateField({ column, value, autoOpen, onCommit, onClose }: Props)
   }, [open]);
 
   function close() {
+    if (autoCloseTimer.current) clearTimeout(autoCloseTimer.current);
     setOpen(false);
     onClose?.();
   }
@@ -116,19 +128,51 @@ export function DateField({ column, value, autoOpen, onCommit, onClose }: Props)
     onCommit(d ? formatDateForDb(d, column) : null);
   }
 
+  function dayString(d: Date): string {
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  }
+
   function pickDay(day: Date) {
+    if (optionalTime && !hasTime) {
+      onCommit(dayString(day));
+      // A datetime column stays open for the time; the whole day already applies meanwhile.
+      if (withTime) timeRef.current?.focus();
+      else close();
+      return;
+    }
     const next = new Date(day);
     if (withTime && selected) next.setHours(selected.getHours(), selected.getMinutes(), selected.getSeconds(), 0);
     commit(next);
     close();
   }
 
+  // Filters: once a day and a full time are in, close — after a pause, since
+  // typing "27" in the minutes briefly reads as "02".
+  const timeRef = useRef<HTMLInputElement>(null);
+  const autoCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (autoCloseTimer.current) clearTimeout(autoCloseTimer.current);
+  }, []);
+  function scheduleAutoClose(delay: number) {
+    if (autoCloseTimer.current) clearTimeout(autoCloseTimer.current);
+    autoCloseTimer.current = setTimeout(close, delay);
+  }
+  function cancelAutoClose() {
+    if (autoCloseTimer.current) clearTimeout(autoCloseTimer.current);
+    autoCloseTimer.current = null;
+  }
+
   function pickTime(hhmm: string) {
+    if (optionalTime && hhmm === "") {
+      if (selected) onCommit(dayString(selected));
+      return;
+    }
     const [h, m] = hhmm.split(":").map(Number);
     if (Number.isNaN(h) || Number.isNaN(m)) return;
     const next = new Date(selected ?? new Date());
     next.setHours(h, m, 0, 0);
     commit(next);
+    if (optionalTime) scheduleAutoClose(1000);
   }
 
   const dayNames = t("calendarView.days").split(",");
@@ -161,12 +205,15 @@ export function DateField({ column, value, autoOpen, onCommit, onClose }: Props)
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        style={{ ...fieldStyle, borderColor: open ? "oklch(0.7 0.1 250)" : "#e8e5df" }}
+        style={{ ...fieldStyle, ...triggerStyle, ...(open ? { borderColor: "oklch(0.7 0.1 250)" } : {}) }}
       >
         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: selected ? "inherit" : "#b4afa5" }}>
-          {selected ? formatValue(value, column, lang) : t("dateField.empty")}
+          {selected ? formatValue(value, column, lang) : (placeholder ?? t("dateField.empty"))}
         </span>
-        <span style={{ color: "#c2bdb3", fontSize: 12 }}>▭</span>
+        <svg aria-hidden width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#a8a39a" strokeWidth="1.4" strokeLinecap="round" style={{ flex: "none" }}>
+          <rect x="2.5" y="3.5" width="11" height="10" rx="2" />
+          <path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" />
+        </svg>
       </button>
 
       {open && anchor !== null && createPortal(
@@ -235,9 +282,15 @@ export function DateField({ column, value, autoOpen, onCommit, onClose }: Props)
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
               <span style={{ fontSize: 12, color: "#8b877e" }}>{t("dateField.time")}</span>
               <input
+                ref={timeRef}
                 type="time"
-                value={selected ? `${pad2(selected.getHours())}:${pad2(selected.getMinutes())}` : ""}
+                value={selected && hasTime ? `${pad2(selected.getHours())}:${pad2(selected.getMinutes())}` : ""}
                 onChange={(e) => pickTime(e.target.value)}
+                onKeyDown={(e) => {
+                  if (!optionalTime) return;
+                  if (e.key === "Enter" && e.currentTarget.value) close();
+                  else cancelAutoClose();
+                }}
                 style={{ flex: 1, border: "1px solid #e8e5df", borderRadius: 6, padding: "4px 6px", fontSize: 13, background: "#fff" }}
               />
             </div>

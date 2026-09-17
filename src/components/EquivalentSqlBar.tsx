@@ -3,13 +3,14 @@
 import { useState } from "react";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 
-export function EquivalentSqlBar({ sql }: { sql: string }) {
+// wrap: show the whole statement over several lines instead of one truncated line.
+export function EquivalentSqlBar({ sql, wrap }: { sql: string; wrap?: boolean }) {
   const { t } = useLang();
   const [copied, setCopied] = useState(false);
   return (
-    <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 12, padding: "9px 16px", background: "#f7f6f2", borderBottom: "1px solid var(--border)", fontFamily: "var(--font-mono)", fontSize: 12, color: "#5c584f", overflow: "hidden" }}>
+    <div style={{ flex: "none", display: "flex", alignItems: wrap ? "flex-start" : "center", gap: 12, padding: "9px 16px", background: "#f7f6f2", borderBottom: "1px solid var(--border)", fontFamily: "var(--font-mono)", fontVariantLigatures: "none", fontSize: 12, color: "#5c584f", overflow: "hidden" }}>
       <span style={{ color: "#a09b91", flex: "none" }}>{t("equivalentSql.label")}</span>
-      <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sql}</span>
+      <span style={wrap ? { whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.55, userSelect: "text" } : { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sql}</span>
       <div style={{ flex: 1 }} />
       <button
         onClick={async () => {

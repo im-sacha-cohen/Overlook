@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import type { ColumnMeta, RowFilter, RowSort } from "@/lib/types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ColumnMeta, Row, RowFilter, RowSort } from "@/lib/types";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { Combobox, type ComboOption } from "./Combobox";
+import { EquivalentSqlBar } from "./EquivalentSqlBar";
+import { DateField } from "./DateField";
+import { opNeedsValue, opsFor } from "@/lib/db/where";
 
 export type ViewKind = "table" | "board" | "calendar" | "gallery";
 
@@ -19,6 +23,37 @@ interface Props {
   search: string;
   onSearchChange: (s: string) => void;
   onAddRow: () => void;
+  /** The statement the current view runs, shown on demand. */
+  sql: string;
+  /** Rows of the table a foreign key points to, matching what was typed. */
+  onSuggestRelation: (col: ColumnMeta, query: string) => Promise<Row[]>;
+  getRelationLabel: (col: ColumnMeta, row: Row) => string;
+  /** Most frequent values of a column matching what was typed. */
+  onSuggestValues: (col: ColumnMeta, query: string) => Promise<{ value: string; count: number }[]>;
+}
+
+// A filter value with suggestions fetched for what was typed; any value can still be entered.
+function SuggestedFilterValue({ col, value, placeholder, onChange, load }: {
+  col: ColumnMeta;
+  value: string;
+  placeholder: string;
+  onChange: (v: string) => void;
+  load: (col: ColumnMeta, query: string) => Promise<ComboOption[]>;
+}) {
+  const [options, setOptions] = useState<ComboOption[]>([]);
+  useEffect(() => {
+    let stale = false;
+    const timer = setTimeout(() => {
+      load(col, value).then((o) => {
+        if (!stale) setOptions(o);
+      });
+    }, 150);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [col, value, load]);
+  return <Combobox value={value} allowCustom filterOptions={false} width={130} options={options} placeholder={placeholder} onChange={onChange} />;
 }
 
 const smallBtn: React.CSSProperties = {
@@ -34,9 +69,37 @@ const smallBtn: React.CSSProperties = {
   cursor: "pointer",
 };
 
-export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, filters, onFiltersChange, sorts, onSortsChange, search, onSearchChange, onAddRow }: Props) {
+// Same icons on the buttons and on the chips they create, so "filter" and "sort" read apart.
+function FilterIcon() {
+  return (
+    <svg aria-hidden width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" style={{ flex: "none" }}>
+      <path d="M2.5 3.5h11l-4.2 5v4.3l-2.6-1.3v-3z" />
+    </svg>
+  );
+}
+
+function SortIcon() {
+  return (
+    <svg aria-hidden width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flex: "none" }}>
+      <path d="M5 13V3M2.5 5.5 5 3l2.5 2.5M11 3v10M8.5 10.5 11 13l2.5-2.5" />
+    </svg>
+  );
+}
+
+function CountBadge({ n }: { n: number }) {
+  if (n === 0) return null;
+  return <span style={{ minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, background: "var(--accent)", color: "#fff", fontSize: 10.5, fontWeight: 600, display: "inline-grid", placeItems: "center" }}>{n}</span>;
+}
+
+// Columns whose repeated values (roles, statuses stored as text…) are worth suggesting.
+const SUGGESTED_TYPES: ColumnMeta["logicalType"][] = ["text", "json", "unknown"];
+
+export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, filters, onFiltersChange, sorts, onSortsChange, search, onSearchChange, onAddRow, sql, onSuggestRelation, getRelationLabel, onSuggestValues }: Props) {
   const { t } = useLang();
   const searchRef = useRef<HTMLInputElement>(null);
+  // The filter/sort just added opens its column picker straight away.
+  const [showSql, setShowSql] = useState(false);
+  const [justAdded, setJustAdded] = useState<{ kind: "filter" | "sort"; index: number } | null>(null);
 
   // "/" jumps to the search box, as in most data tools.
   useEffect(() => {
@@ -58,20 +121,64 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
     ["calendar", t("toolbar.calendar")],
     ["gallery", t("toolbar.gallery")],
   ];
-  const OPS: [RowFilter["op"], string][] = [
-    ["eq", t("toolbar.opEq")],
-    ["neq", t("toolbar.opNeq")],
-    ["contains", t("toolbar.opContains")],
-  ];
+  const columnOptions = selectableCols.map((c) => ({ value: c.name, hint: c.nativeType }));
+  const opLabel = (op: RowFilter["op"], col?: ColumnMeta): string => {
+    const isDate = col?.logicalType === "date";
+    switch (op) {
+      case "eq": return t("toolbar.opEq");
+      case "neq": return t("toolbar.opNeq");
+      case "contains": return t("toolbar.opContains");
+      case "notContains": return t("toolbar.opNotContains");
+      case "gt": return t(isDate ? "toolbar.opAfter" : "toolbar.opGt");
+      case "lt": return t(isDate ? "toolbar.opBefore" : "toolbar.opLt");
+      case "between": return t("toolbar.opBetween");
+      case "empty": return t("toolbar.opEmpty");
+      case "notEmpty": return t("toolbar.opNotEmpty");
+    }
+  };
+  const loadRelation = useCallback(
+    async (col: ColumnMeta, q: string): Promise<ComboOption[]> => {
+      const refCol = col.references?.column ?? "";
+      return (await onSuggestRelation(col, q))
+        .filter((r) => r[refCol] !== null && r[refCol] !== undefined)
+        .map((r) => {
+          const key = String(r[refCol]);
+          const label = getRelationLabel(col, r);
+          return { value: key, label: label.endsWith(` — ${key}`) ? label.slice(0, -key.length - 3) : label, hint: key };
+        });
+    },
+    [onSuggestRelation, getRelationLabel]
+  );
+  const loadValues = useCallback(
+    async (col: ColumnMeta, q: string): Promise<ComboOption[]> => (await onSuggestValues(col, q)).map((v) => ({ value: v.value, hint: v.count.toLocaleString() })),
+    [onSuggestValues]
+  );
+  const newFilter = (col?: ColumnMeta): RowFilter => ({ column: col?.name ?? "", op: opsFor(col?.logicalType).includes("contains") ? "contains" : "eq", value: "" });
+  const updateFilter = (i: number, patch: Partial<RowFilter>) => onFiltersChange(filters.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  // A day covers the whole day; datetime columns can narrow it down to a minute.
+  const dateInput = (col: ColumnMeta, value: string, placeholder: string, onChange: (v: string) => void) => (
+    <div style={{ width: col.nativeType.trim().toLowerCase() === "date" ? 118 : 150, flex: "none" }}>
+      <DateField
+        column={col}
+        optionalTime
+        value={value}
+        placeholder={placeholder}
+        onCommit={(v) => onChange(v ?? "")}
+        triggerStyle={{ height: 22, padding: "0 7px", fontSize: 12.5, borderColor: "transparent", borderRadius: 5 }}
+      />
+    </div>
+  );
+  const valueStyle: React.CSSProperties = { width: 110, height: 22, border: "1px solid transparent", background: "#fff", borderRadius: 5, padding: "0 7px", fontSize: 12.5, color: "#26241f", outline: "none", fontFamily: "inherit" };
 
   return (
-    <div>
-      <div style={{ display: "flex", flexWrap: "wrap", rowGap: 8, alignItems: "center", gap: 4, marginTop: 16, borderBottom: "1px solid var(--border)" }}>
+    <div className="om-toolbar">
+      <div className="om-toolbar-row" style={{ display: "flex", flexWrap: "nowrap", rowGap: 8, alignItems: "center", gap: 4, marginTop: 16, borderBottom: "1px solid var(--border)" }}>
         {VIEWS.map(([v, label]) => (
           <button
             key={v}
             onClick={() => onSetView(v)}
             style={{
+              flex: "none",
               padding: "7px 11px",
               marginBottom: -1,
               background: "transparent",
@@ -86,8 +193,8 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
             {label}
           </button>
         ))}
-        <div style={{ display: "flex", flex: "0 1 auto", minWidth: 0, flexWrap: "wrap", justifyContent: "flex-end", marginLeft: "auto", alignItems: "center", gap: 6, paddingBottom: 6 }}>
-          <div style={{ position: "relative", flex: "0 1 200px", minWidth: 120 }}>
+        <div className="om-toolbar-actions" style={{ display: "flex", flex: "1 1 0", minWidth: 0, flexWrap: "nowrap", justifyContent: "flex-end", marginLeft: "auto", alignItems: "center", gap: 6, paddingBottom: 6 }}>
+          <div style={{ position: "relative", flex: "0 1 190px", minWidth: 120 }}>
             <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", color: "#a8a39a", fontSize: 12, pointerEvents: "none" }}>⌕</span>
             <input
               ref={searchRef}
@@ -113,7 +220,7 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
               </button>
             )}
           </div>
-          <select value={groupBy} onChange={(e) => onSetGroupBy(e.target.value)} style={{ ...smallBtn, height: 27, padding: "0 6px", cursor: "pointer" }}>
+          <select value={groupBy} onChange={(e) => onSetGroupBy(e.target.value)} style={{ ...smallBtn, height: 27, padding: "0 6px", cursor: "pointer", flex: "none" }}>
             <option value="">{t("toolbar.noGroup")}</option>
             {groupableCols.map((c) => (
               <option key={c.name} value={c.name}>
@@ -121,54 +228,112 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
               </option>
             ))}
           </select>
-          <button style={smallBtn} onClick={() => onFiltersChange([...filters, { column: selectableCols[0]?.name ?? "", op: "contains", value: "" }])}>
+          <button
+            style={{ ...smallBtn, display: "inline-flex", alignItems: "center", gap: 5 }}
+            title={t("toolbar.addFilterHint")}
+            onClick={() => {
+              setJustAdded({ kind: "filter", index: filters.length });
+              onFiltersChange([...filters, newFilter(selectableCols[0])]);
+            }}
+          >
+            <FilterIcon />
             {t("toolbar.addFilter")}
+            <CountBadge n={filters.length} />
           </button>
-          <button style={smallBtn} onClick={() => onSortsChange([...sorts, { column: selectableCols[0]?.name ?? "", dir: "asc" }])}>
+          <button
+            style={{ ...smallBtn, display: "inline-flex", alignItems: "center", gap: 5 }}
+            title={t("toolbar.addSortHint")}
+            onClick={() => {
+              setJustAdded({ kind: "sort", index: sorts.length });
+              onSortsChange([...sorts, { column: selectableCols[0]?.name ?? "", dir: "asc" }]);
+            }}
+          >
+            <SortIcon />
             {t("toolbar.addSort")}
+            <CountBadge n={sorts.length} />
+          </button>
+          <button
+            style={{ ...smallBtn, fontFamily: "var(--font-mono)", fontSize: 11.5, ...(showSql ? { background: "var(--accent-bg)", borderColor: "var(--accent-border)", color: "var(--accent-hover)" } : {}) }}
+            aria-pressed={showSql}
+            title={t("toolbar.showSqlHint")}
+            onClick={() => setShowSql((v) => !v)}
+          >
+            SQL
           </button>
           <button
             onClick={onAddRow}
-            style={{ flex: "none", whiteSpace: "nowrap", minHeight: 27, padding: "0 10px", background: "var(--accent)", border: "1px solid var(--accent-hover)", borderRadius: 7, color: "#fff", fontSize: 12.5, fontWeight: 500, cursor: "pointer" }}
+            title={t("toolbar.newRow")}
+            style={{ flex: "none", whiteSpace: "nowrap", minHeight: 27, minWidth: 27, padding: "0 10px", background: "var(--accent)", border: "1px solid var(--accent-hover)", borderRadius: 7, color: "#fff", fontSize: 12.5, fontWeight: 500, cursor: "pointer" }}
           >
-            {t("toolbar.newRow")}
+            <span className="om-wide-only">{t("toolbar.newRow")}</span>
+            <span className="om-narrow-only" aria-hidden>+</span>
           </button>
         </div>
       </div>
 
       {(filters.length > 0 || sorts.length > 0) && (
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 7, padding: "12px 0 0" }}>
-          {filters.map((f, i) => (
+          {filters.map((f, i) => {
+            const col = selectableCols.find((c) => c.name === f.column);
+            return (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, height: 28, padding: "0 4px 0 8px", background: "var(--accent-bg)", border: "1px solid var(--accent-border)", borderRadius: 8, fontSize: 12.5 }}>
-              <span style={{ color: "oklch(0.5 0.1 250)", fontWeight: 500 }}>{t("toolbar.where")}</span>
-              <select
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "oklch(0.5 0.1 250)", fontWeight: 500 }} title={t("toolbar.addFilterHint")}>
+                <FilterIcon />
+                {t("toolbar.where")}
+              </span>
+              <Combobox
                 value={f.column}
-                onChange={(e) => onFiltersChange(filters.map((x, j) => (j === i ? { ...x, column: e.target.value } : x)))}
-                style={{ border: "none", background: "transparent", cursor: "pointer", color: "#26241f", fontSize: 12.5 }}
-              >
-                {selectableCols.map((c) => (
-                  <option key={c.name} value={c.name}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={f.op}
-                onChange={(e) => onFiltersChange(filters.map((x, j) => (j === i ? { ...x, op: e.target.value as RowFilter["op"] } : x)))}
-                style={{ border: "none", background: "transparent", cursor: "pointer", color: "#6f6b62", fontSize: 12.5 }}
-              >
-                {OPS.map(([v, l]) => (
-                  <option key={v} value={v}>
-                    {l}
-                  </option>
-                ))}
-              </select>
-              <input
-                value={f.value}
-                onChange={(e) => onFiltersChange(filters.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
-                placeholder={t("toolbar.valuePlaceholder")}
-                style={{ width: 92, border: "none", background: "#fff", borderRadius: 5, padding: "3px 6px", fontSize: 12.5, outline: "none" }}
+                options={columnOptions}
+                autoFocus={justAdded?.kind === "filter" && justAdded.index === i}
+                ariaLabel={t("combobox.column")}
+                onChange={(v) => {
+                  const next = selectableCols.find((c) => c.name === v);
+                  // Same kind of column: keep operator and values. Otherwise start over, a "3" is not a date.
+                  const sameKind = next?.logicalType === col?.logicalType && !!next?.references === !!col?.references;
+                  updateFilter(i, sameKind ? { column: v } : { ...newFilter(next), value2: undefined });
+                }}
               />
+              <Combobox
+                value={f.op}
+                width={f.op === "notContains" || f.op === "notEmpty" ? 118 : 96}
+                options={opsFor(col?.logicalType).map((op) => ({ value: op, label: opLabel(op, col) }))}
+                onChange={(v) => updateFilter(i, { op: v as RowFilter["op"] })}
+              />
+              {opNeedsValue(f.op) &&
+                (col?.references && (f.op === "eq" || f.op === "neq") ? (
+                  <SuggestedFilterValue value={f.value} placeholder={t("toolbar.valuePlaceholder")} onChange={(v) => updateFilter(i, { value: v })} col={col} load={loadRelation} />
+                ) : col && !col.options?.length && SUGGESTED_TYPES.includes(col.logicalType) ? (
+                  <SuggestedFilterValue value={f.value} placeholder={t("toolbar.valuePlaceholder")} onChange={(v) => updateFilter(i, { value: v })} col={col} load={loadValues} />
+                ) : col?.options?.length ? (
+                  // A fixed set of values (statuses…) gets suggestions; anything else is a plain field.
+                  <Combobox value={f.value} allowCustom width={110} options={col.options.map((o) => ({ value: o }))} placeholder={t("toolbar.valuePlaceholder")} onChange={(v) => updateFilter(i, { value: v })} />
+                ) : col?.logicalType === "date" ? (
+                  dateInput(col, f.value, f.op === "between" ? t("toolbar.fromPlaceholder") : t("toolbar.valuePlaceholder"), (v) => updateFilter(i, { value: v }))
+                ) : (
+                  <input
+                    type={col?.logicalType === "number" ? "number" : "text"}
+                    value={f.value}
+                    onChange={(e) => updateFilter(i, { value: e.target.value })}
+                    placeholder={f.op === "between" ? t("toolbar.fromPlaceholder") : t("toolbar.valuePlaceholder")}
+                    style={valueStyle}
+                  />
+                ))}
+              {f.op === "between" && (
+                <>
+                  <span style={{ color: "#6f6b62" }}>{t("toolbar.and")}</span>
+                  {col?.logicalType === "date" ? (
+                    dateInput(col, f.value2 ?? "", t("toolbar.toPlaceholder"), (v) => updateFilter(i, { value2: v }))
+                  ) : (
+                    <input
+                      type={col?.logicalType === "number" ? "number" : "text"}
+                      value={f.value2 ?? ""}
+                      onChange={(e) => updateFilter(i, { value2: e.target.value })}
+                      placeholder={t("toolbar.toPlaceholder")}
+                      style={valueStyle}
+                    />
+                  )}
+                </>
+              )}
               <button
                 onClick={() => onFiltersChange(filters.filter((_, j) => j !== i))}
                 style={{ width: 20, height: 20, display: "grid", placeItems: "center", background: "transparent", border: "none", borderRadius: 5, color: "#9a958b", cursor: "pointer" }}
@@ -176,21 +341,21 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
                 ×
               </button>
             </div>
-          ))}
+            );
+          })}
           {sorts.map((s, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, height: 28, padding: "0 4px 0 8px", background: "#f6f4ef", border: "1px solid #e8e5df", borderRadius: 8, fontSize: 12.5 }}>
-              <span style={{ color: "#8b877e", fontWeight: 500 }}>{t("toolbar.sortBy")}</span>
-              <select
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "#8b877e", fontWeight: 500 }} title={t("toolbar.addSortHint")}>
+                <SortIcon />
+                {t("toolbar.sortBy")}
+              </span>
+              <Combobox
                 value={s.column}
-                onChange={(e) => onSortsChange(sorts.map((x, j) => (j === i ? { ...x, column: e.target.value } : x)))}
-                style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 12.5 }}
-              >
-                {selectableCols.map((c) => (
-                  <option key={c.name} value={c.name}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+                options={columnOptions}
+                autoFocus={justAdded?.kind === "sort" && justAdded.index === i}
+                ariaLabel={t("combobox.column")}
+                onChange={(v) => onSortsChange(sorts.map((x, j) => (j === i ? { ...x, column: v } : x)))}
+              />
               <button
                 onClick={() => onSortsChange(sorts.map((x, j) => (j === i ? { ...x, dir: x.dir === "asc" ? "desc" : "asc" } : x)))}
                 style={{ padding: "2px 7px", background: "#fff", border: "1px solid #e8e5df", borderRadius: 5, fontSize: 12, color: "#4b473f", cursor: "pointer" }}
@@ -205,6 +370,12 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {showSql && (
+        <div style={{ marginTop: 12, border: "1px solid var(--border-3)", borderRadius: 8, overflow: "hidden" }}>
+          <EquivalentSqlBar sql={sql} wrap />
         </div>
       )}
     </div>
