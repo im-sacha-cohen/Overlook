@@ -40,6 +40,25 @@ export function getDb(): Database.Database {
       prefs TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS saved_queries (
+      id TEXT PRIMARY KEY,
+      connectionId TEXT NOT NULL,
+      name TEXT NOT NULL,
+      sql TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS saved_queries_connection ON saved_queries (connectionId);
+    CREATE TABLE IF NOT EXISTS query_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      connectionId TEXT NOT NULL,
+      sql TEXT NOT NULL,
+      ranAt TEXT NOT NULL,
+      durationMs INTEGER NOT NULL,
+      rowCount INTEGER,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS query_history_connection ON query_history (connectionId, id);
   `);
   return db;
 }
@@ -153,6 +172,8 @@ export function deleteConnection(id: string): void {
   db.transaction(() => {
     db.prepare("DELETE FROM table_prefs WHERE connectionId = ?").run(id);
     db.prepare("DELETE FROM connection_prefs WHERE connectionId = ?").run(id);
+    db.prepare("DELETE FROM saved_queries WHERE connectionId = ?").run(id);
+    db.prepare("DELETE FROM query_history WHERE connectionId = ?").run(id);
     db.prepare("DELETE FROM connections WHERE id = ?").run(id);
   })();
 }

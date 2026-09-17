@@ -72,6 +72,24 @@ export interface QueryResult {
   rowCount: number;
 }
 
+export interface SavedQuery {
+  id: string;
+  name: string;
+  sql: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface QueryHistoryEntry {
+  id: number;
+  sql: string;
+  ranAt: string;
+  durationMs: number;
+  /** null when the query failed. */
+  rowCount: number | null;
+  error: string | null;
+}
+
 export const ENV_LABELS: Record<EnvType, string> = {
   local: "LOCAL",
   dev: "DEV",

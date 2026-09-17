@@ -1553,7 +1553,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
             <div style={{ flex: 1, display: "grid", placeItems: "center", color: "#a8a39a", fontSize: 13.5 }}>{t("empty.noTable")}</div>
           ) : dir === "query" ? (
             <div style={{ flex: 1, minHeight: 0, padding: "18px 32px 32px" }}>
-              <QueryConsole onRun={handleRunQuery} />
+              <QueryConsole key={activeConnectionId} connectionId={activeConnectionId} onRun={handleRunQuery} />
             </div>
           ) : (
             <>

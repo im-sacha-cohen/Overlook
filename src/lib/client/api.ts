@@ -2,10 +2,12 @@ import type {
   Connection,
   ConnectionInput,
   LogicalType,
+  QueryHistoryEntry,
   QueryResult,
   Row,
   RowFilter,
   RowSort,
+  SavedQuery,
   TableMeta,
 } from "../types";
 import type { ConnectionBundle } from "../connectionBundle";
@@ -215,4 +217,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ sql, allowWrite, confirm }),
     }),
+
+  listSavedQueries: (connectionId: string) => request<{ queries: SavedQuery[] }>(`/api/connections/${connectionId}/saved-queries`),
+  createSavedQuery: (connectionId: string, name: string, sql: string) =>
+    request<{ query: SavedQuery }>(`/api/connections/${connectionId}/saved-queries`, {
+      method: "POST",
+      body: JSON.stringify({ name, sql }),
+    }),
+  updateSavedQuery: (connectionId: string, queryId: string, name: string, sql: string) =>
+    request<{ query: SavedQuery }>(`/api/connections/${connectionId}/saved-queries/${queryId}`, {
+      method: "PUT",
+      body: JSON.stringify({ name, sql }),
+    }),
+  deleteSavedQuery: (connectionId: string, queryId: string) =>
+    request<{ ok: true }>(`/api/connections/${connectionId}/saved-queries/${queryId}`, { method: "DELETE" }),
+  listQueryHistory: (connectionId: string) => request<{ entries: QueryHistoryEntry[] }>(`/api/connections/${connectionId}/query-history`),
 };

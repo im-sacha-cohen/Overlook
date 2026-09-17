@@ -3,6 +3,7 @@ import { getConnection } from "@/lib/store/metadata";
 import { checkConfirm } from "@/lib/api/guard";
 import { isReadOnlyStatement } from "@/lib/api/sql-guard";
 import { errorResponse } from "@/lib/api/respond";
+import { recordQuery } from "@/lib/store/queries";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -26,8 +27,15 @@ export async function POST(request: Request, { params }: Params) {
       if (!guard.ok) return errorResponse(new Error(guard.error), 412);
     }
 
-    const result = await getAdapter(id).runRawQuery(body.sql);
-    return Response.json(result);
+    const started = Date.now();
+    try {
+      const result = await getAdapter(id).runRawQuery(body.sql);
+      recordQuery(id, { sql: body.sql, durationMs: Date.now() - started, rowCount: result.rowCount, error: null });
+      return Response.json(result);
+    } catch (err) {
+      recordQuery(id, { sql: body.sql, durationMs: Date.now() - started, rowCount: null, error: err instanceof Error ? err.message || String(err) : String(err) });
+      throw err;
+    }
   } catch (err) {
     return errorResponse(err, 500);
   }
