@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { api } from "@/lib/client/api";
-import { ENGINE_DEFAULT_PORT, ENGINE_LABELS, ENV_LABELS, type Connection, type ConnectionInput, type EnvType, type Engine } from "@/lib/types";
+import { ENGINE_DEFAULT_PORT, ENGINE_LABELS, ENV_LABELS, SSL_MODES, type Connection, type ConnectionInput, type EnvType, type Engine, type SslMode } from "@/lib/types";
+import { SecretFileField } from "./SecretFileField";
 import { ProdGuardDialog } from "./ProdGuardDialog";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 
@@ -41,7 +42,19 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped, do
   const [database, setDatabase] = useState(initial?.database ?? "");
   const [user, setUser] = useState(initial?.user ?? "");
   const [password, setPassword] = useState("");
-  const [ssl, setSsl] = useState(initial?.ssl ?? false);
+  const [sslMode, setSslMode] = useState<SslMode>(initial?.sslMode ?? (initial?.ssl ? "require" : "disable"));
+  const [sslCa, setSslCa] = useState<string | undefined>(undefined);
+  const [sslCert, setSslCert] = useState<string | undefined>(undefined);
+  const [sslKey, setSslKey] = useState<string | undefined>(undefined);
+  const [sshEnabled, setSshEnabled] = useState(!!initial?.ssh);
+  const [sshHost, setSshHost] = useState(initial?.ssh?.host ?? "");
+  const [sshPort, setSshPort] = useState(String(initial?.ssh?.port ?? 22));
+  const [sshUser, setSshUser] = useState(initial?.ssh?.user ?? "");
+  const [sshAuth, setSshAuth] = useState<"password" | "key">(initial?.ssh?.auth ?? "key");
+  const [sshPassword, setSshPassword] = useState("");
+  const [sshPrivateKey, setSshPrivateKey] = useState<string | undefined>(undefined);
+  const [sshPassphrase, setSshPassphrase] = useState("");
+  const stored = new Set(initial?.storedSecrets ?? []);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -62,7 +75,19 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped, do
       database,
       user: isSqlite ? undefined : user,
       password: isSqlite ? undefined : password || undefined,
-      ssl: isSqlite ? undefined : ssl,
+      ...(isSqlite
+        ? {}
+        : {
+            sslMode,
+            sslCa,
+            sslCert,
+            sslKey,
+            ssh: sshEnabled ? { host: sshHost.trim(), port: Number(sshPort) || 22, user: sshUser.trim(), auth: sshAuth } : null,
+            // Typed fields replace the saved secret; the other auth method's secret is dropped.
+            sshPassword: sshEnabled && sshAuth === "password" ? sshPassword || undefined : stored.has("sshPassword") ? "" : undefined,
+            sshPrivateKey: sshEnabled && sshAuth === "key" ? sshPrivateKey : stored.has("sshPrivateKey") ? "" : undefined,
+            sshPassphrase: sshEnabled && sshAuth === "key" ? sshPassphrase || undefined : stored.has("sshPassphrase") ? "" : undefined,
+          }),
     };
   }
 
@@ -70,11 +95,8 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped, do
     setTesting(true);
     setTestResult(null);
     try {
-      if (initial && !password) {
-        await api.testConnection({ id: initial.id });
-      } else {
-        await api.testConnection(buildInput());
-      }
+      // Editing: the server fills in what wasn't retyped from the saved connection.
+      await api.testConnection(initial ? { id: initial.id, ...buildInput() } : buildInput());
       setTestResult({ ok: true, message: t("connectionForm.testSuccess") });
     } catch (err) {
       setTestResult({ ok: false, message: err instanceof Error ? err.message : String(err) });
@@ -87,15 +109,7 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped, do
     setCreatingDb(true);
     setCreateDbResult(null);
     try {
-      await api.createDatabase({
-        engine,
-        host: isSqlite ? undefined : host,
-        port: isSqlite ? undefined : Number(port) || undefined,
-        user: isSqlite ? undefined : user,
-        password: isSqlite ? undefined : password || undefined,
-        ssl: isSqlite ? undefined : ssl,
-        database,
-      });
+      await api.createDatabase(initial ? { id: initial.id, ...buildInput() } : buildInput());
       setCreateDbResult({ ok: true, message: t("connectionForm.dbCreated") });
     } catch (err) {
       setCreateDbResult({ ok: false, message: err instanceof Error ? err.message : String(err) });
@@ -274,10 +288,79 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped, do
                   <input style={inputStyle} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
                 </div>
               </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                <input type="checkbox" checked={ssl} onChange={(e) => setSsl(e.target.checked)} />
-                {t("connectionForm.useSsl")}
-              </label>
+              <div style={{ padding: 12, borderRadius: 9, border: "1px solid #f0eee9", background: "#fcfbf9", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div>
+                  <label style={labelStyle}>{t("connectionForm.sslMode")}</label>
+                  <select style={inputStyle} value={sslMode} onChange={(e) => setSslMode(e.target.value as SslMode)}>
+                    {SSL_MODES.map((m) => (
+                      <option key={m} value={m}>
+                        {t(`connectionForm.sslMode.${m}`)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {sslMode !== "disable" && (
+                  <>
+                    <SecretFileField label={t("connectionForm.sslCa")} stored={stored.has("sslCa")} value={sslCa} onChange={setSslCa} />
+                    <SecretFileField label={t("connectionForm.sslCert")} stored={stored.has("sslCert")} value={sslCert} onChange={setSslCert} />
+                    <SecretFileField label={t("connectionForm.sslKey")} stored={stored.has("sslKey")} value={sslKey} onChange={setSslKey} />
+                    <div style={{ fontSize: 11.5, color: "#a8a39a" }}>{t("connectionForm.sslFilesHint")}</div>
+                  </>
+                )}
+              </div>
+
+              <div style={{ padding: 12, borderRadius: 9, border: "1px solid #f0eee9", background: "#fcfbf9", display: "flex", flexDirection: "column", gap: 10 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 500 }}>
+                  <input type="checkbox" checked={sshEnabled} onChange={(e) => setSshEnabled(e.target.checked)} />
+                  {t("connectionForm.sshTunnel")}
+                </label>
+                {sshEnabled && (
+                  <>
+                    <div style={{ fontSize: 11.5, color: "#a8a39a" }}>{t("connectionForm.sshHint")}</div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <div style={{ flex: 3 }}>
+                        <label style={labelStyle}>{t("connectionForm.sshHost")}</label>
+                        <input style={inputStyle} value={sshHost} onChange={(e) => setSshHost(e.target.value)} placeholder="bastion.example.com" />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={labelStyle}>{t("connectionForm.port")}</label>
+                        <input style={inputStyle} value={sshPort} onChange={(e) => setSshPort(e.target.value)} />
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={labelStyle}>{t("connectionForm.user")}</label>
+                        <input style={inputStyle} value={sshUser} onChange={(e) => setSshUser(e.target.value)} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={labelStyle}>{t("connectionForm.sshAuth")}</label>
+                        <select style={inputStyle} value={sshAuth} onChange={(e) => setSshAuth(e.target.value as "password" | "key")}>
+                          <option value="key">{t("connectionForm.sshAuthKey")}</option>
+                          <option value="password">{t("connectionForm.password")}</option>
+                        </select>
+                      </div>
+                    </div>
+                    {sshAuth === "password" ? (
+                      <div>
+                        <label style={labelStyle}>
+                          {t("connectionForm.password")} {stored.has("sshPassword") ? t("connectionForm.passwordKeepHint") : ""}
+                        </label>
+                        <input style={inputStyle} type="password" value={sshPassword} onChange={(e) => setSshPassword(e.target.value)} />
+                      </div>
+                    ) : (
+                      <>
+                        <SecretFileField label={t("connectionForm.sshPrivateKey")} stored={stored.has("sshPrivateKey")} value={sshPrivateKey} onChange={setSshPrivateKey} />
+                        <div>
+                          <label style={labelStyle}>
+                            {t("connectionForm.sshPassphrase")} {stored.has("sshPassphrase") ? t("connectionForm.passwordKeepHint") : ""}
+                          </label>
+                          <input style={inputStyle} type="password" value={sshPassphrase} onChange={(e) => setSshPassphrase(e.target.value)} />
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
             </>
           )}
 

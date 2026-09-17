@@ -1,5 +1,5 @@
 import mysql, { type Pool } from "mysql2/promise";
-import type { Connection, ColumnMeta, LogicalType, QueryResult, Row, TableMeta } from "../types";
+import type { ColumnMeta, LogicalType, QueryResult, Row, TableMeta } from "../types";
 import {
   assertCreatableType,
   assertKnownColumn,
@@ -16,6 +16,8 @@ import {
   type WritePreview,
 } from "./adapter";
 import { normalizeMysqlDateLiterals, splitSqlStatements } from "./splitSqlStatements";
+import net from "node:net";
+import { mysqlSslOptions, type AdapterConnection } from "./network";
 
 const CREATABLE_TYPE_SQL: Record<Exclude<LogicalType, "relation" | "unknown">, string> = {
   text: "text",
@@ -54,7 +56,7 @@ export class MySqlAdapter implements DatabaseAdapter {
   private pool: Pool;
   private database: string;
 
-  constructor(conn: Connection & { password?: string }) {
+  constructor(conn: AdapterConnection) {
     this.database = conn.database;
     this.pool = mysql.createPool({
       host: conn.host,
@@ -62,7 +64,9 @@ export class MySqlAdapter implements DatabaseAdapter {
       database: conn.database,
       user: conn.user,
       password: conn.password,
-      ssl: conn.ssl ? {} : undefined,
+      ssl: mysqlSslOptions(conn),
+      // Through a tunnel, connect to it but keep `host` for the certificate check.
+      ...(conn.via ? { stream: () => net.connect(conn.via!.port, conn.via!.host) } : {}),
       connectionLimit: 5,
       multipleStatements: true,
       // Return DATE/DATETIME/TIMESTAMP exactly as MySQL shows them in the session's

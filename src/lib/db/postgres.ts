@@ -1,5 +1,5 @@
 import { Pool, types as pgTypes, type CustomTypesConfig, type PoolClient } from "pg";
-import type { Connection, ColumnMeta, LogicalType, QueryResult, Row, TableMeta } from "../types";
+import type { ColumnMeta, LogicalType, QueryResult, Row, TableMeta } from "../types";
 import {
   assertKnownColumn,
   coerceRowValues,
@@ -17,6 +17,7 @@ import {
   type WritePreview,
 } from "./adapter";
 import { splitSqlStatements } from "./splitSqlStatements";
+import { tlsOptions, type AdapterConnection } from "./network";
 
 const CREATABLE_TYPE_SQL: Record<Exclude<LogicalType, "relation" | "unknown">, string> = {
   text: "text",
@@ -59,14 +60,14 @@ const TYPE_PARSERS: CustomTypesConfig = {
 export class PostgresAdapter implements DatabaseAdapter {
   private pool: Pool;
 
-  constructor(conn: Connection & { password?: string }) {
+  constructor(conn: AdapterConnection) {
     this.pool = new Pool({
-      host: conn.host,
-      port: conn.port ?? 5432,
+      host: conn.via?.host ?? conn.host,
+      port: conn.via?.port ?? conn.port ?? 5432,
       database: conn.database,
       user: conn.user,
       password: conn.password,
-      ssl: conn.ssl ? { rejectUnauthorized: false } : undefined,
+      ssl: tlsOptions(conn),
       max: 5,
       types: TYPE_PARSERS,
     });

@@ -115,7 +115,7 @@ export const api = {
       body: JSON.stringify(input),
     }),
 
-  createDatabase: (input: Pick<ConnectionInput, "engine" | "host" | "port" | "user" | "password" | "ssl" | "database">) =>
+  createDatabase: (input: { id?: string } & Partial<ConnectionInput>) =>
     request<{ ok: true }>("/api/connections/create-database", {
       method: "POST",
       body: JSON.stringify(input),

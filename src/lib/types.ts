@@ -1,6 +1,33 @@
 export type EnvType = "local" | "dev" | "staging" | "prod" | "custom";
 export type Engine = "postgres" | "mysql" | "sqlite";
 
+/**
+ * disable: plain connection. require: encrypted, server certificate not checked.
+ * verify-ca: certificate must be signed by the given (or a system) authority.
+ * verify-full: verify-ca, and the certificate must also name the host.
+ */
+export type SslMode = "disable" | "require" | "verify-ca" | "verify-full";
+export const SSL_MODES: SslMode[] = ["disable", "require", "verify-ca", "verify-full"];
+
+export interface SshTunnel {
+  host: string;
+  port: number;
+  user: string;
+  auth: "password" | "key";
+}
+
+/** Secret material kept encrypted at rest, never sent back to the browser. */
+export interface ConnectionSecrets {
+  sshPassword?: string;
+  sshPrivateKey?: string;
+  sshPassphrase?: string;
+  sslCa?: string;
+  sslCert?: string;
+  sslKey?: string;
+}
+
+export const SECRET_FIELDS: (keyof ConnectionSecrets)[] = ["sshPassword", "sshPrivateKey", "sshPassphrase", "sslCa", "sslCert", "sslKey"];
+
 export interface Connection {
   id: string;
   name: string;
@@ -10,11 +37,16 @@ export interface Connection {
   port?: number;
   database: string;
   user?: string;
+  /** true unless sslMode is "disable"; kept for older clients and exports. */
   ssl?: boolean;
+  sslMode?: SslMode;
+  ssh?: SshTunnel | null;
+  /** Which secrets are stored, so the form can say "saved" without seeing them. */
+  storedSecrets?: (keyof ConnectionSecrets)[];
   createdAt: string;
 }
 
-export interface ConnectionInput {
+export interface ConnectionInput extends ConnectionSecrets {
   name: string;
   envType: EnvType;
   engine: Engine;
@@ -22,8 +54,11 @@ export interface ConnectionInput {
   port?: number;
   database: string;
   user?: string;
+  /** On update: undefined keeps the stored one, "" removes it. Same for every secret. */
   password?: string;
   ssl?: boolean;
+  sslMode?: SslMode;
+  ssh?: SshTunnel | null;
 }
 
 export type LogicalType =

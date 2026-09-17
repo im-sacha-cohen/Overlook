@@ -1,20 +1,12 @@
 import { createDatabase } from "@/lib/db/databaseAdmin";
+import { resolveConnectionDraft } from "@/lib/store/metadata";
 import { errorResponse } from "@/lib/api/respond";
-import type { Engine } from "@/lib/types";
+import type { ConnectionInput } from "@/lib/types";
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as {
-      engine: Engine;
-      host?: string;
-      port?: number;
-      user?: string;
-      password?: string;
-      ssl?: boolean;
-      database: string;
-    };
-    if (!body.engine || !body.database) return errorResponse(new Error("engine et database sont requis"));
-    await createDatabase(body);
+    const body = (await request.json()) as { id?: string } & Partial<ConnectionInput>;
+    await createDatabase(resolveConnectionDraft(body));
     return Response.json({ ok: true });
   } catch (err) {
     return errorResponse(err, 500);

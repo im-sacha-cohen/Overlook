@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { BUNDLE_FORMAT, BUNDLE_VERSION, MIN_PASSPHRASE_LENGTH, type BundleEncryption, type ConnectionBundle } from "../connectionBundle";
-import type { Connection } from "../types";
+import type { Connection, ConnectionSecrets } from "../types";
 import { decryptWithKey, encryptWithKey } from "./crypto";
 import { createConnection, getConnectionSecret, listConnections } from "./metadata";
 import { getConnectionPrefs, listTablePrefs, replaceTablePrefs, saveConnectionPrefs } from "./prefs";
@@ -44,7 +44,9 @@ export function buildBundle(ids: string[], passphrase: string | null): Connectio
     exportedAt: new Date().toISOString(),
     encryption,
     connections: conns.map((c) => {
-      const password = key ? getConnectionSecret(c.id)?.password : undefined;
+      const full = key ? getConnectionSecret(c.id) : null;
+      const password = full?.password;
+      const secrets = full && Object.keys(full.secrets).length > 0 ? JSON.stringify(full.secrets) : undefined;
       const prefs = listTablePrefs(c.id);
       const connectionPrefs = getConnectionPrefs(c.id);
       return {
@@ -56,7 +58,10 @@ export function buildBundle(ids: string[], passphrase: string | null): Connectio
         database: c.database,
         user: c.user,
         ssl: !!c.ssl,
+        sslMode: c.sslMode,
+        ssh: c.ssh ?? undefined,
         password: key && password ? encryptWithKey(password, key) : undefined,
+        secrets: key && secrets ? encryptWithKey(secrets, key) : undefined,
         prefs: Object.keys(prefs).length > 0 ? prefs : undefined,
         connectionPrefs: connectionPrefs.autoRefresh ? connectionPrefs : undefined,
       };
@@ -78,13 +83,23 @@ export function importBundle(bundle: ConnectionBundle, indices: number[], passph
 
   // Decrypt everything before writing anything, so a wrong passphrase imports nothing.
   let key: Buffer | null = null;
-  if (bundle.encryption && picked.some((c) => c.password)) key = deriveKey(checkPassphrase(passphrase), bundle.encryption);
-  const passwords = picked.map((c) => {
-    if (!c.password || !key) return undefined;
+  if (bundle.encryption && picked.some((c) => c.password || c.secrets)) key = deriveKey(checkPassphrase(passphrase), bundle.encryption);
+  const open = (cipher: string | undefined) => {
+    if (!cipher || !key) return undefined;
     try {
-      return decryptWithKey(c.password, key);
+      return decryptWithKey(cipher, key);
     } catch {
       throw new Error("Phrase de passe incorrecte");
+    }
+  };
+  const passwords = picked.map((c) => open(c.password));
+  const secrets = picked.map((c) => {
+    const json = open(c.secrets);
+    if (!json) return {};
+    try {
+      return JSON.parse(json) as ConnectionSecrets;
+    } catch {
+      return {};
     }
   });
 
@@ -101,7 +116,10 @@ export function importBundle(bundle: ConnectionBundle, indices: number[], passph
       database: c.database,
       user: c.user,
       ssl: c.ssl,
+      sslMode: c.sslMode,
+      ssh: c.ssh ?? null,
       password: passwords[i],
+      ...secrets[i],
     });
     if (c.prefs) replaceTablePrefs(created.id, c.prefs);
     if (c.connectionPrefs) saveConnectionPrefs(created.id, c.connectionPrefs);

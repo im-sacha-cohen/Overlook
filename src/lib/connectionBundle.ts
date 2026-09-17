@@ -1,6 +1,6 @@
 // Portable file format for moving saved connections between Overlook instances.
 // Shared by the client (file preview) and the server (export/import routes).
-import type { Engine, EnvType } from "./types";
+import { SSL_MODES, type Engine, type EnvType, type SshTunnel, type SslMode } from "./types";
 import { sanitizeConnectionPrefs, sanitizeTablePrefs, type ConnectionPrefs, type TablePrefs } from "./prefs";
 
 export const BUNDLE_FORMAT = "overlook-connections";
@@ -16,8 +16,12 @@ export interface BundleConnection {
   database: string;
   user?: string;
   ssl: boolean;
+  sslMode?: SslMode;
+  ssh?: SshTunnel;
   // AES-256-GCM ciphertext under the bundle's passphrase-derived key — never the instance key.
   password?: string;
+  // Same encryption: JSON of the SSH/TLS secrets (keys, certificates, SSH password).
+  secrets?: string;
   // Per-table view preferences (filters, sorts, column layout…), keyed by table name.
   prefs?: Record<string, TablePrefs>;
   // Connection-level preferences (auto-refresh…).
@@ -92,6 +96,13 @@ export function parseBundle(raw: unknown): ConnectionBundle {
     if (c.port !== undefined && c.port !== null && (typeof c.port !== "number" || !Number.isInteger(c.port))) throw invalid(`${where} : port invalide`);
     const password = optionalString(c.password);
     if (password && !encryption) throw invalid(`${where} : mot de passe présent sans chiffrement`);
+    const secrets = optionalString(c.secrets);
+    if (secrets && !encryption) throw invalid(`${where} : secrets présents sans chiffrement`);
+    const rawSsh = (c.ssh ?? null) as Record<string, unknown> | null;
+    const ssh =
+      rawSsh && typeof rawSsh.host === "string" && typeof rawSsh.user === "string"
+        ? { host: rawSsh.host, user: rawSsh.user, port: Number.isInteger(rawSsh.port) ? (rawSsh.port as number) : 22, auth: rawSsh.auth === "key" ? ("key" as const) : ("password" as const) }
+        : undefined;
     return {
       name: c.name.trim(),
       envType: c.envType as EnvType,
@@ -101,7 +112,10 @@ export function parseBundle(raw: unknown): ConnectionBundle {
       database: c.database,
       user: optionalString(c.user),
       ssl: c.ssl === true,
+      sslMode: SSL_MODES.includes(c.sslMode as SslMode) ? (c.sslMode as SslMode) : undefined,
+      ssh,
       password,
+      secrets,
       prefs: sanitizePrefsMap(c.prefs),
       connectionPrefs: c.connectionPrefs ? sanitizeConnectionPrefs(c.connectionPrefs) : undefined,
     };
