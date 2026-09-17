@@ -6,6 +6,7 @@ import { useLang } from "@/lib/i18n/LanguageProvider";
 import { Combobox, MultiCombobox, type ComboOption } from "./Combobox";
 import { EquivalentSqlBar } from "./EquivalentSqlBar";
 import { DateField } from "./DateField";
+import { Hint, Kbd } from "./Hint";
 import { opNeedsValue, opsFor } from "@/lib/db/where";
 
 export type ViewKind = "table" | "board" | "calendar" | "gallery";
@@ -103,6 +104,7 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
   const searchRef = useRef<HTMLInputElement>(null);
   // The filter/sort just added opens its column picker straight away.
   const [showSql, setShowSql] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
   const [justAdded, setJustAdded] = useState<{ kind: "filter" | "sort"; index: number } | null>(null);
 
   const selectableCols = columns.filter((c) => !c.hidden);
@@ -268,8 +270,15 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
               }}
               placeholder={t("toolbar.searchPlaceholder")}
               title={t("toolbar.searchHint")}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
               style={{ ...smallBtn, width: "100%", height: 27, padding: "0 22px 0 24px", cursor: "text", outline: "none", boxSizing: "border-box" }}
             />
+            {!search && !searchFocused && (
+              <span aria-hidden style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+                <Kbd>/</Kbd>
+              </span>
+            )}
             {search && (
               <button
                 onClick={() => onSearchChange("")}
@@ -287,24 +296,26 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
             onChange={onSetGroupBy}
             inputStyle={{ height: 27, border: "1px solid #e8e5df", borderRadius: 7, color: "#4b473f" }}
           />
-          <button
-            style={{ ...smallBtn, display: "inline-flex", alignItems: "center", gap: 5 }}
-            title={`${t("toolbar.addFilterHint")} (F)`}
-            onClick={addFilter}
-          >
-            <FilterIcon />
-            {t("toolbar.addFilter")}
-            <CountBadge n={filters.length} />
-          </button>
-          <button
-            style={{ ...smallBtn, display: "inline-flex", alignItems: "center", gap: 5 }}
-            title={`${t("toolbar.addSortHint")} (S)`}
-            onClick={addSort}
-          >
-            <SortIcon />
-            {t("toolbar.addSort")}
-            <CountBadge n={sorts.length} />
-          </button>
+          <Hint label={t("toolbar.addFilterHint")} keys={["F"]}>
+            <button
+              style={{ ...smallBtn, display: "inline-flex", alignItems: "center", gap: 5 }}
+              onClick={addFilter}
+            >
+              <FilterIcon />
+              {t("toolbar.addFilter")}
+              <CountBadge n={filters.length} />
+            </button>
+          </Hint>
+          <Hint label={t("toolbar.addSortHint")} keys={["S"]}>
+            <button
+              style={{ ...smallBtn, display: "inline-flex", alignItems: "center", gap: 5 }}
+              onClick={addSort}
+            >
+              <SortIcon />
+              {t("toolbar.addSort")}
+              <CountBadge n={sorts.length} />
+            </button>
+          </Hint>
           <button
             style={{ ...smallBtn, fontFamily: "var(--font-mono)", fontSize: 11.5, ...(showSql ? { background: "var(--accent-bg)", border: "1px solid var(--accent-border)", color: "var(--accent-hover)" } : {}) }}
             aria-pressed={showSql}
@@ -444,15 +455,16 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
               </button>
             </div>
           ))}
-          <button
-            onClick={clearAll}
-            title={`${t("toolbar.clearAllHint")} (⇧⌫)`}
-            style={{ height: 28, padding: "0 9px", background: "transparent", border: "1px dashed #d9d5cc", borderRadius: 8, fontSize: 12.5, color: "#8b877e", cursor: "pointer" }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--env-prod-fg)")}
-            onMouseLeave={(e) => (e.currentTarget.style.color = "#8b877e")}
-          >
-            {t("toolbar.clearAll")}
-          </button>
+          <Hint label={t("toolbar.clearAllHint")} keys={["⇧", "⌫"]}>
+            <button
+              onClick={clearAll}
+              style={{ height: 28, padding: "0 9px", background: "transparent", border: "1px dashed #d9d5cc", borderRadius: 8, fontSize: 12.5, color: "#8b877e", cursor: "pointer" }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--env-prod-fg)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "#8b877e")}
+            >
+              {t("toolbar.clearAll")}
+            </button>
+          </Hint>
         </div>
       )}
 
