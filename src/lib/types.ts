@@ -96,10 +96,32 @@ export interface RowFilter {
   value2?: string;
   /** The candidates of "in" / "notIn". */
   values?: string[];
+  /** Kept on screen but not applied. */
+  disabled?: boolean;
+  /** Id of the FilterGroup it belongs to; top level when absent. */
+  group?: string;
 }
 
 /** Whether rows must match every filter or at least one. */
 export type FilterMatch = "all" | "any";
+
+/** Conditions between parentheses, with their own all/any. */
+export interface FilterGroup {
+  id: string;
+  match: FilterMatch;
+}
+
+/** What narrows a table's rows: filters (top level and grouped) and the free-text search. */
+export interface RowQuery {
+  filters?: RowFilter[];
+  filterMatch?: FilterMatch;
+  filterGroups?: FilterGroup[];
+  search?: string;
+}
+
+/** Column summaries shown under the table. */
+export type AggregateFn = "filled" | "empty" | "unique" | "sum" | "avg" | "min" | "max";
+export const AGGREGATE_FNS: AggregateFn[] = ["filled", "empty", "unique", "sum", "avg", "min", "max"];
 
 export interface RowSort {
   column: string;

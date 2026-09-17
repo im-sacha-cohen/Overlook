@@ -221,3 +221,12 @@ button {
     flex-wrap: wrap !important;
   }
 }
+
+/* Summary cells without a summary only say so on hover. */
+.om-summary .om-summary-empty {
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+.om-summary:hover .om-summary-empty {
+  opacity: 1;
+}

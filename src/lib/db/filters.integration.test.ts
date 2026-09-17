@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Engine, FilterMatch, RowFilter } from "../types";
+import type { Engine, FilterGroup, FilterMatch, RowFilter } from "../types";
 import type { DatabaseAdapter } from "./adapter";
 import type { AdapterConnection } from "./network";
 
@@ -76,8 +76,8 @@ for (const target of targets) {
       if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    const ids = async (filters: RowFilter[], filterMatch: FilterMatch = "all") => {
-      const { rows, total } = await adapter.selectRows(TABLE, { filters, filterMatch, sorts: [{ column: "id", dir: "asc" }] });
+    const ids = async (filters: RowFilter[], filterMatch: FilterMatch = "all", filterGroups?: FilterGroup[], search?: string) => {
+      const { rows, total } = await adapter.selectRows(TABLE, { filters, filterMatch, filterGroups, search, sorts: [{ column: "id", dir: "asc" }] });
       expect(total).toBe(rows.length);
       return rows.map((r) => Number(r.id));
     };
@@ -117,6 +117,42 @@ for (const target of targets) {
       ];
       expect(await ids(filters)).toEqual([]);
       expect(await ids(filters, "any")).toEqual([2, 5]);
+    });
+
+    it("takes % and _ literally", async () => {
+      expect(await ids([{ column: "status", op: "contains", value: "_" }])).toEqual([]);
+      expect(await ids([], "all", undefined, "%")).toEqual([]);
+      expect(await ids([{ column: "status", op: "notContains", value: "_" }])).toEqual([1, 2, 3, 4, 5]);
+    });
+
+    it("skips disabled filters", async () => {
+      expect(await ids([{ column: "status", op: "eq", value: "paid", disabled: true }])).toEqual([1, 2, 3, 4, 5]);
+    });
+
+    it("groups conditions", async () => {
+      const filters: RowFilter[] = [
+        { column: "status", op: "eq", value: "paid", group: "g" },
+        { column: "amount", op: "gt", value: "50" },
+        { column: "status", op: "eq", value: "pending", group: "g" },
+      ];
+      expect(await ids(filters, "all", [{ id: "g", match: "any" }])).toEqual([2, 3]);
+      expect(await ids(filters, "any", [{ id: "g", match: "all" }])).toEqual([2, 3]);
+      expect(await ids([...filters, { column: "id", op: "eq", value: "1" }], "any", [{ id: "g", match: "any" }])).toEqual([1, 2, 3]);
+    });
+
+    it("summarises columns over the filtered rows", async () => {
+      expect(
+        await adapter.aggregate(TABLE, {}, [
+          { column: "amount", fn: "sum" },
+          { column: "amount", fn: "avg" },
+          { column: "amount", fn: "min" },
+          { column: "amount", fn: "max" },
+          { column: "status", fn: "filled" },
+          { column: "status", fn: "empty" },
+          { column: "status", fn: "unique" },
+        ]),
+      ).toEqual({ "amount:sum": 359.5, "amount:avg": 89.875, "amount:min": 0, "amount:max": 250, "status:filled": 3, "status:empty": 2, "status:unique": 2 });
+      expect(await adapter.aggregate(TABLE, { filters: [{ column: "status", op: "eq", value: "paid" }] }, [{ column: "amount", fn: "sum" }])).toEqual({ "amount:sum": 109.5 });
     });
 
     it("suggests frequent values and the elements of JSON lists", async () => {

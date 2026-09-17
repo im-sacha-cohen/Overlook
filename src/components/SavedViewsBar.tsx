@@ -15,6 +15,10 @@ interface Props {
   onUpdate: () => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
+  /** Copies a link that opens this table with the current filters and sorts. */
+  onCopyLink: () => void;
+  /** Exports the rows as the view shows them. */
+  onExportView: () => void;
 }
 
 const chip = (active: boolean): React.CSSProperties => ({
@@ -43,7 +47,7 @@ const linkBtn: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-export function SavedViewsBar({ views, activeViewId, dirty, onApply, onClear, onSaveNew, onUpdate, onRename, onDelete }: Props) {
+export function SavedViewsBar({ views, activeViewId, dirty, onApply, onClear, onSaveNew, onUpdate, onRename, onDelete, onCopyLink, onExportView }: Props) {
   const { t } = useLang();
   // "new" while naming a new view, a view id while renaming one.
   const [editing, setEditing] = useState<{ target: string; name: string } | null>(null);
@@ -160,6 +164,13 @@ export function SavedViewsBar({ views, activeViewId, dirty, onApply, onClear, on
           {t("savedViews.update")}
         </button>
       )}
+      <span style={{ flex: 1 }} />
+      <button onClick={onCopyLink} style={{ ...linkBtn, color: "#8b877e" }} title={t("savedViews.copyLinkHint")}>
+        {t("savedViews.copyLink")}
+      </button>
+      <button onClick={onExportView} style={{ ...linkBtn, color: "#8b877e" }} title={t("savedViews.exportHint")}>
+        {t("savedViews.export")}
+      </button>
     </div>
   );
 }

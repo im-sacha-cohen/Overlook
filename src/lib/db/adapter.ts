@@ -1,14 +1,9 @@
-import type { ColumnMeta, FilterMatch, LogicalType, QueryResult, Row, RowFilter, RowSort, TableMeta, WriteOp, WritePreview } from "../types";
+import type { AggregateFn, ColumnMeta, LogicalType, QueryResult, Row, RowQuery, RowSort, TableMeta, WriteOp, WritePreview } from "../types";
 
 export type { WriteOp, WritePreview };
 
-export interface SelectOptions {
-  filters?: RowFilter[];
-  /** "any": a row matching one filter is enough. Defaults to "all". */
-  filterMatch?: FilterMatch;
+export interface SelectOptions extends RowQuery {
   sorts?: RowSort[];
-  /** Free text matched against every column (as text), case-insensitively. */
-  search?: string;
   limit?: number;
   offset?: number;
 }
@@ -36,6 +31,8 @@ export interface DatabaseAdapter {
   selectRows(table: string, opts: SelectOptions): Promise<{ rows: Row[]; total: number }>;
   /** Most frequent values of a column (as text), for filter suggestions. */
   distinctValues(table: string, column: string, query?: string): Promise<{ value: string; count: number }[]>;
+  /** Summaries of columns over the rows a query keeps, keyed "column:fn". */
+  aggregate(table: string, query: RowQuery, specs: { column: string; fn: AggregateFn }[]): Promise<Record<string, string | number | null>>;
   insertRow(table: string, values: Row): Promise<Row>;
   updateRow(table: string, pkColumn: string, pkValue: unknown, values: Row): Promise<void>;
   updateRows(table: string, pkColumn: string, pkValues: unknown[], values: Row): Promise<number>;

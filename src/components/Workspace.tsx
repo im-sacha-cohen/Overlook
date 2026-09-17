@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api, userHeader } from "@/lib/client/api";
-import type { ColumnMeta, Connection, ConnectionInput, FilterMatch, LogicalType, QueryResult, Row, RowFilter, RowSort, TableMeta, WriteOp, JournalEntry } from "@/lib/types";
+import type { AggregateFn, ColumnMeta, Connection, ConnectionInput, FilterGroup, FilterMatch, LogicalType, QueryResult, Row, RowFilter, RowSort, TableMeta, WriteOp, JournalEntry } from "@/lib/types";
 import { ENV_COLORS } from "@/lib/client/env";
 import { nowForColumn, toText } from "@/lib/client/format";
 import { HistoryEntry, timeNow } from "@/lib/client/history";
@@ -35,7 +35,9 @@ import { DropTablesDialog } from "./DropTablesDialog";
 import { CommandPalette, type CmdItem } from "./CommandPalette";
 import { QueryConsole } from "./QueryConsole";
 import { EquivalentSqlBar } from "./EquivalentSqlBar";
-import { describeSelect, isActiveFilter } from "@/lib/db/where";
+import { describeSelect, isAppliedFilter } from "@/lib/db/where";
+import { decodeSharedView, encodeSharedView } from "@/lib/client/sharedView";
+import { rowQueryToParams } from "@/lib/api/rowQuery";
 import { SavedViewsBar } from "./SavedViewsBar";
 import { WritePreviewBox } from "./WritePreviewBox";
 import { SelectionBar } from "./SelectionBar";
@@ -145,6 +147,13 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   const [relationTrail, setRelationTrail] = useState<TrailEntry[]>([]);
   const [filters, setFilters] = useState<RowFilter[]>([]);
   const [filterMatch, setFilterMatch] = useState<FilterMatch>("all");
+  const [filterGroups, setFilterGroups] = useState<FilterGroup[]>([]);
+  const [frozenColumns, setFrozenColumns] = useState<string[]>([]);
+  const [columnSummaries, setColumnSummaries] = useState<Record<string, AggregateFn>>({});
+  const [summaryValues, setSummaryValues] = useState<Record<string, string | number | null>>({});
+  // A view opened from a shared link (?s=…), applied once its table's preferences are loaded.
+  const sharedViewRef = useRef({ table: searchParams.get("t"), view: decodeSharedView(searchParams.get("s")) });
+  const [exportView, setExportView] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sorts, setSorts] = useState<RowSort[]>([]);
@@ -216,10 +225,11 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     const empty = names.filter((n) => !filled.includes(n));
     setAutoOrders((prev) => ({ ...prev, [rowsKey]: [...filled, ...empty] }));
   }, [rowsKey, autoOrder, rowsEntry, activeTableMeta]);
-  const orderedVisibleColumns = useMemo(
-    () => orderColumns(visibleColumns, columnOrder.length > 0 ? columnOrder : (autoOrder ?? [])),
-    [visibleColumns, columnOrder, autoOrder]
-  );
+  const orderedVisibleColumns = useMemo(() => {
+    const ordered = orderColumns(visibleColumns, columnOrder.length > 0 ? columnOrder : (autoOrder ?? []));
+    // Frozen columns sit on the left, in their usual order among themselves.
+    return [...ordered.filter((c) => frozenColumns.includes(c.name)), ...ordered.filter((c) => !frozenColumns.includes(c.name))];
+  }, [visibleColumns, columnOrder, autoOrder, frozenColumns]);
   const pkColumn = useMemo(() => columns.find((c) => c.isPrimaryKey)?.name ?? null, [columns]);
   const pkColumnRef = useRef(pkColumn);
   pkColumnRef.current = pkColumn;
@@ -319,6 +329,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       const res = await api.selectRows(activeConnectionId, activeTable, {
         filters,
         filterMatch,
+        filterGroups,
         sorts,
         search: debouncedSearch,
         limit: PAGE_SIZE,
@@ -349,7 +360,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     } finally {
       if (!silent && seq === rowsRequestSeq.current) setLoadingRows(false);
     }
-  }, [activeConnectionId, activeTable, filters, filterMatch, sorts, debouncedSearch, page, flash]);
+  }, [activeConnectionId, activeTable, filters, filterMatch, filterGroups, sorts, debouncedSearch, page, flash]);
 
   useEffect(() => {
     if (activeConnectionId) loadTables(activeConnectionId);
@@ -465,12 +476,26 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     setActiveViewId(prefs.activeViewId);
     setFilters(prefs.filters);
     setFilterMatch(prefs.filterMatch);
+    setFilterGroups(prefs.filterGroups);
     setSorts(prefs.sorts);
     setGroupBy(prefs.groupBy);
     setColumnOrder(prefs.columnOrder);
     setColumnWidths(prefs.columnWidths);
+    setFrozenColumns(prefs.frozenColumns);
+    setColumnSummaries(prefs.columnSummaries);
     setHiddenCols((prev) => ({ ...prev, [`${activeConnectionId}\u0000${activeTable}`]: new Set(prefs.hiddenColumns) }));
     setView(prefs.view);
+    const shared = sharedViewRef.current;
+    if (shared.view && shared.table === activeTable) {
+      setFilters(shared.view.filters);
+      setFilterMatch(shared.view.filterMatch);
+      setFilterGroups(shared.view.filterGroups);
+      setSorts(shared.view.sorts);
+      setGroupBy(shared.view.groupBy);
+      setView(shared.view.view);
+      setActiveViewId("");
+    }
+    sharedViewRef.current = { table: null, view: null };
     hydratedKey.current = `${activeConnectionId}:${activeTable}`;
   }, [activeConnectionId, activeTable, prefsEpoch]);
 
@@ -483,12 +508,15 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       activeViewId,
       filters,
       filterMatch,
+      filterGroups,
       sorts,
       groupBy,
       view,
       columnOrder,
       columnWidths,
       hiddenColumns: [...(hiddenCols[`${activeConnectionId}\u0000${activeTable}`] ?? [])],
+      frozenColumns,
+      columnSummaries,
     };
     prefsRef.current.tables[activeTable] = prefs;
     const id = setTimeout(() => {
@@ -497,24 +525,25 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
       });
     }, 400);
     return () => clearTimeout(id);
-  }, [activeConnectionId, activeTable, savedViews, activeViewId, filters, filterMatch, sorts, groupBy, view, columnOrder, columnWidths, hiddenCols]);
+  }, [activeConnectionId, activeTable, savedViews, activeViewId, filters, filterMatch, filterGroups, sorts, groupBy, view, columnOrder, columnWidths, hiddenCols, frozenColumns, columnSummaries]);
 
   // ---------- saved views ----------
   const currentViewState = useMemo(
-    () => ({ filters, filterMatch, sorts, groupBy, view, hiddenColumns: [...(rowsKey ? hiddenCols[rowsKey] ?? [] : [])].sort() }),
-    [filters, filterMatch, sorts, groupBy, view, hiddenCols, rowsKey],
+    () => ({ filters, filterMatch, filterGroups, sorts, groupBy, view, hiddenColumns: [...(rowsKey ? hiddenCols[rowsKey] ?? [] : [])].sort() }),
+    [filters, filterMatch, filterGroups, sorts, groupBy, view, hiddenCols, rowsKey],
   );
   const activeSavedView = savedViews.find((v) => v.id === activeViewId) ?? null;
   const activeViewDirty = useMemo(() => {
     if (!activeSavedView) return false;
     const v = activeSavedView;
-    const saved = { filters: v.filters, filterMatch: v.filterMatch, sorts: v.sorts, groupBy: v.groupBy, view: v.view, hiddenColumns: [...v.hiddenColumns].sort() };
+    const saved = { filters: v.filters, filterMatch: v.filterMatch, filterGroups: v.filterGroups, sorts: v.sorts, groupBy: v.groupBy, view: v.view, hiddenColumns: [...v.hiddenColumns].sort() };
     return JSON.stringify(saved) !== JSON.stringify(currentViewState);
   }, [activeSavedView, currentViewState]);
 
   function applyViewState(state: Omit<SavedView, "id" | "name">) {
     setFilters(state.filters);
     setFilterMatch(state.filterMatch);
+    setFilterGroups(state.filterGroups);
     setSorts(state.sorts);
     setGroupBy(state.groupBy);
     setView(state.view);
@@ -552,7 +581,71 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
 
   useEffect(() => {
     setPage(0);
-  }, [filters, filterMatch, sorts, debouncedSearch]);
+  }, [filters, filterMatch, filterGroups, sorts, debouncedSearch]);
+
+  // ---------- column summaries (sum, count… over the filtered rows) ----------
+  useEffect(() => {
+    if (!activeConnectionId || !activeTable) return;
+    const specs = Object.entries(columnSummaries)
+      .filter(([column]) => columns.some((c) => c.name === column))
+      .map(([column, fn]) => ({ column, fn }));
+    if (specs.length === 0) {
+      setSummaryValues({});
+      return;
+    }
+    let stale = false;
+    const timer = setTimeout(() => {
+      api
+        .aggregate(activeConnectionId, activeTable, { filters, filterMatch, filterGroups, search: debouncedSearch }, specs)
+        .then((res) => !stale && setSummaryValues(res.values))
+        .catch(() => !stale && setSummaryValues({}));
+    }, 200);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+    // rowsEntry: recount after edits and auto-refresh.
+  }, [activeConnectionId, activeTable, columnSummaries, columns, filters, filterMatch, filterGroups, debouncedSearch, rowsEntry]);
+
+  function setColumnSummary(column: string, fn: AggregateFn | null) {
+    setColumnSummaries((prev) => {
+      const next = { ...prev };
+      if (fn) next[column] = fn;
+      else delete next[column];
+      return next;
+    });
+  }
+
+  function toggleFrozen(column: string) {
+    setFrozenColumns((prev) => (prev.includes(column) ? prev.filter((c) => c !== column) : [...prev, column]));
+  }
+
+  // Right-click on a cell: keep (or drop) the rows holding that value.
+  function filterByCellValue(col: ColumnMeta, value: unknown, exclude: boolean) {
+    let filter: RowFilter;
+    if (value === null || value === undefined || value === "") {
+      filter = { column: col.name, op: exclude ? "notEmpty" : "empty", value: "" };
+    } else if (Array.isArray(value) && value.every((v) => ["string", "number", "boolean"].includes(typeof v))) {
+      filter = { column: col.name, op: exclude ? "notIn" : "in", value: "", values: value.map(String) };
+    } else {
+      const text = typeof value === "object" ? JSON.stringify(value) : String(value);
+      filter = { column: col.name, op: exclude ? "neq" : "eq", value: text };
+    }
+    const same = (f: RowFilter) => !f.group && f.column === filter.column && f.op === filter.op && f.value === filter.value && JSON.stringify(f.values ?? []) === JSON.stringify(filter.values ?? []);
+    setFilters((prev) => (prev.some(same) ? prev : [...prev, filter]));
+  }
+
+  function copyViewLink() {
+    if (!activeConnectionId || !activeTable) return;
+    const params = new URLSearchParams({ c: activeConnectionId, t: activeTable });
+    if (view !== "table") params.set("v", view);
+    params.set("s", encodeSharedView({ filters, filterMatch, filterGroups, sorts, groupBy, view }));
+    const url = `${window.location.origin}${pathname}?${params}`;
+    navigator.clipboard.writeText(url).then(
+      () => flash(t("toast.viewLinkCopied")),
+      () => flash(url),
+    );
+  }
 
   useEffect(() => {
     setHistory([]);
@@ -1002,6 +1095,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
 
   // ---------- export ----------
   function openExportModal() {
+    setExportView(false);
     setExportModalOpen(true);
   }
 
@@ -1013,7 +1107,11 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     params.set("format", choice.format);
     params.set("structure", choice.includeStructure ? "1" : "0");
     params.set("data", choice.includeData ? "1" : "0");
-    if (choice.tables.length > 0 && choice.tables.length < tables.length) {
+    if (choice.view && activeTable) {
+      params.set("view", activeTable);
+      rowQueryToParams({ filters, filterMatch, filterGroups, search: debouncedSearch }, params);
+      if (sorts.length > 0) params.set("sorts", JSON.stringify(sorts));
+    } else if (choice.tables.length > 0 && choice.tables.length < tables.length) {
       params.set("tables", choice.tables.map(encodeURIComponent).join(","));
     }
 
@@ -1549,17 +1647,17 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
     }
   }
 
-  const activeFilterCount = useMemo(() => filters.filter(isActiveFilter).length, [filters]);
+  const activeFilterCount = useMemo(() => filters.filter(isAppliedFilter).length, [filters]);
 
   const equivalentSql = useMemo(() => {
     if (!activeTable || !activeConnection || columns.length === 0) return "";
     try {
-      return describeSelect(activeConnection.engine, { name: activeTable, columns, rowCount: 0 }, { filters, filterMatch, sorts, search: debouncedSearch, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
+      return describeSelect(activeConnection.engine, { name: activeTable, columns, rowCount: 0 }, { filters, filterMatch, filterGroups, sorts, search: debouncedSearch, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
     } catch {
       // A saved filter can name a column that no longer exists; the grid reports that error.
       return "";
     }
-  }, [activeTable, activeConnection, filters, filterMatch, sorts, debouncedSearch, columns, page]);
+  }, [activeTable, activeConnection, filters, filterMatch, filterGroups, sorts, debouncedSearch, columns, page]);
 
   // ---------- derived view helpers ----------
   const boardColumn = useMemo(() => {
@@ -1768,6 +1866,11 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                     setSavedViews((prev) => prev.filter((v) => v.id !== id));
                     if (id === activeViewId) setActiveViewId("");
                   }}
+                  onCopyLink={copyViewLink}
+                  onExportView={() => {
+                    setExportView(true);
+                    setExportModalOpen(true);
+                  }}
                 />
                 <TableToolbar
                   view={view}
@@ -1777,6 +1880,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                   onSetGroupBy={setGroupBy}
                   filters={filters}
                   onFiltersChange={setFilters}
+                  filterGroups={filterGroups}
+                  onFilterGroupsChange={setFilterGroups}
                   filterMatch={filterMatch}
                   onFilterMatchChange={setFilterMatch}
                   sorts={sorts}
@@ -1810,6 +1915,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                     <button
                       onClick={() => {
                         setFilters([]);
+                        setFilterGroups([]);
                         setSearch("");
                         setDebouncedSearch("");
                       }}
@@ -1852,6 +1958,12 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                     onEditDate={(row, col, value) => commitFieldChange(row, col.name, value)}
                     onPasteCells={handlePasteCells}
                     onCellsCopied={(count) => flash(t("toast.cellsCopied", { count }))}
+                    frozenColumns={frozenColumns}
+                    onToggleFrozen={toggleFrozen}
+                    summaries={columnSummaries}
+                    summaryValues={summaryValues}
+                    onSetSummary={setColumnSummary}
+                    onFilterByValue={filterByCellValue}
                   />
                 )}
                 {rowsEntry && view === "board" && (
@@ -1999,6 +2111,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
           connectionName={activeConnection.name}
           tables={tables}
           initialSelected={[...selectedTables]}
+          view={exportView && activeTable ? { table: activeTable, rowCount: total, filtered: activeFilterCount > 0 || !!debouncedSearch.trim() || sorts.length > 0 } : undefined}
           onExport={handleStartExport}
           onClose={() => setExportModalOpen(false)}
         />

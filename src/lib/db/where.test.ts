@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ColumnMeta, LogicalType, RowFilter, TableMeta } from "../types";
-import { buildDistinctValues, buildOrderBy, buildWhere, dateSpanEnd, describeSelect, isActiveFilter, opsFor, topDistinct } from "./where";
+import type { ColumnMeta, FilterGroup, LogicalType, RowFilter, TableMeta } from "../types";
+import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, dateSpanEnd, describeSelect, isActiveFilter, likeContains, opsFor, topDistinct } from "./where";
 
 function col(name: string, logicalType: LogicalType, nativeType = "text"): ColumnMeta {
   return { name, logicalType, nativeType, nullable: true, isPrimaryKey: name === "id" };
@@ -12,7 +12,8 @@ const meta: TableMeta = {
   columns: [col("id", "number", "integer"), col("status", "text"), col("roles", "json", "json"), col("amount", "number", "numeric"), col("created_at", "date", "timestamp"), col("day", "date", "date")],
 };
 
-const where = (filters: RowFilter[], engine: "postgres" | "mysql" | "sqlite" = "postgres", match: "all" | "any" = "all", search?: string) => buildWhere(engine, meta, filters, search, match);
+const where = (filters: RowFilter[], engine: "postgres" | "mysql" | "sqlite" = "postgres", filterMatch: "all" | "any" = "all", search?: string, filterGroups?: FilterGroup[]) =>
+  buildWhere(engine, meta, { filters, filterMatch, search, filterGroups });
 
 describe("dateSpanEnd", () => {
   it("ends a day at the next midnight", () => {
@@ -75,11 +76,11 @@ describe("buildWhere", () => {
   });
 
   it("matches contains case-insensitively on PostgreSQL", () => {
-    expect(where([{ column: "status", op: "contains", value: "pa" }])).toEqual({ where: `WHERE "status"::text ILIKE $1`, params: ["%pa%"] });
+    expect(where([{ column: "status", op: "contains", value: "pa" }])).toEqual({ where: `WHERE "status"::text ILIKE $1 ESCAPE '!'`, params: ["%pa%"] });
   });
 
   it("keeps NULLs in does-not-contain", () => {
-    expect(where([{ column: "status", op: "notContains", value: "pa" }], "sqlite").where).toBe(`WHERE ("status" IS NULL OR CAST("status" AS TEXT) NOT LIKE ?)`);
+    expect(where([{ column: "status", op: "notContains", value: "pa" }], "sqlite").where).toBe(`WHERE ("status" IS NULL OR CAST("status" AS TEXT) NOT LIKE ? ESCAPE '!')`);
   });
 
   it("turns a day into a whole-day range", () => {
@@ -96,7 +97,7 @@ describe("buildWhere", () => {
 
   it("builds between with either bound, the upper one inclusive", () => {
     expect(where([{ column: "created_at", op: "between", value: "2026-09-14", value2: "2026-09-16" }])).toEqual({
-      where: `WHERE "created_at" >= $1 AND "created_at" < $2`,
+      where: `WHERE ("created_at" >= $1 AND "created_at" < $2)`,
       params: ["2026-09-14", "2026-09-17"],
     });
     expect(where([{ column: "amount", op: "between", value: "", value2: "100" }])).toEqual({ where: `WHERE "amount" <= $1`, params: ["100"] });
@@ -109,8 +110,8 @@ describe("buildWhere", () => {
 
   it("matches is-one-of on plain values and inside JSON lists", () => {
     expect(where([{ column: "roles", op: "in", value: "", values: ["ROLE_ADMIN", "ROLE_ADMIN", ""] }], "mysql")).toEqual({
-      where: "WHERE (CAST(`roles` AS CHAR) IN (?) OR CAST(`roles` AS CHAR) LIKE ?)",
-      params: ["ROLE_ADMIN", '%"ROLE_ADMIN"%'],
+      where: "WHERE (CAST(`roles` AS CHAR) IN (?) OR CAST(`roles` AS CHAR) LIKE ? ESCAPE '!')",
+      params: ["ROLE_ADMIN", '%"ROLE!_ADMIN"%'],
     });
     expect(where([{ column: "status", op: "in", value: "", values: ["paid"] }])).toEqual({ where: `WHERE "status"::text IN ($1)`, params: ["paid"] });
     expect(where([{ column: "id", op: "in", value: "", values: ["1", "2"] }])).toEqual({ where: `WHERE "id"::text IN ($1, $2)`, params: ["1", "2"] });
@@ -128,11 +129,46 @@ describe("buildWhere", () => {
       { column: "amount", op: "gt", value: "10" },
     ];
     expect(where(f).where).toBe(`WHERE "status"::text = $1 AND "amount" > $2`);
-    expect(where(f, "postgres", "any", "x").where).toBe(`WHERE ("status"::text = $1 OR "amount" > $2) AND ("id"::text ILIKE $3 OR "status"::text ILIKE $3 OR "roles"::text ILIKE $3 OR "amount"::text ILIKE $3 OR "created_at"::text ILIKE $3 OR "day"::text ILIKE $3)`);
+    expect(where(f, "postgres", "any", "x").where).toBe(
+      `WHERE ("status"::text = $1 OR "amount" > $2) AND ("id"::text ILIKE $3 ESCAPE '!' OR "status"::text ILIKE $3 ESCAPE '!' OR "roles"::text ILIKE $3 ESCAPE '!' OR "amount"::text ILIKE $3 ESCAPE '!' OR "created_at"::text ILIKE $3 ESCAPE '!' OR "day"::text ILIKE $3 ESCAPE '!')`,
+    );
   });
 
   it("does not OR a single filter", () => {
     expect(where([{ column: "status", op: "eq", value: "paid" }], "postgres", "any").where).toBe(`WHERE "status"::text = $1`);
+  });
+
+  it("takes % and _ literally in contains and search", () => {
+    expect(likeContains("100%_off!")).toBe("%100!%!_off!!%");
+    expect(where([{ column: "status", op: "contains", value: "user_id" }], "mysql")).toEqual({ where: "WHERE CAST(`status` AS CHAR) LIKE ? ESCAPE '!'", params: ["%user!_id%"] });
+  });
+
+  it("skips disabled filters", () => {
+    expect(where([{ column: "status", op: "eq", value: "paid", disabled: true }])).toEqual({ where: "", params: [] });
+  });
+
+  it("puts groups between parentheses with their own all/any", () => {
+    const groups: FilterGroup[] = [{ id: "g1", match: "any" }];
+    const filters: RowFilter[] = [
+      { column: "status", op: "eq", value: "paid", group: "g1" },
+      { column: "amount", op: "gt", value: "100" },
+      { column: "status", op: "eq", value: "pending", group: "g1" },
+    ];
+    expect(where(filters, "mysql", "all", undefined, groups)).toEqual({
+      where: "WHERE (CAST(`status` AS CHAR) = ? OR CAST(`status` AS CHAR) = ?) AND `amount` > ?",
+      params: ["paid", "pending", "100"],
+    });
+    expect(where(filters, "postgres", "all", undefined, groups)).toEqual({
+      where: `WHERE ("status"::text = $1 OR "status"::text = $2) AND "amount" > $3`,
+      params: ["paid", "pending", "100"],
+    });
+    expect(where(filters, "postgres", "any", undefined, [{ id: "g1", match: "all" }]).where).toBe(`WHERE (("status"::text = $1 AND "status"::text = $2) OR "amount" > $3)`);
+  });
+
+  it("drops an empty group and treats an unknown group as top level", () => {
+    const groups: FilterGroup[] = [{ id: "g1", match: "any" }];
+    expect(where([{ column: "status", op: "eq", value: "", group: "g1" }, { column: "amount", op: "gt", value: "1" }], "postgres", "all", undefined, groups).where).toBe(`WHERE "amount" > $1`);
+    expect(where([{ column: "status", op: "eq", value: "paid", group: "gone" }]).where).toBe(`WHERE "status"::text = $1`);
   });
 
   it("refuses unknown columns", () => {
@@ -159,9 +195,32 @@ describe("describeSelect", () => {
 describe("buildDistinctValues", () => {
   it("groups non-empty values, optionally narrowed", () => {
     expect(buildDistinctValues("postgres", meta, "status", "pa", 10)).toEqual({
-      sql: `SELECT "status"::text AS value, COUNT(*) AS count FROM "orders" WHERE "status" IS NOT NULL AND "status"::text <> '' AND "status"::text ILIKE $1 GROUP BY "status"::text ORDER BY COUNT(*) DESC, "status"::text LIMIT 10`,
+      sql: `SELECT "status"::text AS value, COUNT(*) AS count FROM "orders" WHERE "status" IS NOT NULL AND "status"::text <> '' AND "status"::text ILIKE $1 ESCAPE '!' GROUP BY "status"::text ORDER BY COUNT(*) DESC, "status"::text LIMIT 10`,
       params: ["%pa%"],
     });
+  });
+});
+
+describe("buildAggregate", () => {
+  it("computes every summary in one statement, over the filtered rows", () => {
+    const { sql, params, keys } = buildAggregate("mysql", meta, { filters: [{ column: "status", op: "eq", value: "paid" }] }, [
+      { column: "amount", fn: "sum" },
+      { column: "status", fn: "empty" },
+      { column: "status", fn: "unique" },
+    ]);
+    expect(sql).toBe(
+      "SELECT SUM(`amount`) AS `a0`, SUM(CASE WHEN `status` IS NULL OR CAST(`status` AS CHAR) = '' THEN 1 ELSE 0 END) AS `a1`, COUNT(DISTINCT CASE WHEN CAST(`status` AS CHAR) <> '' THEN CAST(`status` AS CHAR) END) AS `a2` FROM `orders` WHERE CAST(`status` AS CHAR) = ?",
+    );
+    expect(params).toEqual(["paid"]);
+    expect(keys).toEqual(["amount:sum", "status:empty", "status:unique"]);
+  });
+
+  it("refuses summaries that don't fit the column", () => {
+    expect(() => buildAggregate("postgres", meta, {}, [{ column: "status", fn: "sum" }])).toThrow(/Unsupported/);
+  });
+
+  it("returns numbers as numbers and dates as text", () => {
+    expect(aggregateResult(["a:sum", "b:max", "c:min", "d:avg"], { a0: "12.50", a1: "2026-09-16 10:27:17", a2: null, a3: BigInt(3) })).toEqual({ "a:sum": 12.5, "b:max": "2026-09-16 10:27:17", "c:min": null, "d:avg": 3 });
   });
 });
 

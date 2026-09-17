@@ -5,7 +5,9 @@ import type { TableMeta } from "@/lib/types";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 
 export interface ExportChoice {
-  format: "sql" | "ndjson";
+  format: "sql" | "ndjson" | "csv";
+  /** Only the current table, with the view's filters, search and sort. */
+  view?: boolean;
   includeStructure: boolean;
   includeData: boolean;
   tables: string[];
@@ -15,13 +17,15 @@ interface Props {
   connectionName: string;
   tables: TableMeta[];
   initialSelected: string[];
+  /** Opened from a table view: export that table as the view shows it. */
+  view?: { table: string; rowCount: number; filtered: boolean };
   onExport: (choice: ExportChoice) => void;
   onClose: () => void;
 }
 
-export function ExportModal({ connectionName, tables, initialSelected, onExport, onClose }: Props) {
+export function ExportModal({ connectionName, tables, initialSelected, view, onExport, onClose }: Props) {
   const { t, lang } = useLang();
-  const [format, setFormat] = useState<"sql" | "ndjson">("sql");
+  const [format, setFormat] = useState<ExportChoice["format"]>(view ? "csv" : "sql");
   const [includeStructure, setIncludeStructure] = useState(true);
   const [includeData, setIncludeData] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(
@@ -29,7 +33,9 @@ export function ExportModal({ connectionName, tables, initialSelected, onExport,
   );
   const [error, setError] = useState<string | null>(null);
 
-  const totalRows = tables.filter((t) => selected.has(t.name)).reduce((sum, t) => sum + t.rowCount, 0);
+  const totalRows = view ? view.rowCount : tables.filter((t) => selected.has(t.name)).reduce((sum, t) => sum + t.rowCount, 0);
+  // A CSV file holds one table.
+  const csvAllowed = !!view || selected.size === 1;
 
   function toggleTable(name: string) {
     setSelected((prev) => {
@@ -46,7 +52,9 @@ export function ExportModal({ connectionName, tables, initialSelected, onExport,
 
   function handleSubmit() {
     setError(null);
-    if (!includeStructure && !includeData) return setError(t("export.needStructureOrData"));
+    if (view) return onExport({ format, includeStructure: format !== "csv" && includeStructure, includeData: true, tables: [view.table], view: true });
+    if (format === "csv" && !csvAllowed) return setError(t("export.csvOneTable"));
+    if (format !== "csv" && !includeStructure && !includeData) return setError(t("export.needStructureOrData"));
     if (selected.size === 0) return setError(t("export.needTable"));
     onExport({ format, includeStructure, includeData, tables: [...selected] });
   }
@@ -55,7 +63,7 @@ export function ExportModal({ connectionName, tables, initialSelected, onExport,
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(35,31,24,0.14)", display: "grid", placeItems: "center", zIndex: 60, animation: "om-fade 0.12s ease" }}>
       <div onClick={(e) => e.stopPropagation()} className="om-sb" style={{ width: 460, maxHeight: "84vh", overflowY: "auto", background: "#fff", border: "1px solid #e5e2db", borderRadius: 13, boxShadow: "var(--shadow-pop)", animation: "om-pop 0.14s ease" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderBottom: "1px solid #f2f0ea" }}>
-          <div style={{ fontWeight: 600 }}>{t("export.title")}</div>
+          <div style={{ fontWeight: 600 }}>{view ? t("export.viewTitle", { table: view.table }) : t("export.title")}</div>
           <div style={{ fontSize: 12.5, color: "#a8a39a" }}>{connectionName}</div>
           <div style={{ flex: 1 }} />
           <button onClick={onClose} style={{ width: 26, height: 26, background: "transparent", border: "none", borderRadius: 6, color: "#8b877e", cursor: "pointer" }}>
@@ -67,11 +75,20 @@ export function ExportModal({ connectionName, tables, initialSelected, onExport,
           <div>
             <div style={{ fontSize: 12, color: "#8b877e", marginBottom: 6 }}>{t("export.format")}</div>
             <div style={{ display: "flex", gap: 8 }}>
+              <FormatButton label="CSV (.csv)" active={format === "csv"} disabled={!csvAllowed} onClick={() => setFormat("csv")} />
               <FormatButton label="SQL (.sql)" active={format === "sql"} onClick={() => setFormat("sql")} />
               <FormatButton label="NDJSON (.ndjson)" active={format === "ndjson"} onClick={() => setFormat("ndjson")} />
             </div>
+            {!csvAllowed && <div style={{ fontSize: 11.5, color: "#a8a39a", marginTop: 5 }}>{t("export.csvOneTable")}</div>}
           </div>
 
+          {view && (
+            <div style={{ padding: "9px 11px", borderRadius: 8, background: "var(--accent-bg)", border: "1px solid var(--accent-border)", fontSize: 12.5, color: "#4b473f" }}>
+              {view.filtered ? t("export.viewFiltered") : t("export.viewAll")}
+            </div>
+          )}
+
+          {format !== "csv" && (
           <div>
             <div style={{ fontSize: 12, color: "#8b877e", marginBottom: 6 }}>{t("export.content")}</div>
             <div style={{ display: "flex", gap: 16 }}>
@@ -85,7 +102,9 @@ export function ExportModal({ connectionName, tables, initialSelected, onExport,
               </label>
             </div>
           </div>
+          )}
 
+          {!view && (
           <div>
             <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
               <div style={{ fontSize: 12, color: "#8b877e" }}>{t("export.tables", { selected: selected.size, total: tables.length })}</div>
@@ -104,9 +123,10 @@ export function ExportModal({ connectionName, tables, initialSelected, onExport,
               ))}
             </div>
           </div>
+          )}
 
           <div style={{ fontSize: 12, color: "#a8a39a" }}>
-            {includeData ? t("export.estimateRows", { count: totalRows.toLocaleString(lang === "fr" ? "fr-FR" : "en-US") }) : t("export.structureOnly")}
+            {includeData || format === "csv" || view ? t("export.estimateRows", { count: totalRows.toLocaleString(lang === "fr" ? "fr-FR" : "en-US") }) : t("export.structureOnly")}
           </div>
 
           {error && (
@@ -132,10 +152,11 @@ export function ExportModal({ connectionName, tables, initialSelected, onExport,
   );
 }
 
-function FormatButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function FormatButton({ label, active, disabled, onClick }: { label: string; active: boolean; disabled?: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       style={{
         flex: 1,
         padding: "7px 10px",
@@ -145,7 +166,8 @@ function FormatButton({ label, active, onClick }: { label: string; active: boole
         color: active ? "oklch(0.5 0.1 250)" : "#4b473f",
         fontSize: 12.5,
         fontWeight: active ? 500 : 400,
-        cursor: "pointer",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.45 : 1,
       }}
     >
       {label}

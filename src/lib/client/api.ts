@@ -1,4 +1,5 @@
 import type {
+  AggregateFn,
   Connection,
   ConnectionInput,
   JournalEntry,
@@ -6,8 +7,7 @@ import type {
   QueryHistoryEntry,
   QueryResult,
   Row,
-  RowFilter,
-  FilterMatch,
+  RowQuery,
   RowSort,
   SavedQuery,
   TableMeta,
@@ -17,6 +17,7 @@ import type {
 import type { ConnectionBundle } from "../connectionBundle";
 import type { ConnectionPrefs, TablePrefs } from "../prefs";
 import type { DataDiff, SchemaDiff } from "../compare";
+import { rowQueryToParams } from "../api/rowQuery";
 
 const USER_NAME_KEY = "overlook:userName";
 
@@ -141,18 +142,23 @@ export const api = {
   selectRows: (
     connectionId: string,
     table: string,
-    opts: { filters?: RowFilter[]; filterMatch?: FilterMatch; sorts?: RowSort[]; search?: string; limit?: number; offset?: number }
+    opts: RowQuery & { sorts?: RowSort[]; limit?: number; offset?: number }
   ) => {
-    const params = new URLSearchParams();
-    if (opts.search?.trim()) params.set("search", opts.search.trim());
-    if (opts.filters?.length) params.set("filters", JSON.stringify(opts.filters));
-    if (opts.filterMatch === "any") params.set("match", "any");
+    const params = rowQueryToParams(opts);
     if (opts.sorts?.length) params.set("sorts", JSON.stringify(opts.sorts));
     if (opts.limit) params.set("limit", String(opts.limit));
     if (opts.offset) params.set("offset", String(opts.offset));
     const qs = params.toString();
     return request<{ rows: Row[]; total: number }>(
       `/api/connections/${connectionId}/tables/${encodeURIComponent(table)}/rows${qs ? `?${qs}` : ""}`
+    );
+  },
+
+  aggregate: (connectionId: string, table: string, query: RowQuery, specs: { column: string; fn: AggregateFn }[]) => {
+    const params = rowQueryToParams(query);
+    params.set("specs", JSON.stringify(specs));
+    return request<{ values: Record<string, string | number | null> }>(
+      `/api/connections/${connectionId}/tables/${encodeURIComponent(table)}/aggregate?${params}`
     );
   },
 

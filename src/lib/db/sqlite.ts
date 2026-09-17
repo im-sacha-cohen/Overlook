@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import type { Connection, ColumnMeta, LogicalType, QueryResult, Row, TableMeta } from "../types";
+import type { AggregateFn, Connection, ColumnMeta, LogicalType, QueryResult, Row, RowQuery, TableMeta } from "../types";
 import {
   assertCreatableType,
   assertKnownColumn,
@@ -14,7 +14,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
-import { buildDistinctValues, buildOrderBy, buildWhere, topDistinct } from "./where";
+import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, topDistinct } from "./where";
 import { splitSqlStatements } from "./splitSqlStatements";
 import { assertNoFileAccess, resolveSqlitePath } from "./sqlitePath";
 
@@ -124,7 +124,7 @@ export class SqliteAdapter implements DatabaseAdapter {
 
   async selectRows(table: string, opts: SelectOptions) {
     const meta = await this.getTable(table);
-    const { where, params } = buildWhere("sqlite", meta, opts.filters, opts.search, opts.filterMatch);
+    const { where, params } = buildWhere("sqlite", meta, opts);
     const orderBy = buildOrderBy("sqlite", meta, opts.sorts);
     const limit = opts.limit ?? 100;
     const offset = opts.offset ?? 0;
@@ -237,6 +237,12 @@ export class SqliteAdapter implements DatabaseAdapter {
         .get(...pkValues.map(coerceParam)) as { count: number };
       return row.count;
     });
+  }
+
+  async aggregate(table: string, query: RowQuery, specs: { column: string; fn: AggregateFn }[]) {
+    if (specs.length === 0) return {};
+    const { sql, params, keys } = buildAggregate("sqlite", await this.getTable(table), query, specs);
+    return aggregateResult(keys, this.db.prepare(sql).get(...params) as Record<string, unknown> | undefined);
   }
 
   async distinctValues(table: string, column: string, query?: string) {

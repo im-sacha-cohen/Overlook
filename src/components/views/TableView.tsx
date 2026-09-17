@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ColumnMeta, Row, RowSort } from "@/lib/types";
+import type { AggregateFn, ColumnMeta, Row, RowSort } from "@/lib/types";
+import { aggregatesFor } from "@/lib/db/where";
 import { formatValue, pillStyle, toText } from "@/lib/client/format";
 import { groupRows } from "@/lib/client/group";
 import { parseTsv, pastedValue, toTsv } from "@/lib/client/cellClipboard";
@@ -43,6 +44,14 @@ interface Props {
   /** Cells pasted over a selection: one entry per row, with the values that fit their column. */
   onPasteCells: (updates: { row: Row; values: Row }[]) => void;
   onCellsCopied: (count: number) => void;
+  /** Columns pinned to the left; the parent already puts them first. */
+  frozenColumns: string[];
+  onToggleFrozen: (column: string) => void;
+  summaries: Record<string, AggregateFn>;
+  /** Keyed "column:fn", over every row the view keeps (not just this page). */
+  summaryValues: Record<string, string | number | null>;
+  onSetSummary: (column: string, fn: AggregateFn | null) => void;
+  onFilterByValue: (col: ColumnMeta, value: unknown, exclude: boolean) => void;
 }
 
 interface CellPos {
@@ -51,6 +60,9 @@ interface CellPos {
 }
 
 const DEFAULT_WIDTH = 160;
+// The grid scrolls inside a padded container: sticky cells stop at the padding, so the
+// leftmost one paints over it, or scrolled cells would show through beside it.
+const PAD_MASK = (color: string) => `-32px 0 0 ${color}, -2px 0 0 ${color}`;
 const MIN_WIDTH = 70;
 
 export function TableView({
@@ -85,6 +97,12 @@ export function TableView({
   onEditDate,
   onPasteCells,
   onCellsCopied,
+  frozenColumns,
+  onToggleFrozen,
+  summaries,
+  summaryValues,
+  onSetSummary,
+  onFilterByValue,
 }: Props) {
   const { t, lang } = useLang();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -92,6 +110,9 @@ export function TableView({
   const [dragCol, setDragCol] = useState<string | null>(null);
   const [hover, setHover] = useState<{ key: string; row: Row | null } | null>(null);
   const [relCtxMenu, setRelCtxMenu] = useState<{ x: number; y: number; col: ColumnMeta; value: unknown; row: Row } | null>(null);
+  // Right-click on a column title, or a click on its summary cell.
+  const [colMenu, setColMenu] = useState<{ x: number; y: number; col: ColumnMeta; kind: "header" | "summary" } | null>(null);
+  const colMenuRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{ colName: string; startX: number; startWidth: number } | null>(null);
   const relCtxMenuRef = useRef<HTMLDivElement>(null);
   // Cell range for copy/paste: drag across cells, or Shift-click from the last clicked one.
@@ -116,6 +137,22 @@ export function TableView({
       document.removeEventListener("keydown", onKey);
     };
   }, [relCtxMenu]);
+
+  useEffect(() => {
+    if (!colMenu) return;
+    const onDown = (e: MouseEvent) => {
+      if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) setColMenu(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setColMenu(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [colMenu]);
 
   const groups = groupRows(rows, groupByColumn);
   // Rows in the order they're drawn, which is what a range covers.
@@ -212,6 +249,28 @@ export function TableView({
   const widthFor = (name: string) => liveWidths[name] ?? columnWidths[name] ?? DEFAULT_WIDTH;
   const gridCols = `${selectCol}30px ${columns.map((c) => `${widthFor(c.name)}px`).join(" ")} 1fr`;
   const allIds = pkColumn ? rows.map((r) => String(r[pkColumn])) : [];
+  // Frozen columns stick after the checkbox and open-row columns, each after the previous one.
+  const frozenLeft = new Map<string, number>();
+  let nextLeft = (pkColumn ? 30 : 0) + 30;
+  for (const c of columns) {
+    if (!frozenColumns.includes(c.name)) break;
+    frozenLeft.set(c.name, nextLeft);
+    nextLeft += widthFor(c.name);
+  }
+  const lastFrozen = [...frozenLeft.keys()].pop();
+  const frozenStyle = (name: string, background: string, zIndex: number): React.CSSProperties =>
+    frozenLeft.has(name)
+      ? { position: "sticky", left: frozenLeft.get(name), zIndex, background, ...(name === lastFrozen ? { boxShadow: "6px 0 8px -6px rgba(35, 31, 24, 0.18)" } : {}) }
+      : {};
+  const summaryLabel = (fn: AggregateFn) => t(`summary.${fn}`);
+  const summaryText = (col: ColumnMeta, fn: AggregateFn) => {
+    const v = summaryValues[`${col.name}:${fn}`];
+    if (v === undefined) return "…";
+    if (v === null) return "—";
+    if ((fn === "min" || fn === "max") && col.logicalType === "date") return formatValue(v, col, lang);
+    if (typeof v === "number") return v.toLocaleString(lang === "fr" ? "fr-FR" : "en-US", { maximumFractionDigits: 2 });
+    return String(v);
+  };
   const allChecked = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
 
   function startResize(e: React.MouseEvent, colName: string) {
@@ -280,6 +339,7 @@ export function TableView({
               left: 0,
               zIndex: 3,
               background: "#f5f3ee",
+              boxShadow: PAD_MASK("#f5f3ee"),
             }}
           >
             <input
@@ -297,7 +357,7 @@ export function TableView({
             left: pkColumn ? 30 : 0,
             zIndex: 3,
             background: "#f5f3ee",
-            boxShadow: "1px 0 0 #e2ded4",
+            boxShadow: pkColumn ? "1px 0 0 #e2ded4" : `1px 0 0 #e2ded4, ${PAD_MASK("#f5f3ee")}`,
           }}
         />
         {columns.map((c) => {
@@ -311,6 +371,10 @@ export function TableView({
               onDrop={() => handleDrop(c.name)}
               onDragEnd={() => setDragCol(null)}
               onClick={() => onToggleSort(c.name)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setColMenu({ x: e.clientX, y: e.clientY, col: c, kind: "header" });
+              }}
               style={{
                 position: "relative",
                 display: "flex",
@@ -324,11 +388,17 @@ export function TableView({
                 borderRight: "1px solid #e2ded4",
                 opacity: dragCol === c.name ? 0.4 : 1,
                 background: dragCol && dragCol !== c.name ? "var(--hover-bg)" : undefined,
+                ...frozenStyle(c.name, "#f5f3ee", 3),
               }}
             >
               <TypeIcon type={c.logicalType} />
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
               {sort && <span style={{ fontSize: 10, color: "#b4afa5" }}>{sort.dir === "asc" ? "↑" : "↓"}</span>}
+              {frozenLeft.has(c.name) && (
+                <svg aria-label={t("table.frozen")} width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="#b4afa5" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flex: "none", marginLeft: "auto" }}>
+                  <path d="M6 2h4l-.5 4 2.5 2.5H4L6.5 6zM8 8.5V14" />
+                </svg>
+              )}
               <div
                 onMouseDown={(e) => startResize(e, c.name)}
                 onClick={(e) => e.stopPropagation()}
@@ -382,6 +452,7 @@ export function TableView({
             {!isCollapsed &&
               g.rows.map((row, rowIndex) => {
                 const rowId = pkColumn ? String(row[pkColumn]) : "";
+                const rowBg = rowId && selectedIds.has(rowId) ? "var(--accent-bg)" : "var(--bg)";
                 return (
                   <div
                     key={`${g.key}:${rowIndex}:${rowId}`}
@@ -390,14 +461,15 @@ export function TableView({
                       gridTemplateColumns: gridCols,
                       alignItems: "stretch",
                       borderBottom: "1px solid #f2f0ea",
-                      background: rowId && selectedIds.has(rowId) ? "var(--accent-bg)" : undefined,
+                      // Opaque, so frozen cells (which inherit it) hide what scrolls under them.
+                      background: rowId && selectedIds.has(rowId) ? "var(--accent-bg)" : "var(--bg)",
                       transition: "background-color 0.1s ease",
                     }}
                     onMouseEnter={(e) => {
                       if (!rowId || !selectedIds.has(rowId)) e.currentTarget.style.background = "#f8f7f4";
                     }}
                     onMouseLeave={(e) => {
-                      if (!rowId || !selectedIds.has(rowId)) e.currentTarget.style.background = "";
+                      if (!rowId || !selectedIds.has(rowId)) e.currentTarget.style.background = "var(--bg)";
                     }}
                   >
                     {pkColumn && (
@@ -410,6 +482,7 @@ export function TableView({
                           left: 0,
                           zIndex: 1,
                           background: "inherit",
+                          boxShadow: PAD_MASK(rowBg),
                         }}
                       >
                         <input
@@ -434,7 +507,7 @@ export function TableView({
                         left: pkColumn ? 30 : 0,
                         zIndex: 1,
                         background: "inherit",
-                        boxShadow: "1px 0 0 #f2f0ea",
+                        boxShadow: pkColumn ? "1px 0 0 #f2f0ea" : `1px 0 0 #f2f0ea, ${PAD_MASK(rowBg)}`,
                       }}
                       onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
                       onMouseLeave={(e) => (e.currentTarget.style.color = "#cdc8be")}
@@ -480,7 +553,7 @@ export function TableView({
                             isRelation ? onNavigateRelation(c, raw, row) : onCellClick(row, c);
                           }}
                           onContextMenu={(e) => {
-                            if (!isRelation) return;
+                            if (isEdit) return;
                             e.preventDefault();
                             setHover(null);
                             setRelCtxMenu({ x: e.clientX, y: e.clientY, col: c, value: raw, row });
@@ -508,6 +581,8 @@ export function TableView({
                             background: selected ? "var(--accent-bg)" : undefined,
                             boxShadow: selected ? "inset 0 0 0 1px var(--accent-border)" : undefined,
                             cursor: c.logicalType === "unknown" ? "default" : isRelation ? "pointer" : "text",
+                            ...frozenStyle(c.name, selected ? "var(--accent-bg)" : "inherit", isRelation && hover?.key === hoverKey ? 4 : 1),
+                            ...(selected && frozenLeft.has(c.name) ? { boxShadow: "inset 0 0 0 1px var(--accent-border)" } : {}),
                           }}
                         >
                           {isEdit && c.logicalType === "date" ? (
@@ -624,6 +699,79 @@ export function TableView({
         + {t("toolbar.newRow")}
       </div>
 
+      {/* Summaries over every row the view keeps; stays visible at the bottom while scrolling (past the container's 60px bottom padding). */}
+      {Object.keys(summaries).some((name) => columns.some((c) => c.name === name)) && (
+      <div style={{ display: "grid", gridTemplateColumns: gridCols, position: "sticky", bottom: -60, zIndex: 2, background: "#f5f3ee", borderTop: "1px solid #e2ded4", boxShadow: "0 -6px 12px -10px rgba(35, 31, 24, 0.25)" }}>
+        {pkColumn && <div style={{ position: "sticky", left: 0, background: "#f5f3ee", boxShadow: PAD_MASK("#f5f3ee") }} />}
+        <div style={{ position: "sticky", left: pkColumn ? 30 : 0, background: "#f5f3ee", boxShadow: pkColumn ? "1px 0 0 #e2ded4" : `1px 0 0 #e2ded4, ${PAD_MASK("#f5f3ee")}` }} />
+        {columns.map((c) => {
+          const fn = summaries[c.name];
+          return (
+            <div
+              key={c.name}
+              className="om-summary"
+              onClick={(e) => setColMenu({ x: e.clientX, y: e.clientY, col: c, kind: "summary" })}
+              title={fn ? summaryLabel(fn) : t("summary.pick")}
+              style={{ display: "flex", alignItems: "baseline", justifyContent: "flex-end", gap: 6, minWidth: 0, padding: "6px 10px", fontSize: 12, cursor: "pointer", borderRight: "1px solid #e2ded4", ...frozenStyle(c.name, "#f5f3ee", 3) }}
+            >
+              {fn ? (
+                <>
+                  <span style={{ color: "#a8a39a", fontSize: 11, flex: "none" }}>{summaryLabel(fn)}</span>
+                  <span style={{ color: "#26241f", fontWeight: 500, fontVariantNumeric: "tabular-nums", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{summaryText(c, fn)}</span>
+                </>
+              ) : (
+                <span className="om-summary-empty" style={{ color: "#b4afa5", fontSize: 11 }}>
+                  {t("summary.pick")} ▾
+                </span>
+              )}
+            </div>
+          );
+        })}
+        <div />
+      </div>
+      )}
+
+      {colMenu && (
+        <div
+          ref={colMenuRef}
+          style={{ position: "fixed", top: Math.min(colMenu.y, window.innerHeight - 300), left: Math.min(colMenu.x, window.innerWidth - 230), zIndex: 80, background: "#fff", border: "1px solid #e5e2db", borderRadius: 10, boxShadow: "var(--shadow-pop)", padding: 5, minWidth: 200, animation: "om-pop 0.1s ease" }}
+        >
+          <div style={{ padding: "5px 10px 7px", fontSize: 11, color: "#a8a39a", fontFamily: "var(--font-mono)" }}>{colMenu.col.name}</div>
+          {colMenu.kind === "header" && (
+            <>
+              <RelMenuItem
+                label={frozenColumns.includes(colMenu.col.name) ? t("table.unfreeze") : t("table.freeze")}
+                onClick={() => {
+                  onToggleFrozen(colMenu.col.name);
+                  setColMenu(null);
+                }}
+              />
+              <div style={{ height: 1, margin: "4px 6px", background: "#f0eee8" }} />
+              <div style={{ padding: "4px 10px 3px", fontSize: 11, color: "#a8a39a" }}>{t("summary.menuTitle")}</div>
+            </>
+          )}
+          {aggregatesFor(colMenu.col.logicalType).map((fn) => (
+            <RelMenuItem
+              key={fn}
+              label={`${summaries[colMenu.col.name] === fn ? "✓ " : ""}${summaryLabel(fn)}`}
+              onClick={() => {
+                onSetSummary(colMenu.col.name, fn);
+                setColMenu(null);
+              }}
+            />
+          ))}
+          {summaries[colMenu.col.name] && (
+            <RelMenuItem
+              label={t("summary.none")}
+              onClick={() => {
+                onSetSummary(colMenu.col.name, null);
+                setColMenu(null);
+              }}
+            />
+          )}
+        </div>
+      )}
+
       {relCtxMenu && (
         <div
           ref={relCtxMenuRef}
@@ -641,25 +789,53 @@ export function TableView({
             animation: "om-pop 0.1s ease",
           }}
         >
-          <div style={{ padding: "5px 10px 7px", fontSize: 11, color: "#a8a39a" }}>
-            → {relCtxMenu.col.references?.table}
-          </div>
-          <RelMenuItem
-            label={t("relation.editValue")}
-            onClick={() => {
-              onCellClick(relCtxMenu.row, relCtxMenu.col);
-              setRelCtxMenu(null);
-            }}
-          />
-          {relCtxMenu.value !== null && relCtxMenu.value !== undefined && relCtxMenu.value !== "" && (
-            <RelMenuItem
-              label={t("relation.openInNewTab")}
-              onClick={() => {
-                onOpenRelationInNewTab(relCtxMenu.col, relCtxMenu.value);
-                setRelCtxMenu(null);
-              }}
-            />
+          {relCtxMenu.col.logicalType === "relation" && (
+            <>
+              <div style={{ padding: "5px 10px 7px", fontSize: 11, color: "#a8a39a" }}>
+                → {relCtxMenu.col.references?.table}
+              </div>
+              <RelMenuItem
+                label={t("relation.editValue")}
+                onClick={() => {
+                  onCellClick(relCtxMenu.row, relCtxMenu.col);
+                  setRelCtxMenu(null);
+                }}
+              />
+              {relCtxMenu.value !== null && relCtxMenu.value !== undefined && relCtxMenu.value !== "" && (
+                <RelMenuItem
+                  label={t("relation.openInNewTab")}
+                  onClick={() => {
+                    onOpenRelationInNewTab(relCtxMenu.col, relCtxMenu.value);
+                    setRelCtxMenu(null);
+                  }}
+                />
+              )}
+              <div style={{ height: 1, margin: "4px 6px", background: "#f0eee8" }} />
+            </>
           )}
+          {(() => {
+            const v = relCtxMenu.value;
+            const isEmpty = v === null || v === undefined || v === "";
+            const shown = isEmpty ? "" : toText(v).length > 28 ? `${toText(v).slice(0, 28)}…` : toText(v);
+            return (
+              <>
+                <RelMenuItem
+                  label={isEmpty ? t("table.filterEmpty") : t("table.filterValue", { value: shown })}
+                  onClick={() => {
+                    onFilterByValue(relCtxMenu.col, v, false);
+                    setRelCtxMenu(null);
+                  }}
+                />
+                <RelMenuItem
+                  label={isEmpty ? t("table.excludeEmpty") : t("table.excludeValue", { value: shown })}
+                  onClick={() => {
+                    onFilterByValue(relCtxMenu.col, v, true);
+                    setRelCtxMenu(null);
+                  }}
+                />
+              </>
+            );
+          })()}
         </div>
       )}
     </div>

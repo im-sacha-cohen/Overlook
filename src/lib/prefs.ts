@@ -1,6 +1,6 @@
 // View preferences, per connection and per table. Stored server-side in the metadata
 // database so they survive a browser change, and carried in connection exports.
-import type { FilterMatch, RowFilter, RowSort } from "./types";
+import { AGGREGATE_FNS, type AggregateFn, type FilterGroup, type FilterMatch, type RowFilter, type RowSort } from "./types";
 import { FILTER_OPS } from "./db/where";
 
 export type ViewKind = "table" | "board" | "calendar" | "gallery";
@@ -12,6 +12,7 @@ export interface SavedView {
   name: string;
   filters: RowFilter[];
   filterMatch: FilterMatch;
+  filterGroups: FilterGroup[];
   sorts: RowSort[];
   groupBy: string;
   view: ViewKind;
@@ -24,18 +25,24 @@ export interface TablePrefs {
   activeViewId: string;
   filters: RowFilter[];
   filterMatch: FilterMatch;
+  filterGroups: FilterGroup[];
   sorts: RowSort[];
   groupBy: string;
   view: ViewKind;
   columnOrder: string[];
   columnWidths: Record<string, number>;
   hiddenColumns: string[];
+  /** Columns kept in view on the left while scrolling sideways. */
+  frozenColumns: string[];
+  /** The summary shown under each column, if any. */
+  columnSummaries: Record<string, AggregateFn>;
 }
 
 export const EMPTY_PREFS: TablePrefs = {
   savedViews: [],
   activeViewId: "",
   filterMatch: "all",
+  filterGroups: [],
   filters: [],
   sorts: [],
   groupBy: "",
@@ -43,6 +50,8 @@ export const EMPTY_PREFS: TablePrefs = {
   columnOrder: [],
   columnWidths: {},
   hiddenColumns: [],
+  frozenColumns: [],
+  columnSummaries: {},
 };
 
 // Generous but bounded: preferences arrive from the client and from imported files.
@@ -62,8 +71,28 @@ function sanitizeFilters(raw: unknown): RowFilter[] {
         .map((f) => (f ?? {}) as Record<string, unknown>)
         .filter((f) => typeof f.column === "string" && FILTER_OPS.includes(f.op as RowFilter["op"]))
         .slice(0, MAX_ITEMS)
-        .map((f): RowFilter => ({ column: str(f.column), op: f.op as RowFilter["op"], value: str(f.value, 1000), ...(typeof f.value2 === "string" ? { value2: str(f.value2, 1000) } : {}), ...(Array.isArray(f.values) ? { values: names(f.values) } : {}) }))
+        .map((f): RowFilter => ({ column: str(f.column), op: f.op as RowFilter["op"], value: str(f.value, 1000), ...(typeof f.value2 === "string" ? { value2: str(f.value2, 1000) } : {}), ...(Array.isArray(f.values) ? { values: names(f.values) } : {}), ...(f.disabled === true ? { disabled: true } : {}), ...(typeof f.group === "string" && f.group ? { group: str(f.group, 64) } : {}) }))
     : [];
+}
+
+function sanitizeGroups(raw: unknown): FilterGroup[] {
+  return Array.isArray(raw)
+    ? raw
+        .map((g) => (g ?? {}) as Record<string, unknown>)
+        .filter((g) => typeof g.id === "string" && g.id)
+        .slice(0, MAX_ITEMS)
+        .map((g): FilterGroup => ({ id: str(g.id, 64), match: g.match === "any" ? "any" : "all" }))
+    : [];
+}
+
+function sanitizeSummaries(raw: unknown): Record<string, AggregateFn> {
+  const out: Record<string, AggregateFn> = {};
+  if (raw && typeof raw === "object") {
+    for (const [name, fn] of Object.entries(raw as Record<string, unknown>).slice(0, MAX_ITEMS)) {
+      if (AGGREGATE_FNS.includes(fn as AggregateFn)) out[name.slice(0, 200)] = fn as AggregateFn;
+    }
+  }
+  return out;
 }
 
 function sanitizeSorts(raw: unknown): RowSort[] {
@@ -95,6 +124,7 @@ function sanitizeSavedViews(raw: unknown): SavedView[] {
       name,
       filters: sanitizeFilters(v.filters),
       filterMatch: v.filterMatch === "any" ? "any" : "all",
+      filterGroups: sanitizeGroups(v.filterGroups),
       sorts: sanitizeSorts(v.sorts),
       groupBy: str(v.groupBy),
       view: sanitizeView(v.view),
@@ -122,12 +152,15 @@ export function sanitizeTablePrefs(raw: unknown): TablePrefs {
     activeViewId: savedViews.some((v) => v.id === activeViewId) ? activeViewId : "",
     filters,
     filterMatch: p.filterMatch === "any" ? "any" : "all",
+    filterGroups: sanitizeGroups(p.filterGroups),
     sorts,
     groupBy: str(p.groupBy),
     view: sanitizeView(p.view),
     columnOrder: names(p.columnOrder),
     columnWidths: widths,
     hiddenColumns: names(p.hiddenColumns),
+    frozenColumns: names(p.frozenColumns),
+    columnSummaries: sanitizeSummaries(p.columnSummaries),
   };
 }
 
@@ -156,6 +189,10 @@ export function isEmptyPrefs(p: TablePrefs): boolean {
     p.view === "table" &&
     p.columnOrder.length === 0 &&
     Object.keys(p.columnWidths).length === 0 &&
-    p.hiddenColumns.length === 0
+    p.hiddenColumns.length === 0 &&
+    p.filterMatch === "all" &&
+    p.filterGroups.length === 0 &&
+    p.frozenColumns.length === 0 &&
+    Object.keys(p.columnSummaries).length === 0
   );
 }

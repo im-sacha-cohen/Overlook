@@ -1,7 +1,8 @@
 import { getAdapter } from "@/lib/db/registry";
 import { errorResponse } from "@/lib/api/respond";
 import { journaled, describeInsert } from "@/lib/api/journal";
-import type { Row, RowFilter, RowSort } from "@/lib/types";
+import type { Row, RowSort } from "@/lib/types";
+import { rowQueryFromParams } from "@/lib/api/rowQuery";
 
 type Params = { params: Promise<{ id: string; table: string }> };
 
@@ -9,17 +10,12 @@ export async function GET(request: Request, { params }: Params) {
   const { id, table } = await params;
   try {
     const url = new URL(request.url);
-    const filters = url.searchParams.get("filters");
     const sorts = url.searchParams.get("sorts");
-    const search = url.searchParams.get("search");
     const limit = url.searchParams.get("limit");
     const offset = url.searchParams.get("offset");
-    const match = url.searchParams.get("match");
     const result = await getAdapter(id).selectRows(decodeURIComponent(table), {
-      filters: filters ? (JSON.parse(filters) as RowFilter[]) : undefined,
-      filterMatch: match === "any" ? "any" : "all",
+      ...rowQueryFromParams(url.searchParams),
       sorts: sorts ? (JSON.parse(sorts) as RowSort[]) : undefined,
-      search: search ?? undefined,
       limit: limit ? Number(limit) : undefined,
       offset: offset ? Number(offset) : undefined,
     });

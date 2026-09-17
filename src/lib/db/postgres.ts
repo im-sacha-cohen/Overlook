@@ -1,5 +1,5 @@
 import { Pool, types as pgTypes, type CustomTypesConfig, type PoolClient } from "pg";
-import type { ColumnMeta, LogicalType, QueryResult, Row, TableMeta } from "../types";
+import type { AggregateFn, ColumnMeta, LogicalType, QueryResult, Row, RowQuery, TableMeta } from "../types";
 import {
   assertKnownColumn,
   coerceRowValues,
@@ -16,7 +16,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
-import { buildDistinctValues, buildOrderBy, buildWhere, topDistinct } from "./where";
+import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, topDistinct } from "./where";
 import { splitSqlStatements } from "./splitSqlStatements";
 import { tlsOptions, type AdapterConnection } from "./network";
 
@@ -205,7 +205,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   async selectRows(table: string, opts: SelectOptions) {
     const meta = await this.getTable(table);
-    const { where, params } = buildWhere("postgres", meta, opts.filters, opts.search, opts.filterMatch);
+    const { where, params } = buildWhere("postgres", meta, opts);
     const orderBy = buildOrderBy("postgres", meta, opts.sorts);
     const limit = opts.limit ?? 100;
     const offset = opts.offset ?? 0;
@@ -320,6 +320,17 @@ export class PostgresAdapter implements DatabaseAdapter {
         client.release();
       }
     });
+  }
+
+  async aggregate(table: string, query: RowQuery, specs: { column: string; fn: AggregateFn }[]) {
+    if (specs.length === 0) return {};
+    const { sql, params, keys } = buildAggregate("postgres", await this.getTable(table), query, specs);
+    const client = await this.pool.connect();
+    try {
+      return aggregateResult(keys, (await client.query(sql, params)).rows[0]);
+    } finally {
+      client.release();
+    }
   }
 
   async distinctValues(table: string, column: string, query?: string) {
