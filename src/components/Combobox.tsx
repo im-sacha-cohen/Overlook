@@ -288,8 +288,12 @@ export function MultiCombobox({ values, onChange, load, placeholder, width = 160
 
   function toggle(value: string) {
     onChange(values.includes(value) ? values.filter((v) => v !== value) : [...values, value]);
-    setQuery("");
-    setActive(0);
+    // Checking an item leaves the highlight where it is. After a search the list
+    // changes under the pointer, so nothing is highlighted until the next move.
+    if (query) {
+      setQuery("");
+      setActive(-1);
+    }
     inputRef.current?.focus();
   }
 
