@@ -3,6 +3,7 @@ import { BUNDLE_FORMAT, BUNDLE_VERSION, MIN_PASSPHRASE_LENGTH, type BundleEncryp
 import type { Connection, ConnectionSecrets } from "../types";
 import { decryptWithKey, encryptWithKey } from "./crypto";
 import { createConnection, getConnectionSecret, listConnections } from "./metadata";
+import { resolveSqlitePath } from "../db/sqlitePath";
 import { getConnectionPrefs, listTablePrefs, replaceTablePrefs, saveConnectionPrefs } from "./prefs";
 
 // ~32 MiB of memory and ~100 ms per derivation: slow enough to make offline
@@ -81,7 +82,8 @@ export function importBundle(bundle: ConnectionBundle, indices: number[], passph
   const picked = [...new Set(indices)].filter((i) => Number.isInteger(i) && i >= 0 && i < bundle.connections.length).map((i) => bundle.connections[i]);
   if (picked.length === 0) throw new Error("Aucune connexion sélectionnée");
 
-  // Decrypt everything before writing anything, so a wrong passphrase imports nothing.
+  // Check paths and decrypt everything before writing anything, so a bad file imports nothing.
+  for (const c of picked) if (c.engine === "sqlite") resolveSqlitePath(c.database);
   let key: Buffer | null = null;
   if (bundle.encryption && picked.some((c) => c.password || c.secrets)) key = deriveKey(checkPassphrase(passphrase), bundle.encryption);
   const open = (cipher: string | undefined) => {

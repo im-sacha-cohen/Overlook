@@ -1536,7 +1536,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   // ---------- empty states ----------
   if (connections.length === 0) {
     return (
-      <div style={{ height: "100vh", display: "grid", placeItems: "center", fontFamily: "var(--font-sans)" }}>
+      <div data-clarity-mask="true" style={{ height: "100vh", display: "grid", placeItems: "center", fontFamily: "var(--font-sans)" }}>
         <div style={{ textAlign: "center", maxWidth: 380 }}>
           <div style={{ fontSize: 20, fontWeight: 600, marginBottom: 8 }}>{t("workspace.noConnectionTitle")}</div>
           <div style={{ fontSize: 13.5, color: "#8b877e", marginBottom: 18 }}>
@@ -1577,7 +1577,8 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   const envStripColor = activeConnection ? ENV_COLORS[activeConnection.envType].strong : "transparent";
 
   return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column", fontFamily: "var(--font-sans)", fontSize: 14, color: "var(--fg)", background: "var(--bg)", overflow: "hidden" }}>
+    // Everything in the workspace can show database content: session recordings mask it all.
+    <div data-clarity-mask="true" style={{ height: "100vh", display: "flex", flexDirection: "column", fontFamily: "var(--font-sans)", fontSize: 14, color: "var(--fg)", background: "var(--bg)", overflow: "hidden" }}>
       <div style={{ height: 4, flex: "none", background: envStripColor }} />
 
       <ConnectionTabs

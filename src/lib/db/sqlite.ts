@@ -15,6 +15,7 @@ import {
   type WritePreview,
 } from "./adapter";
 import { splitSqlStatements } from "./splitSqlStatements";
+import { assertNoFileAccess, resolveSqlitePath } from "./sqlitePath";
 
 const CREATABLE_TYPE_SQL: Record<Exclude<LogicalType, "relation" | "unknown">, string> = {
   text: "TEXT",
@@ -66,7 +67,8 @@ export class SqliteAdapter implements DatabaseAdapter {
   private db: Database.Database;
 
   constructor(conn: Connection) {
-    this.db = new Database(conn.database);
+    // Connections open existing files only; creating one goes through "Create database".
+    this.db = new Database(resolveSqlitePath(conn.database), { fileMustExist: true });
     this.db.pragma("foreign_keys = ON");
   }
 
@@ -362,6 +364,7 @@ export class SqliteAdapter implements DatabaseAdapter {
   }
 
   async runRawQuery(sql: string): Promise<QueryResult> {
+    assertNoFileAccess(sql);
     const trimmed = sql.trim().toLowerCase();
     if (trimmed.startsWith("select") || trimmed.startsWith("pragma") || trimmed.startsWith("explain")) {
       const stmt = this.db.prepare(sql);
@@ -374,6 +377,7 @@ export class SqliteAdapter implements DatabaseAdapter {
   }
 
   async runStatement(sql: string): Promise<void> {
+    assertNoFileAccess(sql);
     this.db.exec(sql);
   }
 

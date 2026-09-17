@@ -61,7 +61,7 @@ The quickest way to try Overlook is the prebuilt Docker image — no Node.js
 or source checkout needed:
 
 ```bash
-docker run -d -p 3000:3000 -v overlook-data:/app/data --name overlook imsachacohen/overlook
+docker run -d -p 127.0.0.1:3000:3000 -v overlook-data:/app/data --name overlook imsachacohen/overlook
 ```
 
 Open [http://localhost:3000](http://localhost:3000). See
@@ -90,6 +90,8 @@ safe defaults apply otherwise):
 |---|---|---|
 | `APP_SECRET` | Encryption key (AES-256-GCM) for connection passwords stored on disk. | Generated and stored in `data/secret.key` on first run. |
 | `DATA_DIR` | Folder holding the metadata file (`app-metadata.db`) and the secret key. | `./data` |
+| `OVERLOOK_ALLOWED_HOSTS` | Comma-separated host names Overlook may be reached under, besides `localhost`/`127.0.0.1` (e.g. `overlook.internal.example.com` behind a reverse proxy). Other hosts get a 403. `*` disables the check. | local names only |
+| `OVERLOOK_SQLITE_DIRS` | Comma-separated folders SQLite connections may open files from. Overlook's own `DATA_DIR` is always refused. | the working directory |
 | `NEXT_PUBLIC_DISABLE_TELEMETRY` | Set to `1` to disable anonymous usage analytics entirely. | unset (enabled) |
 | `NEXT_PUBLIC_CLARITY_PROJECT_ID` | Point analytics at your own Microsoft Clarity project instead of the shared Overlook dashboard. | Overlook's shared project |
 
@@ -153,7 +155,8 @@ APP_SECRET=<long-stable-secret> npm run start
 ```
 
 Run `npm run start` behind a process manager (`pm2`, `systemd`) and a TLS
-reverse proxy (nginx, Caddy).
+reverse proxy (nginx, Caddy) that adds authentication. Overlook listens on
+`127.0.0.1`; add the proxy's host name to `OVERLOOK_ALLOWED_HOSTS`.
 
 ### Option B — Docker
 
@@ -162,7 +165,7 @@ A prebuilt image is published to Docker Hub at
 
 ```bash
 docker run -d \
-  -p 3000:3000 \
+  -p 127.0.0.1:3000:3000 \
   -e APP_SECRET=<long-stable-secret> \
   -v overlook-data:/app/data \
   --name overlook \
@@ -175,7 +178,7 @@ Next.js `standalone` output):
 ```bash
 docker build -t overlook .
 docker run -d \
-  -p 3000:3000 \
+  -p 127.0.0.1:3000:3000 \
   -e APP_SECRET=<long-stable-secret> \
   -v overlook-data:/app/data \
   --name overlook \
@@ -204,9 +207,17 @@ AES-256-GCM) — not with the instance's key.
 
 ## Security and known limitations
 
-- **No built-in access control.** This tool is meant for use in a trusted
-  environment (a local machine or private network). Don't expose it
-  publicly without adding an authentication layer.
+- **No built-in access control.** Whoever can reach Overlook controls every
+  saved database and can export their credentials. It therefore listens on
+  `127.0.0.1` only (`npm run dev`/`npm run start`, and `-p 127.0.0.1:3000:3000`
+  for Docker). To reach it from other machines, put it behind a reverse
+  proxy **with authentication** and list its host name in
+  `OVERLOOK_ALLOWED_HOSTS`.
+- Requests under an unexpected host name (DNS rebinding) and writes coming
+  from another site (CSRF) are refused.
+- SQLite connections can only open files inside `OVERLOOK_SQLITE_DIRS`
+  (the working directory by default), and `ATTACH`/`DETACH`/`VACUUM INTO`
+  are refused, so a connection can't reach other files on the machine.
 - Connection passwords are encrypted (AES-256-GCM) before being written to
   disk. The encryption key comes from the `APP_SECRET` environment variable
   if set, otherwise a key is generated and stored in `data/secret.key` on

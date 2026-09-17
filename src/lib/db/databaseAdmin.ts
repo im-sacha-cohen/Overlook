@@ -7,6 +7,7 @@ import { ENGINE_DEFAULT_PORT, type ConnectionSecrets, type Engine, type SshTunne
 import { assertValidIdentifier } from "./adapter";
 import { mysqlSslOptions, tlsOptions, type AdapterConnection } from "./network";
 import { openTunnel } from "./sshTunnel";
+import { resolveSqlitePath } from "./sqlitePath";
 
 export interface AdminConnParams {
   engine: Engine;
@@ -59,7 +60,7 @@ function mysqlConnection(conn: AdapterConnection) {
 export async function createDatabase(params: AdminConnParams): Promise<void> {
   assertValidIdentifier(params.database);
   if (params.engine === "sqlite") {
-    const db = new Database(params.database);
+    const db = new Database(resolveSqlitePath(params.database));
     db.close();
     return;
   }
@@ -86,8 +87,9 @@ export async function createDatabase(params: AdminConnParams): Promise<void> {
 export async function dropDatabase(params: AdminConnParams): Promise<void> {
   assertValidIdentifier(params.database);
   if (params.engine === "sqlite") {
+    const file = resolveSqlitePath(params.database);
     for (const suffix of ["", "-wal", "-shm", "-journal"]) {
-      const path = params.database + suffix;
+      const path = file + suffix;
       if (fs.existsSync(path)) fs.unlinkSync(path);
     }
     return;

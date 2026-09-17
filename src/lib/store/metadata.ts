@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import Database from "better-sqlite3";
 import { dataDir } from "./paths";
 import { encrypt, decrypt } from "./crypto";
+import { resolveSqlitePath } from "../db/sqlitePath";
 import { SECRET_FIELDS, SSL_MODES, type Connection, type ConnectionInput, type ConnectionSecrets, type SshTunnel, type SslMode } from "../types";
 
 let db: Database.Database | null = null;
@@ -209,6 +210,7 @@ export function getConnectionSecret(id: string): ConnectionWithSecrets | null {
 }
 
 export function createConnection(input: ConnectionInput): Connection {
+  if (input.engine === "sqlite") resolveSqlitePath(input.database);
   const id = crypto.randomUUID();
   const createdAt = new Date().toISOString();
   getDb()
@@ -239,6 +241,7 @@ export function updateConnection(id: string, input: Partial<ConnectionInput>): C
     | ConnectionRow
     | undefined;
   if (!existing) return null;
+  if ((input.engine ?? existing.engine) === "sqlite") resolveSqlitePath(input.database ?? existing.database);
   const next = {
     name: input.name ?? existing.name,
     envType: input.envType ?? existing.envType,

@@ -172,6 +172,7 @@ export function DateField({ column, value, autoOpen, onCommit, onClose }: Props)
       {open && anchor !== null && createPortal(
         <div
           ref={popRef}
+          data-clarity-mask="true"
           style={{
             position: "fixed",
             top: anchor.top,
