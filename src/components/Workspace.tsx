@@ -1463,28 +1463,31 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   // ---------- query mode ----------
   async function handleRunQuery(sql: string, allowWrite: boolean): Promise<QueryResult> {
     if (!activeConnectionId) throw new Error(t("error.noActiveConnection"));
-    const trimmed = sql.trim().toLowerCase();
-    const isSelect = trimmed.startsWith("select") || trimmed.startsWith("with") || trimmed.startsWith("explain") || trimmed.startsWith("pragma") || trimmed.startsWith("show");
-    if (!isSelect && activeConnection?.envType === "prod") {
+    const connectionId = activeConnectionId;
+    try {
+      const res = await api.runQuery(connectionId, sql, allowWrite);
+      if (res.wrote) pushHistory(t("history.queryWrite"));
+      return res;
+    } catch (err) {
+      // The server found that the query writes on a production connection: confirm, then retry.
+      if ((err as { status?: number }).status !== 412 || !activeConnection) throw err;
+      const connection = activeConnection;
       return new Promise<QueryResult>((resolve, reject) => {
         setPendingGuard({
-          label: t("guard.runWriteQuery", { connection: activeConnection.name, sql }),
+          label: t("guard.runWriteQuery", { connection: connection.name, sql }),
           run: async (confirm) => {
             try {
-              const res = await api.runQuery(activeConnectionId, sql, allowWrite, confirm);
+              const res = await api.runQuery(connectionId, sql, allowWrite, confirm);
               pushHistory(t("history.queryWrite"));
               resolve(res);
-            } catch (err) {
-              reject(err);
-              throw err;
+            } catch (e) {
+              reject(e);
+              throw e;
             }
           },
         });
       });
     }
-    const res = await api.runQuery(activeConnectionId, sql, allowWrite);
-    if (!isSelect) pushHistory(t("history.queryWrite"));
-    return res;
   }
 
   const equivalentSql = useMemo(() => {

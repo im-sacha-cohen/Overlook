@@ -6,6 +6,7 @@ import {
   assertValidIdentifier,
   filterOpToSql,
   primaryKeyOf,
+  ReadOnlyViolation,
   assertCreatableType,
   previewWithAdapter,
   type DatabaseAdapter,
@@ -438,12 +439,31 @@ export class PostgresAdapter implements DatabaseAdapter {
     return inserted;
   }
 
-  async runRawQuery(sql: string): Promise<QueryResult> {
+  async runRawQuery(sql: string, { readOnly = false } = {}): Promise<QueryResult> {
     const client = await this.pool.connect();
     try {
-      const res = await client.query(sql);
-      const columns = res.fields?.map((f) => f.name) ?? Object.keys(res.rows[0] ?? {});
-      return { columns, rows: res.rows, rowCount: res.rowCount ?? res.rows.length };
+      let res;
+      if (readOnly) {
+        // The extended protocol accepts a single statement, so the query can't
+        // end the read-only transaction and carry on with a write.
+        await client.query("BEGIN READ ONLY");
+        try {
+          res = await client.query({ text: sql, queryMode: "extended" } as unknown as string);
+        } catch (err) {
+          const code = (err as { code?: string }).code;
+          // 25006: write in a read-only transaction. 42601 with this message: several statements.
+          if (code === "25006" || /multiple commands/i.test(err instanceof Error ? err.message : "")) throw new ReadOnlyViolation();
+          throw err;
+        } finally {
+          await client.query("ROLLBACK").catch(() => {});
+        }
+      } else {
+        res = await client.query(sql);
+      }
+      // Several statements return one result each: show the last one.
+      const last = Array.isArray(res) ? res[res.length - 1] : res;
+      const columns = last.fields?.map((f: { name: string }) => f.name) ?? Object.keys(last.rows[0] ?? {});
+      return { columns, rows: last.rows, rowCount: last.rowCount ?? last.rows.length };
     } finally {
       client.release();
     }

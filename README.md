@@ -215,6 +215,10 @@ AES-256-GCM) — not with the instance's key.
   `OVERLOOK_ALLOWED_HOSTS`.
 - Requests under an unexpected host name (DNS rebinding) and writes coming
   from another site (CSRF) are refused.
+- The SQL console's read-only mode is enforced by the database itself
+  (read-only transaction or session, one statement at a time), so a query
+  like `SELECT 1; DROP TABLE t` or a data-modifying `WITH` can't slip past
+  the "allow writes" switch, the production confirmation or the change log.
 - SQLite connections can only open files inside `OVERLOOK_SQLITE_DIRS`
   (the working directory by default), and `ATTACH`/`DETACH`/`VACUUM INTO`
   are refused, so a connection can't reach other files on the machine.

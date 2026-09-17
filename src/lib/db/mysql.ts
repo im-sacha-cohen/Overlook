@@ -4,6 +4,7 @@ import {
   assertCreatableType,
   assertKnownColumn,
   assertValidIdentifier,
+  ReadOnlyViolation,
   coerceRowValues,
   filterOpToSql,
   previewWithAdapter,
@@ -54,11 +55,13 @@ function q(ident: string): string {
 
 export class MySqlAdapter implements DatabaseAdapter {
   private pool: Pool;
+  /** One statement per call: used for read-only console queries. */
+  private singleStatementPool: Pool;
   private database: string;
 
   constructor(conn: AdapterConnection) {
     this.database = conn.database;
-    this.pool = mysql.createPool({
+    const options = {
       host: conn.host,
       port: conn.port ?? 3306,
       database: conn.database,
@@ -73,7 +76,9 @@ export class MySqlAdapter implements DatabaseAdapter {
       // timezone. Parsing them into JS Dates would read them in the Overlook server's
       // timezone (UTC in Docker) and shift every hour once the browser converts again.
       dateStrings: true,
-    });
+    } satisfies mysql.PoolOptions;
+    this.pool = mysql.createPool(options);
+    this.singleStatementPool = mysql.createPool({ ...options, connectionLimit: 2, multipleStatements: false });
   }
 
   async testConnection(): Promise<void> {
@@ -390,10 +395,43 @@ export class MySqlAdapter implements DatabaseAdapter {
     return inserted;
   }
 
-  async runRawQuery(sql: string): Promise<QueryResult> {
-    const [rows, fields] = await this.pool.query(sql);
-    const rowArray = Array.isArray(rows) ? (rows as Row[]) : [];
-    const columns = Array.isArray(fields) ? fields.map((f) => f.name) : Object.keys(rowArray[0] ?? {});
+  async runRawQuery(sql: string, { readOnly = false } = {}): Promise<QueryResult> {
+    let rows: unknown;
+    let fields: unknown;
+    if (readOnly) {
+      const conn = await this.singleStatementPool.getConnection();
+      let clean = false;
+      try {
+        // Refuses every write for this session, DDL included.
+        await conn.query("SET SESSION transaction_read_only = ON");
+        [rows, fields] = await conn.query(sql);
+      } catch (err) {
+        const e = err as { errno?: number; code?: string };
+        // 1792: write in read-only mode. A parse error on ";" means several statements.
+        if (e.errno === 1792 || (e.code === "ER_PARSE_ERROR" && splitSqlStatements(sql).length > 1)) throw new ReadOnlyViolation();
+        throw err;
+      } finally {
+        try {
+          await conn.query("SET SESSION transaction_read_only = OFF");
+          clean = true;
+        } catch {
+          // Never hand a read-only session back to the pool.
+        }
+        if (clean) conn.release();
+        else conn.destroy();
+      }
+    } else {
+      [rows, fields] = await this.pool.query(sql);
+    }
+    // Several statements return one result per statement, with a fields list for each.
+    const multi = Array.isArray(fields) && fields.length > 0 && fields.every((f) => f === undefined || Array.isArray(f));
+    const result = multi ? (rows as unknown[])[(rows as unknown[]).length - 1] : rows;
+    const resultFields = multi ? (fields as unknown[])[(fields as unknown[]).length - 1] : fields;
+    if (!Array.isArray(result)) {
+      return { columns: [], rows: [], rowCount: (result as mysql.ResultSetHeader | undefined)?.affectedRows ?? 0 };
+    }
+    const rowArray = result as Row[];
+    const columns = Array.isArray(resultFields) ? (resultFields as { name: string }[]).map((f) => f.name) : Object.keys(rowArray[0] ?? {});
     return { columns, rows: rowArray, rowCount: rowArray.length };
   }
 
@@ -420,6 +458,6 @@ export class MySqlAdapter implements DatabaseAdapter {
   }
 
   async close(): Promise<void> {
-    await this.pool.end();
+    await Promise.all([this.pool.end(), this.singleStatementPool.end()]);
   }
 }

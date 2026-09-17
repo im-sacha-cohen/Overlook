@@ -49,7 +49,12 @@ export interface DatabaseAdapter {
    */
   dropTables(tables: string[], options?: DropTablesOptions): Promise<void>;
   bulkInsert(table: string, rows: Row[]): Promise<number>;
-  runRawQuery(sql: string): Promise<QueryResult>;
+  /**
+   * Runs one query from the SQL console. With `readOnly`, the database itself
+   * refuses any write (read-only transaction or session) and more than one
+   * statement is refused; both throw a ReadOnlyViolation.
+   */
+  runRawQuery(sql: string, options?: { readOnly?: boolean }): Promise<QueryResult>;
   runStatement(sql: string): Promise<void>;
   runScript(sql: string): Promise<ImportReport>;
   close(): Promise<void>;
@@ -149,4 +154,16 @@ export async function previewWithAdapter(
 
 export function assertCreatableType(type: LogicalType): asserts type is Exclude<LogicalType, "relation" | "unknown"> {
   if (type === "relation" || type === "unknown") throw new Error(`Cannot use a column of type ${type}`);
+}
+
+/** A query run as read-only turned out to write, or held several statements. */
+export class ReadOnlyViolation extends Error {
+  constructor(message = "Cette requête modifie la base, ou en contient plusieurs.") {
+    super(message);
+    this.name = "ReadOnlyViolation";
+  }
+}
+
+export function isReadOnlyViolation(err: unknown): boolean {
+  return err instanceof Error && err.name === "ReadOnlyViolation";
 }

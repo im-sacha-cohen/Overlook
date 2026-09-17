@@ -105,6 +105,8 @@ export interface QueryResult {
   columns: string[];
   rows: Row[];
   rowCount: number;
+  /** Set when the query changed the database. */
+  wrote?: boolean;
 }
 
 export interface SavedQuery {

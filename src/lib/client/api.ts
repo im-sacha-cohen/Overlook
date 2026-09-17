@@ -65,7 +65,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(body.error || `Erreur ${res.status}`);
+    throw Object.assign(new Error(body.error || `Erreur ${res.status}`), { status: res.status });
   }
   return body as T;
 }

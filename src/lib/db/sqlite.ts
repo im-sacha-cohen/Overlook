@@ -6,6 +6,7 @@ import {
   assertValidIdentifier,
   filterOpToSql,
   previewWithAdapter,
+  ReadOnlyViolation,
   type DatabaseAdapter,
   type DropTablesOptions,
   type ImportReport,
@@ -363,16 +364,27 @@ export class SqliteAdapter implements DatabaseAdapter {
     return rows.length;
   }
 
-  async runRawQuery(sql: string): Promise<QueryResult> {
+  async runRawQuery(sql: string, { readOnly = false } = {}): Promise<QueryResult> {
     assertNoFileAccess(sql);
-    const trimmed = sql.trim().toLowerCase();
-    if (trimmed.startsWith("select") || trimmed.startsWith("pragma") || trimmed.startsWith("explain")) {
-      const stmt = this.db.prepare(sql);
+    let stmt: Database.Statement;
+    try {
+      // prepare() compiles exactly one statement and refuses more.
+      stmt = this.db.prepare(sql);
+    } catch (err) {
+      if (/more than one statement/i.test(err instanceof Error ? err.message : "")) {
+        if (readOnly) throw new ReadOnlyViolation();
+        throw new Error("Une seule requête à la fois dans la console : utilisez l'import de script SQL pour en exécuter plusieurs.");
+      }
+      throw err;
+    }
+    // SQLite itself says whether the compiled statement can write.
+    if (readOnly && !stmt.readonly) throw new ReadOnlyViolation();
+    if (stmt.reader) {
       const rows = stmt.all() as Row[];
       const columns = stmt.columns().map((c) => c.name);
       return { columns, rows, rowCount: rows.length };
     }
-    const info = this.db.prepare(sql).run();
+    const info = stmt.run();
     return { columns: [], rows: [], rowCount: info.changes };
   }
 
