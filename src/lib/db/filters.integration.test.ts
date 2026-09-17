@@ -179,3 +179,67 @@ for (const target of targets) {
     });
   });
 }
+
+for (const target of targets) {
+  describe.skipIf(!target.enabled)(`filters through foreign keys on ${target.engine}`, () => {
+    let adapter: DatabaseAdapter;
+    let tmpDir = "";
+    const statements = [
+      "CREATE TABLE overlook_fk_dossier (id INTEGER PRIMARY KEY, public_id VARCHAR(32))",
+      // Table-level FOREIGN KEY: MySQL ignores REFERENCES written on the column itself.
+      "CREATE TABLE overlook_fk_document (id INTEGER PRIMARY KEY, libelle VARCHAR(64), dossier_id INTEGER, FOREIGN KEY (dossier_id) REFERENCES overlook_fk_dossier(id))",
+      "INSERT INTO overlook_fk_dossier VALUES (1, 'DOS-A'), (2, 'DOS-B')",
+      "INSERT INTO overlook_fk_document VALUES (10, 'kbis', 1), (11, 'statuts', 1), (12, 'kbis', 2), (13, 'orphelin', NULL)",
+    ];
+
+    beforeAll(async () => {
+      if (target.engine === "sqlite") {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "overlook-fk-"));
+        process.env.OVERLOOK_SQLITE_DIRS = tmpDir;
+        const file = path.join(tmpDir, "fk.sqlite");
+        const db = new Database(file);
+        for (const sql of statements) db.exec(sql);
+        db.close();
+        const { SqliteAdapter } = await import("./sqlite");
+        adapter = new SqliteAdapter({ ...connection("sqlite"), database: file });
+        return;
+      }
+      if (target.engine === "postgres") {
+        const { PostgresAdapter } = await import("./postgres");
+        adapter = new PostgresAdapter(connection("postgres", target.url));
+      } else {
+        const { MySqlAdapter } = await import("./mysql");
+        adapter = new MySqlAdapter(connection("mysql", target.url));
+      }
+      await adapter.runStatement("DROP TABLE IF EXISTS overlook_fk_document");
+      await adapter.runStatement("DROP TABLE IF EXISTS overlook_fk_dossier");
+      for (const sql of statements) await adapter.runStatement(sql);
+    });
+
+    afterAll(async () => {
+      if (!adapter) return;
+      if (target.engine !== "sqlite") {
+        await adapter.runStatement("DROP TABLE IF EXISTS overlook_fk_document");
+        await adapter.runStatement("DROP TABLE IF EXISTS overlook_fk_dossier");
+      }
+      await adapter.close();
+      if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    const ids = async (filters: RowFilter[]) => {
+      const { rows, total } = await adapter.selectRows("overlook_fk_document", { filters, sorts: [{ column: "id", dir: "asc" }] });
+      expect(total).toBe(rows.length);
+      return rows.map((r) => Number(r.id));
+    };
+
+    it("finds documents by their dossier's public id", async () => {
+      expect(await ids([{ column: "public_id", via: ["dossier_id"], op: "eq", value: "DOS-A" }])).toEqual([10, 11]);
+      expect(await ids([{ column: "public_id", via: ["dossier_id"], op: "contains", value: "b" }, { column: "libelle", op: "eq", value: "kbis" }])).toEqual([12]);
+      expect(await ids([{ column: "public_id", via: ["dossier_id"], op: "in", value: "", values: ["DOS-A", "DOS-B"] }])).toEqual([10, 11, 12]);
+    });
+
+    it("summarises over the related filter too", async () => {
+      expect(await adapter.aggregate("overlook_fk_document", { filters: [{ column: "public_id", via: ["dossier_id"], op: "eq", value: "DOS-A" }] }, [{ column: "libelle", fn: "unique" }])).toEqual({ "libelle:unique": 2 });
+    });
+  });
+}

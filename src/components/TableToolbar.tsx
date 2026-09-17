@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { ColumnMeta, FilterGroup, FilterMatch, Row, RowFilter, RowSort } from "@/lib/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ColumnMeta, FilterGroup, FilterMatch, Row, RowFilter, RowSort, TableMeta } from "@/lib/types";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 import { Combobox, MultiCombobox, type ComboOption } from "./Combobox";
 import { EquivalentSqlBar } from "./EquivalentSqlBar";
@@ -34,7 +34,10 @@ interface Props {
   onSuggestRelation: (col: ColumnMeta, query: string) => Promise<Row[]>;
   getRelationLabel: (col: ColumnMeta, row: Row) => string;
   /** Most frequent values of a column matching what was typed. */
-  onSuggestValues: (col: ColumnMeta, query: string) => Promise<{ value: string; count: number }[]>;
+  /** `table`: where the column lives, when it is reached through a foreign key. */
+  onSuggestValues: (col: ColumnMeta, query: string, table?: string) => Promise<{ value: string; count: number }[]>;
+  /** Every table of the connection, to filter on columns of related tables. */
+  tables: TableMeta[];
   /** False while a dialog or panel covers the table, so its keys don't reach the toolbar. */
   shortcutsEnabled: boolean;
 }
@@ -101,7 +104,7 @@ function CountBadge({ n }: { n: number }) {
 // Columns whose repeated values (roles, statuses stored as text…) are worth suggesting.
 const SUGGESTED_TYPES: ColumnMeta["logicalType"][] = ["text", "json", "unknown"];
 
-export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, filters, onFiltersChange, filterMatch, onFilterMatchChange, filterGroups, onFilterGroupsChange, sorts, onSortsChange, search, onSearchChange, onAddRow, sql, onSuggestRelation, getRelationLabel, onSuggestValues, shortcutsEnabled }: Props) {
+export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, filters, onFiltersChange, filterMatch, onFilterMatchChange, filterGroups, onFilterGroupsChange, sorts, onSortsChange, search, onSearchChange, onAddRow, sql, onSuggestRelation, getRelationLabel, onSuggestValues, shortcutsEnabled, tables }: Props) {
   const { t } = useLang();
   const searchRef = useRef<HTMLInputElement>(null);
   // The filter/sort just added opens its column picker straight away.
@@ -117,7 +120,43 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
     ["calendar", t("toolbar.calendar")],
     ["gallery", t("toolbar.gallery")],
   ];
+  // Filters can also test a column of the table a foreign key points to: "dossier › public_id".
+  const tableByName = useMemo(() => new Map(tables.map((tb) => [tb.name, tb])), [tables]);
+  const relatedOwner = useMemo(() => {
+    const owner = new Map<ColumnMeta, string>();
+    for (const tb of tables) for (const c of tb.columns) owner.set(c, tb.name);
+    return owner;
+  }, [tables]);
+  const filterKey = (f: Pick<RowFilter, "column" | "via">) => [...(f.via ?? []), f.column].join(">");
+  const parseKey = (key: string): Pick<RowFilter, "column" | "via"> => {
+    const parts = key.split(">");
+    const column = parts.pop()!;
+    return parts.length ? { column, via: parts } : { column };
+  };
+  const resolveCol = (f: Pick<RowFilter, "column" | "via">): ColumnMeta | undefined => {
+    if (!f.via?.length) return selectableCols.find((c) => c.name === f.column);
+    let cols: ColumnMeta[] = columns;
+    for (const fk of f.via) {
+      const ref = cols.find((c) => c.name === fk)?.references?.table;
+      const tb = ref ? tableByName.get(ref) : undefined;
+      if (!tb) return undefined;
+      cols = tb.columns;
+    }
+    return cols.find((c) => c.name === f.column);
+  };
   const columnOptions = selectableCols.map((c) => ({ value: c.name, hint: c.nativeType }));
+  const filterColumnOptions = useMemo((): ComboOption[] => {
+    const own = columns.filter((c) => !c.hidden).map((c) => ({ value: c.name, hint: c.nativeType }));
+    const fks = columns.filter((c) => c.references && tableByName.has(c.references.table));
+    const related = fks.flatMap((fk) => {
+      const tb = tableByName.get(fk.references!.table)!;
+      // Two keys to the same table (client_id, affaire_id → client) say which one.
+      const twin = fks.filter((o) => o.references!.table === tb.name).length > 1;
+      const prefix = twin ? `${tb.name} (${fk.name})` : tb.name;
+      return tb.columns.map((c) => ({ value: `${fk.name}>${c.name}`, label: `↗ ${prefix} › ${c.name}`, hint: c.nativeType }));
+    });
+    return [...own, ...related];
+  }, [columns, tableByName]);
   const opLabel = (op: RowFilter["op"], col?: ColumnMeta): string => {
     const isDate = col?.logicalType === "date";
     switch (op) {
@@ -148,8 +187,8 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
     [onSuggestRelation, getRelationLabel]
   );
   const loadValues = useCallback(
-    async (col: ColumnMeta, q: string): Promise<ComboOption[]> => (await onSuggestValues(col, q)).map((v) => ({ value: v.value, hint: v.count.toLocaleString() })),
-    [onSuggestValues]
+    async (col: ColumnMeta, q: string): Promise<ComboOption[]> => (await onSuggestValues(col, q, relatedOwner.get(col))).map((v) => ({ value: v.value, hint: v.count.toLocaleString() })),
+    [onSuggestValues, relatedOwner]
   );
   // Suggestions for "is one of": the column's own options, foreign keys or frequent values.
   const loadChoices = useCallback(
@@ -276,7 +315,8 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
   );
   const chipFor = (i: number) => {
     const f = filters[i];
-    const col = selectableCols.find((c) => c.name === f.column);
+    const col = resolveCol(f);
+    const columnLabel = filterColumnOptions.find((o) => o.value === filterKey(f))?.label ?? f.column;
     return (
     <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, height: 28, padding: "0 4px 0 6px", background: f.disabled ? "#f6f4ef" : "var(--accent-bg)", border: `1px ${f.disabled ? "dashed #d9d5cc" : "solid var(--accent-border)"}`, borderRadius: 8, fontSize: 12.5 }}>
       <Hint label={f.disabled ? t("toolbar.enableFilter") : t("toolbar.disableFilter")}>
@@ -295,15 +335,17 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
         {t("toolbar.where")}
       </span>
       <Combobox
-        value={f.column}
-        options={columnOptions}
+        value={filterKey(f)}
+        options={filterColumnOptions}
+        width={Math.min(230, Math.max(120, columnLabel.length * 7 + 30))}
         autoFocus={justAdded?.kind === "filter" && justAdded.index === i}
         ariaLabel={t("combobox.column")}
         onChange={(v) => {
-          const next = selectableCols.find((c) => c.name === v);
+          const target = parseKey(v);
+          const next = resolveCol(target);
           // Same kind of column: keep operator and values. Otherwise start over, a "3" is not a date.
           const sameKind = next?.logicalType === col?.logicalType && !!next?.references === !!col?.references;
-          updateFilter(i, sameKind ? { column: v } : { ...newFilter(next), value2: undefined });
+          updateFilter(i, sameKind ? { ...target, via: target.via } : { ...newFilter(next), ...target, via: target.via, value2: undefined });
         }}
       />
       <Combobox

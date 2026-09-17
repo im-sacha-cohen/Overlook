@@ -100,6 +100,11 @@ export interface RowFilter {
   disabled?: boolean;
   /** Id of the FilterGroup it belongs to; top level when absent. */
   group?: string;
+  /**
+   * Foreign keys to follow first: with ["dossier_id"], `column` is a column of the
+   * table dossier_id points to ("documents whose dossier has this public_id").
+   */
+  via?: string[];
 }
 
 /** Whether rows must match every filter or at least one. */

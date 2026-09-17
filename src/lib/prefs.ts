@@ -71,7 +71,7 @@ function sanitizeFilters(raw: unknown): RowFilter[] {
         .map((f) => (f ?? {}) as Record<string, unknown>)
         .filter((f) => typeof f.column === "string" && FILTER_OPS.includes(f.op as RowFilter["op"]))
         .slice(0, MAX_ITEMS)
-        .map((f): RowFilter => ({ column: str(f.column), op: f.op as RowFilter["op"], value: str(f.value, 1000), ...(typeof f.value2 === "string" ? { value2: str(f.value2, 1000) } : {}), ...(Array.isArray(f.values) ? { values: names(f.values) } : {}), ...(f.disabled === true ? { disabled: true } : {}), ...(typeof f.group === "string" && f.group ? { group: str(f.group, 64) } : {}) }))
+        .map((f): RowFilter => ({ column: str(f.column), op: f.op as RowFilter["op"], value: str(f.value, 1000), ...(typeof f.value2 === "string" ? { value2: str(f.value2, 1000) } : {}), ...(Array.isArray(f.values) ? { values: names(f.values) } : {}), ...(f.disabled === true ? { disabled: true } : {}), ...(typeof f.group === "string" && f.group ? { group: str(f.group, 64) } : {}), ...(Array.isArray(f.via) && f.via.length > 0 ? { via: names(f.via).slice(0, 3) } : {}) }))
     : [];
 }
 

@@ -75,6 +75,45 @@ export function likeContains(value: string): string {
 }
 const ESCAPE = ` ESCAPE '!'`;
 
+/** Table metadata by name, for filters that follow foreign keys. */
+export type TableLookup = (name: string) => TableMeta | undefined;
+
+const MAX_HOPS = 3;
+
+/**
+ * The column a filter tests and the foreign keys leading to it. Every hop must be
+ * a foreign key of the table reached so far; unknown names throw.
+ */
+export function resolveFilterColumn(meta: TableMeta, f: RowFilter, lookup?: TableLookup): { col: ColumnMeta; hops: { fk: string; table: string; refColumn: string }[] } {
+  const hops: { fk: string; table: string; refColumn: string }[] = [];
+  let current = meta;
+  for (const fk of (f.via ?? []).slice(0, MAX_HOPS + 1)) {
+    if (hops.length === MAX_HOPS) throw new Error("Too many relations in one filter");
+    const fkCol = assertKnownColumn(current, fk);
+    if (!fkCol.references) throw new Error(`Not a foreign key: ${JSON.stringify(fk)}`);
+    const next = lookup?.(fkCol.references.table);
+    if (!next) throw new Error(`Unknown table: ${JSON.stringify(fkCol.references.table)}`);
+    hops.push({ fk, table: next.name, refColumn: fkCol.references.column });
+    current = next;
+  }
+  return { col: assertKnownColumn(current, f.column), hops };
+}
+
+/** Loads the tables that filters reach through foreign keys, for buildWhere. */
+export async function loadRelatedTables(meta: TableMeta, query: RowQuery, getTable: (name: string) => Promise<TableMeta>): Promise<TableLookup> {
+  const tables = new Map<string, TableMeta>([[meta.name, meta]]);
+  for (const f of query.filters ?? []) {
+    let current = meta;
+    for (const fk of (f.via ?? []).slice(0, MAX_HOPS)) {
+      const ref = current.columns.find((c) => c.name === fk)?.references?.table;
+      if (!ref) break;
+      if (!tables.has(ref)) tables.set(ref, await getTable(ref));
+      current = tables.get(ref)!;
+    }
+  }
+  return (name) => tables.get(name);
+}
+
 /** A filter applies when it is switched on and filled in. */
 export function isAppliedFilter(f: RowFilter): boolean {
   return !f.disabled && isActiveFilter(f);
@@ -141,7 +180,7 @@ function join(clauses: string[], match: FilterMatch): string {
  * WHERE for a query: top-level filters and groups (each between parentheses with
  * its own all/any) joined by the query's all/any, then AND the search.
  */
-export function buildWhere(engine: Engine, meta: TableMeta, query: RowQuery = {}): { where: string; params: unknown[] } {
+export function buildWhere(engine: Engine, meta: TableMeta, query: RowQuery = {}, lookup?: TableLookup): { where: string; params: unknown[] } {
   const params: unknown[] = [];
   const p = (v: unknown) => {
     params.push(v);
@@ -150,10 +189,11 @@ export function buildWhere(engine: Engine, meta: TableMeta, query: RowQuery = {}
   // Placeholders are numbered as they are written, so the SQL is built in reading
   // order: a group sits where its first filter is, with all its filters inside.
   const groupMatch = new Map((query.filterGroups ?? []).map((g) => [g.id, g.match]));
-  const items: { group?: string; filters: { f: RowFilter; col: ColumnMeta }[] }[] = [];
-  const byGroup = new Map<string, { f: RowFilter; col: ColumnMeta }[]>();
+  type Resolved = { f: RowFilter; col: ColumnMeta; hops: { fk: string; table: string; refColumn: string }[] };
+  const items: { group?: string; filters: Resolved[] }[] = [];
+  const byGroup = new Map<string, Resolved[]>();
   for (const f of query.filters ?? []) {
-    const col = assertKnownColumn(meta, f.column);
+    const { col, hops } = resolveFilterColumn(meta, f, lookup);
     if (!isAppliedFilter(f)) continue;
     if (f.group && groupMatch.has(f.group)) {
       let list = byGroup.get(f.group);
@@ -162,14 +202,20 @@ export function buildWhere(engine: Engine, meta: TableMeta, query: RowQuery = {}
         byGroup.set(f.group, list);
         items.push({ group: f.group, filters: list });
       }
-      list.push({ f, col });
+      list.push({ f, col, hops });
     } else {
-      items.push({ filters: [{ f, col }] });
+      items.push({ filters: [{ f, col, hops }] });
     }
   }
   const filterClauses = items
     .map((item) => {
-      const parts = item.filters.map(({ f, col }) => filterClause(engine, col, f, p)).filter((c): c is string => !!c);
+      const parts = item.filters
+        .map(({ f, col, hops }) => {
+          const clause = filterClause(engine, col, f, p);
+          // Through foreign keys: keep rows whose key points at a row matching the condition.
+          return clause && hops.reduceRight((inner, h) => `${quoteIdent(engine, h.fk)} IN (SELECT ${quoteIdent(engine, h.refColumn)} FROM ${quoteIdent(engine, h.table)} WHERE ${inner})`, clause);
+        })
+        .filter((c): c is string => !!c);
       if (parts.length === 0) return null;
       return item.group ? join(parts, groupMatch.get(item.group)!) : parts[0];
     })
@@ -255,8 +301,9 @@ export function describeSelect(
   engine: Engine,
   meta: TableMeta,
   opts: RowQuery & { sorts?: RowSort[]; limit: number; offset: number },
+  lookup?: TableLookup,
 ): string {
-  const { where, params } = buildWhere(engine, meta, opts);
+  const { where, params } = buildWhere(engine, meta, opts, lookup);
   const orderBy = buildOrderBy(engine, meta, opts.sorts);
   const sql = [`SELECT * FROM ${quoteIdent(engine, meta.name)}`, where, orderBy, `LIMIT ${opts.limit}`, opts.offset ? `OFFSET ${opts.offset}` : ""].filter(Boolean).join(" ");
   return `${inlineParams({ sql, params }, engine === "postgres" ? "dollar" : "question")};`;
@@ -270,8 +317,8 @@ export function aggregatesFor(type: LogicalType): AggregateFn[] {
 }
 
 /** One statement computing every requested summary over the rows a query keeps. */
-export function buildAggregate(engine: Engine, meta: TableMeta, query: RowQuery, specs: { column: string; fn: AggregateFn }[]): { sql: string; params: unknown[]; keys: string[] } {
-  const { where, params } = buildWhere(engine, meta, query);
+export function buildAggregate(engine: Engine, meta: TableMeta, query: RowQuery, specs: { column: string; fn: AggregateFn }[], lookup?: TableLookup): { sql: string; params: unknown[]; keys: string[] } {
+  const { where, params } = buildWhere(engine, meta, query, lookup);
   const keys: string[] = [];
   const exprs = specs.map((s, i) => {
     const colMeta = assertKnownColumn(meta, s.column);

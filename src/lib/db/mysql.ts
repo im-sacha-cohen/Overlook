@@ -15,7 +15,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
-import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, topDistinct } from "./where";
+import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, loadRelatedTables, topDistinct } from "./where";
 import { normalizeMysqlDateLiterals, splitSqlStatements } from "./splitSqlStatements";
 import net from "node:net";
 import { mysqlSslOptions, type AdapterConnection } from "./network";
@@ -155,7 +155,7 @@ export class MySqlAdapter implements DatabaseAdapter {
 
   async selectRows(table: string, opts: SelectOptions) {
     const meta = await this.getTable(table);
-    const { where, params } = buildWhere("mysql", meta, opts);
+    const { where, params } = buildWhere("mysql", meta, opts, await loadRelatedTables(meta, opts, (t) => this.getTable(t)));
     const orderBy = buildOrderBy("mysql", meta, opts.sorts);
     const limit = opts.limit ?? 100;
     const offset = opts.offset ?? 0;
@@ -255,7 +255,8 @@ export class MySqlAdapter implements DatabaseAdapter {
 
   async aggregate(table: string, query: RowQuery, specs: { column: string; fn: AggregateFn }[]) {
     if (specs.length === 0) return {};
-    const { sql, params, keys } = buildAggregate("mysql", await this.getTable(table), query, specs);
+    const meta = await this.getTable(table);
+    const { sql, params, keys } = buildAggregate("mysql", meta, query, specs, await loadRelatedTables(meta, query, (t) => this.getTable(t)));
     const [rows] = await this.pool.query<mysql.RowDataPacket[]>(sql, params);
     return aggregateResult(keys, rows[0]);
   }

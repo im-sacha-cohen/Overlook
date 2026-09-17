@@ -16,7 +16,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
-import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, topDistinct } from "./where";
+import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, loadRelatedTables, topDistinct } from "./where";
 import { splitSqlStatements } from "./splitSqlStatements";
 import { tlsOptions, type AdapterConnection } from "./network";
 
@@ -205,7 +205,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   async selectRows(table: string, opts: SelectOptions) {
     const meta = await this.getTable(table);
-    const { where, params } = buildWhere("postgres", meta, opts);
+    const { where, params } = buildWhere("postgres", meta, opts, await loadRelatedTables(meta, opts, (t) => this.getTable(t)));
     const orderBy = buildOrderBy("postgres", meta, opts.sorts);
     const limit = opts.limit ?? 100;
     const offset = opts.offset ?? 0;
@@ -324,7 +324,8 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   async aggregate(table: string, query: RowQuery, specs: { column: string; fn: AggregateFn }[]) {
     if (specs.length === 0) return {};
-    const { sql, params, keys } = buildAggregate("postgres", await this.getTable(table), query, specs);
+    const meta = await this.getTable(table);
+    const { sql, params, keys } = buildAggregate("postgres", meta, query, specs, await loadRelatedTables(meta, query, (t) => this.getTable(t)));
     const client = await this.pool.connect();
     try {
       return aggregateResult(keys, (await client.query(sql, params)).rows[0]);

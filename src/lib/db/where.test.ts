@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ColumnMeta, FilterGroup, LogicalType, RowFilter, TableMeta } from "../types";
-import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, dateSpanEnd, describeSelect, isActiveFilter, likeContains, opsFor, topDistinct } from "./where";
+import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, dateSpanEnd, describeSelect, isActiveFilter, likeContains, opsFor, topDistinct, type TableLookup } from "./where";
 
 function col(name: string, logicalType: LogicalType, nativeType = "text"): ColumnMeta {
   return { name, logicalType, nativeType, nullable: true, isPrimaryKey: name === "id" };
@@ -174,6 +174,57 @@ describe("buildWhere", () => {
   it("refuses unknown columns", () => {
     expect(() => where([{ column: "nope", op: "eq", value: "x" }])).toThrow(/Unknown column/);
     expect(() => where([{ column: 'x" OR 1=1 --', op: "eq", value: "x" }])).toThrow();
+  });
+});
+
+describe("filters through foreign keys", () => {
+  const client: TableMeta = { name: "client", rowCount: 0, columns: [col("id", "number"), col("nom", "text")] };
+  const dossier: TableMeta = {
+    name: "dossier",
+    rowCount: 0,
+    columns: [col("id", "number"), col("public_id", "text"), col("created_at", "date", "timestamp"), { ...col("client_id", "relation", "int"), references: { table: "client", column: "id" } }],
+  };
+  const document: TableMeta = {
+    name: "document",
+    rowCount: 0,
+    columns: [col("id", "number"), col("libelle", "text"), { ...col("dossier_id", "relation", "int"), references: { table: "dossier", column: "id" } }],
+  };
+  const lookup: TableLookup = (name) => ({ client, dossier, document })[name as "client"];
+
+  it("keeps rows whose foreign key points at a matching row", () => {
+    expect(buildWhere("postgres", document, { filters: [{ column: "public_id", via: ["dossier_id"], op: "eq", value: "ABC" }] }, lookup)).toEqual({
+      where: `WHERE "dossier_id" IN (SELECT "id" FROM "dossier" WHERE "public_id"::text = $1)`,
+      params: ["ABC"],
+    });
+  });
+
+  it("follows several hops and uses the related column's type", () => {
+    expect(buildWhere("mysql", document, { filters: [{ column: "nom", via: ["dossier_id", "client_id"], op: "contains", value: "Rue" }] }, lookup).where).toBe(
+      "WHERE `dossier_id` IN (SELECT `id` FROM `dossier` WHERE `client_id` IN (SELECT `id` FROM `client` WHERE CAST(`nom` AS CHAR) LIKE ? ESCAPE '!'))",
+    );
+    expect(buildWhere("postgres", document, { filters: [{ column: "created_at", via: ["dossier_id"], op: "eq", value: "2026-09-16" }] }, lookup).params).toEqual(["2026-09-16", "2026-09-17"]);
+  });
+
+  it("mixes with plain filters in reading order", () => {
+    const { where, params } = buildWhere(
+      "sqlite",
+      document,
+      {
+        filters: [
+          { column: "libelle", op: "contains", value: "kbis" },
+          { column: "public_id", via: ["dossier_id"], op: "in", value: "", values: ["A", "B"] },
+        ],
+      },
+      lookup,
+    );
+    expect(where).toBe(`WHERE CAST("libelle" AS TEXT) LIKE ? ESCAPE '!' AND "dossier_id" IN (SELECT "id" FROM "dossier" WHERE CAST("public_id" AS TEXT) IN (?, ?))`);
+    expect(params).toEqual(["%kbis%", "A", "B"]);
+  });
+
+  it("refuses a column that isn't a foreign key, an unknown table or column", () => {
+    expect(() => buildWhere("postgres", document, { filters: [{ column: "id", via: ["libelle"], op: "eq", value: "1" }] }, lookup)).toThrow(/Not a foreign key/);
+    expect(() => buildWhere("postgres", document, { filters: [{ column: "nope", via: ["dossier_id"], op: "eq", value: "1" }] }, lookup)).toThrow(/Unknown column/);
+    expect(() => buildWhere("postgres", document, { filters: [{ column: "public_id", via: ["dossier_id"], op: "eq", value: "1" }] })).toThrow(/Unknown table/);
   });
 });
 

@@ -1358,10 +1358,10 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   );
 
   const suggestColumnValues = useCallback(
-    async (col: ColumnMeta, query: string) => {
+    async (col: ColumnMeta, query: string, table?: string) => {
       if (!activeConnectionId || !activeTable) return [];
       try {
-        return (await api.distinctValues(activeConnectionId, activeTable, col.name, query)).values;
+        return (await api.distinctValues(activeConnectionId, table ?? activeTable, col.name, query)).values;
       } catch {
         return [];
       }
@@ -1652,12 +1652,13 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
   const equivalentSql = useMemo(() => {
     if (!activeTable || !activeConnection || columns.length === 0) return "";
     try {
-      return describeSelect(activeConnection.engine, { name: activeTable, columns, rowCount: 0 }, { filters, filterMatch, filterGroups, sorts, search: debouncedSearch, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
+      const byName = new Map(tables.map((tb) => [tb.name, tb]));
+      return describeSelect(activeConnection.engine, { name: activeTable, columns, rowCount: 0 }, { filters, filterMatch, filterGroups, sorts, search: debouncedSearch, limit: PAGE_SIZE, offset: page * PAGE_SIZE }, (name) => byName.get(name));
     } catch {
       // A saved filter can name a column that no longer exists; the grid reports that error.
       return "";
     }
-  }, [activeTable, activeConnection, filters, filterMatch, filterGroups, sorts, debouncedSearch, columns, page]);
+  }, [activeTable, activeConnection, filters, filterMatch, filterGroups, sorts, debouncedSearch, columns, page, tables]);
 
   // ---------- derived view helpers ----------
   const boardColumn = useMemo(() => {
@@ -1893,6 +1894,7 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
                   onSuggestRelation={suggestRelationValues}
                   getRelationLabel={getRelationLabel}
                   onSuggestValues={suggestColumnValues}
+                  tables={tables}
                   shortcutsEnabled={!panel && !cmdOpen && !connectionFormOpen && !dropTablesRequest && !pendingGuard && !exportModalOpen}
                 />
               </div>

@@ -14,7 +14,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
-import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, topDistinct } from "./where";
+import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, loadRelatedTables, topDistinct } from "./where";
 import { splitSqlStatements } from "./splitSqlStatements";
 import { assertNoFileAccess, resolveSqlitePath } from "./sqlitePath";
 
@@ -124,7 +124,7 @@ export class SqliteAdapter implements DatabaseAdapter {
 
   async selectRows(table: string, opts: SelectOptions) {
     const meta = await this.getTable(table);
-    const { where, params } = buildWhere("sqlite", meta, opts);
+    const { where, params } = buildWhere("sqlite", meta, opts, await loadRelatedTables(meta, opts, (t) => this.getTable(t)));
     const orderBy = buildOrderBy("sqlite", meta, opts.sorts);
     const limit = opts.limit ?? 100;
     const offset = opts.offset ?? 0;
@@ -241,7 +241,8 @@ export class SqliteAdapter implements DatabaseAdapter {
 
   async aggregate(table: string, query: RowQuery, specs: { column: string; fn: AggregateFn }[]) {
     if (specs.length === 0) return {};
-    const { sql, params, keys } = buildAggregate("sqlite", await this.getTable(table), query, specs);
+    const meta = await this.getTable(table);
+    const { sql, params, keys } = buildAggregate("sqlite", meta, query, specs, await loadRelatedTables(meta, query, (t) => this.getTable(t)));
     return aggregateResult(keys, this.db.prepare(sql).get(...params) as Record<string, unknown> | undefined);
   }
 
