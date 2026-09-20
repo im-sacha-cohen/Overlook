@@ -1,6 +1,6 @@
 import { existsSync } from "fs";
 import { Suspense } from "react";
-import { listConnections } from "@/lib/store/metadata";
+import { listConnectionFolders, listConnections } from "@/lib/store/metadata";
 import { Workspace } from "@/components/Workspace";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { LandingContent } from "./landing/LandingContent";
@@ -20,10 +20,11 @@ export default function Home() {
   }
 
   const connections = listConnections();
+  const folders = listConnectionFolders();
   return (
     <LanguageProvider>
       <Suspense fallback={null}>
-        <Workspace initialConnections={connections} dockerDetected={isRunningInDocker()} />
+        <Workspace initialConnections={connections} initialFolders={folders} dockerDetected={isRunningInDocker()} />
       </Suspense>
     </LanguageProvider>
   );

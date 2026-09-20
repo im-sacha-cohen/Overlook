@@ -25,9 +25,14 @@ interface Props {
   /** Opens a connection in a tab (or focuses the tab it already has). */
   onOpenConnection: (connectionId: string) => void;
   onAddConnection: () => void;
+  folders: string[];
+  onMoveConnection: (id: string, folder: string | null) => void;
+  onCreateFolder: (name: string) => void;
+  onRenameFolder: (from: string, to: string) => void;
+  onDeleteFolder: (name: string) => void;
 }
 
-export function ConnectionTabs({ tabs, connections, activeTabId, onSwitch, onClose, onOpenConnection, onAddConnection }: Props) {
+export function ConnectionTabs({ tabs, connections, activeTabId, onSwitch, onClose, onOpenConnection, onAddConnection, folders, onMoveConnection, onCreateFolder, onRenameFolder, onDeleteFolder }: Props) {
   const { t } = useLang();
   // The tab strip scrolls horizontally, so the menu is placed on the page, under the button.
   const [menuAt, setMenuAt] = useState<{ left: number; top: number } | null>(null);
@@ -177,6 +182,11 @@ export function ConnectionTabs({ tabs, connections, activeTabId, onSwitch, onClo
               setMenuAt(null);
               onAddConnection();
             }}
+            folders={folders}
+            onMove={onMoveConnection}
+            onCreateFolder={onCreateFolder}
+            onRenameFolder={onRenameFolder}
+            onDeleteFolder={onDeleteFolder}
           />
         </div>
       )}

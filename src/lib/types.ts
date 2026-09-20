@@ -43,8 +43,12 @@ export interface Connection {
   ssh?: SshTunnel | null;
   /** Which secrets are stored, so the form can say "saved" without seeing them. */
   storedSecrets?: (keyof ConnectionSecrets)[];
+  /** The folder it is filed under in the connection list; loose when absent. */
+  folder?: string;
   createdAt: string;
 }
+
+export const MAX_FOLDER_NAME = 60;
 
 export interface ConnectionInput extends ConnectionSecrets {
   name: string;
@@ -59,6 +63,8 @@ export interface ConnectionInput extends ConnectionSecrets {
   ssl?: boolean;
   sslMode?: SslMode;
   ssh?: SshTunnel | null;
+  /** "" takes the connection out of its folder. */
+  folder?: string;
 }
 
 export type LogicalType =

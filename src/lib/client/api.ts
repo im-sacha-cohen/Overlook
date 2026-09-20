@@ -73,7 +73,15 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  listConnections: () => request<{ connections: Connection[] }>("/api/connections"),
+  listConnections: () => request<{ connections: Connection[]; folders: string[] }>("/api/connections"),
+
+  listConnectionFolders: () => request<{ folders: string[] }>("/api/connections/folders"),
+  createConnectionFolder: (name: string) =>
+    request<{ folders: string[] }>("/api/connections/folders", { method: "POST", body: JSON.stringify({ name }) }),
+  renameConnectionFolder: (from: string, to: string) =>
+    request<{ folders: string[] }>("/api/connections/folders", { method: "PATCH", body: JSON.stringify({ from, to }) }),
+  deleteConnectionFolder: (name: string) =>
+    request<{ folders: string[] }>("/api/connections/folders", { method: "DELETE", body: JSON.stringify({ name }) }),
   createConnection: (input: ConnectionInput) =>
     request<{ connection: Connection }>("/api/connections", {
       method: "POST",

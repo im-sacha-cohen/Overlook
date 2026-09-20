@@ -61,6 +61,7 @@ export function buildBundle(ids: string[], passphrase: string | null): Connectio
         ssl: !!c.ssl,
         sslMode: c.sslMode,
         ssh: c.ssh ?? undefined,
+        folder: c.folder,
         password: key && password ? encryptWithKey(password, key) : undefined,
         secrets: key && secrets ? encryptWithKey(secrets, key) : undefined,
         prefs: Object.keys(prefs).length > 0 ? prefs : undefined,
@@ -120,6 +121,7 @@ export function importBundle(bundle: ConnectionBundle, indices: number[], passph
       ssl: c.ssl,
       sslMode: c.sslMode,
       ssh: c.ssh ?? null,
+      folder: c.folder,
       password: passwords[i],
       ...secrets[i],
     });

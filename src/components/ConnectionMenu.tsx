@@ -48,12 +48,171 @@ interface Props {
   onAddNew: () => void;
   onEdit?: (id: string) => void;
   onDelete?: (id: string) => void;
+  /** Folders the connections are filed under, in their order. */
+  folders?: string[];
+  onMove?: (id: string, folder: string | null) => void;
+  onCreateFolder?: (name: string) => void;
+  onRenameFolder?: (from: string, to: string) => void;
+  onDeleteFolder?: (name: string) => void;
+}
+
+const COLLAPSED_KEY = "overlook:collapsedConnectionFolders";
+
+function readCollapsed(): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "[]") as unknown;
+    return Array.isArray(raw) ? raw.filter((n): n is string => typeof n === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 /** The list of saved connections with their reachability, used by the switcher and the "+" tab. */
-export function ConnectionMenu({ connections, activeId, onPick, onAddNew, onEdit, onDelete }: Props) {
+export function ConnectionMenu({ connections, activeId, onPick, onAddNew, onEdit, onDelete, folders = [], onMove, onCreateFolder, onRenameFolder, onDeleteFolder }: Props) {
   const { t } = useLang();
   const health = useConnectionHealth(connections, t("connBadge.healthTimeout"));
+  const [collapsed, setCollapsed] = useState<string[]>([]);
+  // Which connection's "move to" menu is open, and the folder being named.
+  const [moving, setMoving] = useState<string | null>(null);
+  const [naming, setNaming] = useState<{ target: "new" | string; name: string; forConnection?: string } | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
+
+  useEffect(() => setCollapsed(readCollapsed()), []);
+
+  function toggleFolder(name: string) {
+    setCollapsed((prev) => {
+      const next = prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name];
+      try {
+        localStorage.setItem(COLLAPSED_KEY, JSON.stringify(next));
+      } catch {
+        // A folder simply reopens next time if the browser refuses storage.
+      }
+      return next;
+    });
+  }
+
+  function submitName() {
+    if (!naming) return;
+    const name = naming.name.trim();
+    setNaming(null);
+    if (!name) return;
+    if (naming.target === "new") {
+      onCreateFolder?.(name);
+      if (naming.forConnection) onMove?.(naming.forConnection, name);
+    } else if (name !== naming.target) {
+      onRenameFolder?.(naming.target, name);
+    }
+  }
+
+  const nameInput = (placeholder: string) =>
+    naming && (
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submitName();
+        }}
+        style={{ padding: "4px 6px" }}
+      >
+        <input
+          autoFocus
+          value={naming.name}
+          placeholder={placeholder}
+          onChange={(e) => setNaming({ ...naming, name: e.target.value })}
+          onBlur={submitName}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setNaming(null);
+          }}
+          style={{ width: "100%", height: 28, padding: "0 8px", border: "1px solid var(--accent-border)", borderRadius: 7, fontSize: 13, outline: "none" }}
+        />
+      </form>
+    );
+
+  const grouped = folders.map((name) => ({ name, items: connections.filter((c) => c.folder === name) }));
+  const loose = connections.filter((c) => !c.folder || !folders.includes(c.folder));
+
+  function connectionRow(c: Connection, inFolder: boolean) {
+    const isActive = activeId === c.id;
+    return (
+      <div key={c.id} style={{ position: "relative" }}>
+        <div
+          className="om-conn-row"
+          data-active={isActive || undefined}
+          draggable={!!onMove}
+          onDragStart={(e) => e.dataTransfer.setData("text/plain", c.id)}
+          onClick={() => onPick(c.id)}
+          style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", paddingLeft: inFolder ? 22 : 10, borderRadius: 8, cursor: "pointer" }}
+        >
+          <HealthDot health={health[c.id]} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: isActive ? 600 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
+            <div style={{ fontSize: 11.5, color: "#a8a39a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {ENGINE_LABELS[c.engine]} · {c.database}
+            </div>
+          </div>
+          {(onEdit || onDelete || onMove) && (
+            <div className="om-conn-actions" style={{ display: "flex", gap: 2 }}>
+              {onMove && (
+                <IconButton title={t("connBadge.moveTo")} onClick={() => setMoving(moving === c.id ? null : c.id)}>
+                  <FolderIcon />
+                </IconButton>
+              )}
+              {onEdit && (
+                <IconButton title={t("connBadge.edit")} onClick={() => onEdit(c.id)}>
+                  ✎
+                </IconButton>
+              )}
+              {onDelete && (
+                <IconButton
+                  title={t("connBadge.delete")}
+                  onClick={() => {
+                    if (window.confirm(t("connBadge.confirmDelete", { name: c.name }))) onDelete(c.id);
+                  }}
+                >
+                  ✕
+                </IconButton>
+              )}
+            </div>
+          )}
+          <EnvPill env={c.envType} small />
+        </div>
+        {moving === c.id && onMove && (
+          <div
+            onMouseLeave={() => setMoving(null)}
+            style={{ position: "absolute", right: 8, top: 36, zIndex: 60, minWidth: 180, padding: 4, background: "var(--panel-bg)", border: "1px solid #e5e2db", borderRadius: 9, boxShadow: "var(--shadow-pop)" }}
+          >
+            <div style={{ padding: "5px 9px 6px", fontSize: 11, color: "#a8a39a" }}>{t("connBadge.moveTo")}</div>
+            {folders.map((name) => (
+              <MenuLine
+                key={name}
+                label={`${c.folder === name ? "✓ " : ""}${name}`}
+                onClick={() => {
+                  onMove(c.id, name);
+                  setMoving(null);
+                }}
+              />
+            ))}
+            {c.folder && (
+              <MenuLine
+                label={t("connBadge.noFolder")}
+                onClick={() => {
+                  onMove(c.id, null);
+                  setMoving(null);
+                }}
+              />
+            )}
+            <MenuLine
+              label={t("connBadge.newFolder")}
+              accent
+              onClick={() => {
+                setMoving(null);
+                setNaming({ target: "new", name: "", forConnection: c.id });
+              }}
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -74,58 +233,125 @@ export function ConnectionMenu({ connections, activeId, onPick, onAddNew, onEdit
         {t("connBadge.connections")}
       </div>
       {connections.length === 0 && <div style={{ padding: "10px", fontSize: 12.5, color: "#a8a39a" }}>{t("connBadge.noConnectionsSaved")}</div>}
-      {connections.map((c) => {
-        const isActive = activeId === c.id;
+
+      {grouped.map(({ name, items }) => {
+        const isCollapsed = collapsed.includes(name);
         return (
           <div
-            key={c.id}
-            className="om-conn-row"
-            data-active={isActive || undefined}
-            onClick={() => onPick(c.id)}
-            style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, cursor: "pointer" }}
+            key={name}
+            onDragOver={onMove ? (e) => {
+              e.preventDefault();
+              setDragOver(name);
+            } : undefined}
+            onDragLeave={() => setDragOver((n) => (n === name ? null : n))}
+            onDrop={onMove ? (e) => {
+              e.preventDefault();
+              setDragOver(null);
+              const id = e.dataTransfer.getData("text/plain");
+              if (id) onMove(id, name);
+            } : undefined}
+            style={{ borderRadius: 8, background: dragOver === name ? "var(--accent-bg)" : undefined }}
           >
-            <HealthDot health={health[c.id]} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: isActive ? 600 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
-              <div style={{ fontSize: 11.5, color: "#a8a39a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {ENGINE_LABELS[c.engine]} · {c.database}
-              </div>
-            </div>
-            {(onEdit || onDelete) && (
-              <div className="om-conn-actions" style={{ display: "flex", gap: 2 }}>
-                {onEdit && (
-                  <IconButton
-                    title={t("connBadge.edit")}
-                    onClick={() => onEdit(c.id)}
-                  >
-                    ✎
-                  </IconButton>
-                )}
-                {onDelete && (
-                  <IconButton
-                    title={t("connBadge.delete")}
-                    onClick={() => {
-                      if (window.confirm(t("connBadge.confirmDelete", { name: c.name }))) onDelete(c.id);
-                    }}
-                  >
-                    ✕
-                  </IconButton>
+            {naming?.target === name ? (
+              nameInput(name)
+            ) : (
+              <div className="om-conn-row" onClick={() => toggleFolder(name)} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 10px", borderRadius: 8, cursor: "pointer" }}>
+                <span style={{ fontSize: 9, color: "#a8a39a", width: 8 }}>{isCollapsed ? "▸" : "▾"}</span>
+                <FolderIcon />
+                <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: "#6f6b62", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "#b4afa5" }}>{items.length}</span>
+                {(onRenameFolder || onDeleteFolder) && (
+                  <div className="om-conn-actions" style={{ display: "flex", gap: 2 }}>
+                    {onRenameFolder && (
+                      <IconButton title={t("connBadge.renameFolder")} onClick={() => setNaming({ target: name, name })}>
+                        ✎
+                      </IconButton>
+                    )}
+                    {onDeleteFolder && (
+                      <IconButton
+                        title={t("connBadge.deleteFolder")}
+                        onClick={() => {
+                          if (window.confirm(t("connBadge.confirmDeleteFolder", { name }))) onDeleteFolder(name);
+                        }}
+                      >
+                        ✕
+                      </IconButton>
+                    )}
+                  </div>
                 )}
               </div>
             )}
-            <EnvPill env={c.envType} small />
+            {!isCollapsed && items.map((c) => connectionRow(c, true))}
+            {!isCollapsed && items.length === 0 && (
+              <div style={{ padding: "6px 10px 8px 30px", fontSize: 11.5, color: "#b4afa5" }}>{t("connBadge.emptyFolder")}</div>
+            )}
           </div>
         );
       })}
+
+      {grouped.length > 0 && loose.length > 0 && (
+        <div
+          onDragOver={onMove ? (e) => {
+            e.preventDefault();
+            setDragOver("");
+          } : undefined}
+          onDragLeave={() => setDragOver((n) => (n === "" ? null : n))}
+          onDrop={onMove ? (e) => {
+            e.preventDefault();
+            setDragOver(null);
+            const id = e.dataTransfer.getData("text/plain");
+            if (id) onMove(id, null);
+          } : undefined}
+          style={{ padding: "8px 10px 4px", fontSize: 11, color: "#b4afa5", borderRadius: 8, background: dragOver === "" ? "var(--accent-bg)" : undefined }}
+        >
+          {t("connBadge.noFolder")}
+        </div>
+      )}
+      {loose.map((c) => connectionRow(c, false))}
+
+      {naming?.target === "new" && nameInput(t("connBadge.folderNamePlaceholder"))}
+
       <div style={{ height: 1, background: "#f0eee9", margin: "6px 4px" }} />
-      <button
-        onClick={onAddNew}
-        className="om-conn-row"
-        style={{ width: "100%", textAlign: "left", padding: "8px 10px", background: "transparent", border: "none", borderRadius: 8, color: "var(--accent)", fontWeight: 500, cursor: "pointer", fontSize: 13 }}
-      >
-        {t("connBadge.newConnection")}
-      </button>
+      <div style={{ display: "flex", gap: 4 }}>
+        <button
+          onClick={onAddNew}
+          className="om-conn-row"
+          style={{ flex: 1, textAlign: "left", padding: "8px 10px", background: "transparent", border: "none", borderRadius: 8, color: "var(--accent)", fontWeight: 500, cursor: "pointer", fontSize: 13 }}
+        >
+          {t("connBadge.newConnection")}
+        </button>
+        {onCreateFolder && (
+          <button
+            onClick={() => setNaming({ target: "new", name: "" })}
+            className="om-conn-row"
+            style={{ flex: "none", padding: "8px 10px", background: "transparent", border: "none", borderRadius: 8, color: "#8b877e", cursor: "pointer", fontSize: 13 }}
+          >
+            {t("connBadge.newFolder")}
+          </button>
+        )}
+      </div>
     </div>
+  );
+}
+
+function MenuLine({ label, onClick, accent }: { label: string; onClick: () => void; accent?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 9px", background: "transparent", border: "none", borderRadius: 6, fontSize: 12.5, color: accent ? "var(--accent)" : "var(--fg)", cursor: "pointer" }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "#f4f2ed")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+    >
+      {label}
+    </button>
+  );
+}
+
+function FolderIcon() {
+  return (
+    <svg aria-hidden width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" style={{ flex: "none", color: "#b4afa5" }}>
+      <path d="M2 4.5a1 1 0 0 1 1-1h3l1.5 2H13a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z" />
+    </svg>
   );
 }
 

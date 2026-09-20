@@ -14,9 +14,14 @@ interface Props {
   onAddNew: () => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
+  folders: string[];
+  onMoveConnection: (id: string, folder: string | null) => void;
+  onCreateFolder: (name: string) => void;
+  onRenameFolder: (from: string, to: string) => void;
+  onDeleteFolder: (name: string) => void;
 }
 
-export function ConnectionBadge({ connections, activeConnection, onSwitch, onAddNew, onEdit, onDelete }: Props) {
+export function ConnectionBadge({ connections, activeConnection, onSwitch, onAddNew, onEdit, onDelete, folders, onMoveConnection, onCreateFolder, onRenameFolder, onDeleteFolder }: Props) {
   const { t } = useLang();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -93,6 +98,11 @@ export function ConnectionBadge({ connections, activeConnection, onSwitch, onAdd
               setOpen(false);
             }}
             onDelete={onDelete}
+            folders={folders}
+            onMove={onMoveConnection}
+            onCreateFolder={onCreateFolder}
+            onRenameFolder={onRenameFolder}
+            onDeleteFolder={onDeleteFolder}
           />
         </div>
       )}

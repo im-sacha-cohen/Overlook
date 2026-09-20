@@ -1,9 +1,9 @@
-import { listConnections, createConnection } from "@/lib/store/metadata";
+import { listConnections, createConnection, listConnectionFolders } from "@/lib/store/metadata";
 import { errorResponse } from "@/lib/api/respond";
 import type { ConnectionInput } from "@/lib/types";
 
 export async function GET() {
-  return Response.json({ connections: listConnections() });
+  return Response.json({ connections: listConnections(), folders: listConnectionFolders() });
 }
 
 export async function POST(request: Request) {

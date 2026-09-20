@@ -26,6 +26,8 @@ export interface BundleConnection {
   prefs?: Record<string, TablePrefs>;
   // Connection-level preferences (auto-refresh…).
   connectionPrefs?: ConnectionPrefs;
+  // The folder it was filed under in the connection list.
+  folder?: string;
 }
 
 export interface BundleEncryption {
@@ -116,6 +118,7 @@ export function parseBundle(raw: unknown): ConnectionBundle {
       ssh,
       password,
       secrets,
+      folder: optionalString(c.folder)?.slice(0, 60),
       prefs: sanitizePrefsMap(c.prefs),
       connectionPrefs: c.connectionPrefs ? sanitizeConnectionPrefs(c.connectionPrefs) : undefined,
     };

@@ -11,6 +11,11 @@ interface Props {
   onAddConnection: () => void;
   onEditConnection: (id: string) => void;
   onDeleteConnection: (id: string) => void;
+  folders: string[];
+  onMoveConnection: (id: string, folder: string | null) => void;
+  onCreateFolder: (name: string) => void;
+  onRenameFolder: (from: string, to: string) => void;
+  onDeleteFolder: (name: string) => void;
   tableLabel: string;
   rowCountLabel: string;
   dir: "doc" | "query";
@@ -34,6 +39,11 @@ export function TopBar({
   onOpenCmd,
   autoRefresh,
   onToggleAutoRefresh,
+  folders,
+  onMoveConnection,
+  onCreateFolder,
+  onRenameFolder,
+  onDeleteFolder,
 }: Props) {
   const { t } = useLang();
   const btnStyle = (on: boolean): React.CSSProperties => ({
@@ -57,6 +67,11 @@ export function TopBar({
         onAddNew={onAddConnection}
         onEdit={onEditConnection}
         onDelete={onDeleteConnection}
+        folders={folders}
+        onMoveConnection={onMoveConnection}
+        onCreateFolder={onCreateFolder}
+        onRenameFolder={onRenameFolder}
+        onDeleteFolder={onDeleteFolder}
       />
       {tableLabel && (
         <>

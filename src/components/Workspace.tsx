@@ -59,6 +59,7 @@ const SLOW_CONNECTION_MS = 3000;
 
 interface Props {
   initialConnections: Connection[];
+  initialFolders: string[];
   dockerDetected?: boolean;
 }
 
@@ -87,13 +88,14 @@ function GridSkeleton() {
   );
 }
 
-export function Workspace({ initialConnections, dockerDetected }: Props) {
+export function Workspace({ initialConnections, initialFolders, dockerDetected }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { t } = useLang();
 
   const [connections, setConnections] = useState<Connection[]>(initialConnections);
+  const [folders, setFolders] = useState<string[]>(initialFolders);
   const [activeConnectionId, setActiveConnectionId] = useState<string | null>(() => {
     const fromUrl = searchParams.get("c");
     if (fromUrl && initialConnections.some((c) => c.id === fromUrl)) return fromUrl;
@@ -742,9 +744,30 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
 
   // ---------- connection actions ----------
   async function refreshConnections() {
-    const { connections } = await api.listConnections();
+    const { connections, folders } = await api.listConnections();
     setConnections(connections);
+    setFolders(folders);
     return connections;
+  }
+
+  // ---------- connection folders ----------
+  async function moveConnection(id: string, folder: string | null) {
+    setConnections((prev) => prev.map((c) => (c.id === id ? { ...c, folder: folder ?? undefined } : c)));
+    try {
+      await api.updateConnection(id, { folder: folder ?? "" });
+    } catch (err) {
+      flash(err instanceof Error ? err.message : String(err));
+      refreshConnections().catch(() => {});
+    }
+  }
+
+  async function runFolderAction(action: Promise<{ folders: string[] }>) {
+    try {
+      setFolders((await action).folders);
+      await refreshConnections();
+    } catch (err) {
+      flash(err instanceof Error ? err.message : String(err));
+    }
   }
 
   // ---------- app tabs ----------
@@ -1758,6 +1781,11 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
         onClose={closeTab}
         onOpenConnection={switchToConnection}
         onAddConnection={() => { setEditingConnectionId(null); setConnectionFormOpen(true); }}
+        folders={folders}
+        onMoveConnection={moveConnection}
+        onCreateFolder={(name) => runFolderAction(api.createConnectionFolder(name))}
+        onRenameFolder={(from, to) => runFolderAction(api.renameConnectionFolder(from, to))}
+        onDeleteFolder={(name) => runFolderAction(api.deleteConnectionFolder(name))}
       />
 
       <TopBar
@@ -1768,6 +1796,11 @@ export function Workspace({ initialConnections, dockerDetected }: Props) {
         onEditConnection={(id) => { setEditingConnectionId(id); setConnectionFormOpen(true); }}
         onDeleteConnection={handleDeleteConnection}
         tableLabel={activeTable ?? ""}
+        folders={folders}
+        onMoveConnection={moveConnection}
+        onCreateFolder={(name) => runFolderAction(api.createConnectionFolder(name))}
+        onRenameFolder={(from, to) => runFolderAction(api.renameConnectionFolder(from, to))}
+        onDeleteFolder={(name) => runFolderAction(api.deleteConnectionFolder(name))}
         rowCountLabel={activeTable ? `${rows.length}/${total}` : ""}
         dir={dir}
         onSetDir={setDir}

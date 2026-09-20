@@ -5,7 +5,7 @@ import Database from "better-sqlite3";
 import { dataDir } from "./paths";
 import { encrypt, decrypt } from "./crypto";
 import { resolveSqlitePath } from "../db/sqlitePath";
-import { SECRET_FIELDS, SSL_MODES, type Connection, type ConnectionInput, type ConnectionSecrets, type SshTunnel, type SslMode } from "../types";
+import { MAX_FOLDER_NAME, SECRET_FIELDS, SSL_MODES, type Connection, type ConnectionInput, type ConnectionSecrets, type SshTunnel, type SslMode } from "../types";
 
 let db: Database.Database | null = null;
 
@@ -86,6 +86,7 @@ export function getDb(): Database.Database {
   const columns = new Set((db.prepare("PRAGMA table_info(connections)").all() as { name: string }[]).map((c) => c.name));
   if (!columns.has("options")) db.exec("ALTER TABLE connections ADD COLUMN options TEXT");
   if (!columns.has("secretsEnc")) db.exec("ALTER TABLE connections ADD COLUMN secretsEnc TEXT");
+  if (!columns.has("folder")) db.exec("ALTER TABLE connections ADD COLUMN folder TEXT");
   return db;
 }
 
@@ -158,6 +159,7 @@ interface ConnectionRow {
   ssl: number;
   options: string | null;
   secretsEnc: string | null;
+  folder: string | null;
   createdAt: string;
 }
 
@@ -177,8 +179,73 @@ function toPublic(row: ConnectionRow): Connection {
     sslMode,
     ssh: options.ssh ?? null,
     storedSecrets: SECRET_FIELDS.filter((f) => parseSecrets(row.secretsEnc)[f]),
+    ...(row.folder ? { folder: row.folder } : {}),
     createdAt: row.createdAt,
   };
+}
+
+/** A folder name as it is stored: trimmed and bounded, null when there is none. */
+export function folderName(raw: unknown): string | null {
+  const name = typeof raw === "string" ? raw.trim().slice(0, MAX_FOLDER_NAME) : "";
+  return name || null;
+}
+
+const FOLDERS_KEY = "connectionFolders";
+
+function storedFolders(): string[] {
+  const row = getDb().prepare("SELECT value FROM app_settings WHERE key = ?").get(FOLDERS_KEY) as { value: string } | undefined;
+  try {
+    const list = row ? (JSON.parse(row.value) as unknown) : [];
+    return Array.isArray(list) ? list.filter((n): n is string => typeof n === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeFolders(names: string[]): void {
+  getDb()
+    .prepare("INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
+    .run(FOLDERS_KEY, JSON.stringify(names.slice(0, 200)));
+}
+
+/** Folders in the order they were created, including any a connection still names. */
+export function listConnectionFolders(): string[] {
+  const names = storedFolders();
+  const used = (getDb().prepare("SELECT DISTINCT folder FROM connections WHERE folder IS NOT NULL AND folder <> ''").all() as { folder: string }[]).map((r) => r.folder);
+  return [...names, ...used.filter((n) => !names.includes(n)).sort((a, b) => a.localeCompare(b))];
+}
+
+export function createConnectionFolder(raw: unknown): string[] {
+  const name = folderName(raw);
+  if (!name) throw new Error("Le dossier a besoin d'un nom");
+  const names = listConnectionFolders();
+  if (!names.includes(name)) writeFolders([...names, name]);
+  return listConnectionFolders();
+}
+
+export function renameConnectionFolder(from: unknown, to: unknown): string[] {
+  const oldName = folderName(from);
+  const newName = folderName(to);
+  if (!oldName || !newName) throw new Error("Le dossier a besoin d'un nom");
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare("UPDATE connections SET folder = ? WHERE folder = ?").run(newName, oldName);
+    const names = listConnectionFolders().map((n) => (n === oldName ? newName : n));
+    writeFolders([...new Set(names)]);
+  })();
+  return listConnectionFolders();
+}
+
+/** Removes the folder; the connections inside it come back to the top level. */
+export function deleteConnectionFolder(raw: unknown): string[] {
+  const name = folderName(raw);
+  if (!name) return listConnectionFolders();
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare("UPDATE connections SET folder = NULL WHERE folder = ?").run(name);
+    writeFolders(storedFolders().filter((n) => n !== name));
+  })();
+  return listConnectionFolders();
 }
 
 export function listConnections(): Connection[] {
@@ -215,8 +282,8 @@ export function createConnection(input: ConnectionInput): Connection {
   const createdAt = new Date().toISOString();
   getDb()
     .prepare(
-      `INSERT INTO connections (id, name, envType, engine, host, port, database, user, passwordEnc, ssl, options, secretsEnc, createdAt)
-       VALUES (@id, @name, @envType, @engine, @host, @port, @database, @user, @passwordEnc, @ssl, @options, @secretsEnc, @createdAt)`
+      `INSERT INTO connections (id, name, envType, engine, host, port, database, user, passwordEnc, ssl, options, secretsEnc, folder, createdAt)
+       VALUES (@id, @name, @envType, @engine, @host, @port, @database, @user, @passwordEnc, @ssl, @options, @secretsEnc, @folder, @createdAt)`
     )
     .run({
       id,
@@ -229,6 +296,7 @@ export function createConnection(input: ConnectionInput): Connection {
       user: input.user ?? null,
       passwordEnc: input.password ? encrypt(input.password) : null,
       ssl: sslModeOf(input, "disable") !== "disable" ? 1 : 0,
+      folder: folderName(input.folder),
       options: JSON.stringify({ sslMode: sslModeOf(input, "disable"), ssh: sanitizeSsh(input.ssh) }),
       secretsEnc: encryptSecrets(mergeSecrets({}, input)),
       createdAt,
@@ -255,6 +323,7 @@ export function updateConnection(id: string, input: Partial<ConnectionInput>): C
     ssl: 0,
     options: existing.options,
     secretsEnc: encryptSecrets(mergeSecrets(parseSecrets(existing.secretsEnc), input)),
+    folder: input.folder !== undefined ? folderName(input.folder) : existing.folder,
   };
   const oldOptions = parseOptions(existing.options);
   const sslMode = sslModeOf(input, oldOptions.sslMode ?? (existing.ssl ? "require" : "disable"));
@@ -263,7 +332,7 @@ export function updateConnection(id: string, input: Partial<ConnectionInput>): C
   getDb()
     .prepare(
       `UPDATE connections SET name=@name, envType=@envType, engine=@engine, host=@host, port=@port,
-       database=@database, user=@user, passwordEnc=@passwordEnc, ssl=@ssl, options=@options, secretsEnc=@secretsEnc WHERE id=@id`
+       database=@database, user=@user, passwordEnc=@passwordEnc, ssl=@ssl, options=@options, secretsEnc=@secretsEnc, folder=@folder WHERE id=@id`
     )
     .run({ ...next, id });
   return getConnection(id);
