@@ -6,6 +6,10 @@ import {
   assertValidIdentifier,
   ReadOnlyViolation,
   ScriptSessionLost,
+  SCRIPT_BATCH_MS,
+  SCRIPT_BATCH_SIZE,
+  groupStatements,
+  runOneByOne,
   coerceRowValues,
   previewWithAdapter,
   type DatabaseAdapter,
@@ -17,7 +21,7 @@ import {
   type WritePreview,
 } from "./adapter";
 import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, distinctQueryTables, distinctRows, loadRelatedTables, topDistinct } from "./where";
-import { normalizeMysqlDateLiterals, splitSqlStatements } from "./splitSqlStatements";
+import { leadingKeyword, normalizeMysqlDateLiterals, splitSqlStatements, transactionControl } from "./splitSqlStatements";
 import net from "node:net";
 import { mysqlSslOptions, type AdapterConnection } from "./network";
 
@@ -52,6 +56,10 @@ function parseEnumOptions(columnType: string): string[] {
 function q(ident: string): string {
   assertValidIdentifier(ident);
   return `\`${ident}\``;
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 export class MySqlAdapter implements DatabaseAdapter {
@@ -435,19 +443,102 @@ export class MySqlAdapter implements DatabaseAdapter {
     let lost: Error | null = null;
     connection.on("error", (err: Error) => (lost = err));
     connection.on("end", () => (lost ??= new Error("fermée par le serveur")));
-    return {
+    // Batches ride on autocommit off plus a COMMIT now and then, rather than START
+    // TRANSACTION, which would release the LOCK TABLES dumps put around their INSERTs.
+    await connection.query("SET autocommit = 0");
+    // The script's own transaction, or its own autocommit off: it commits, not us.
+    let scriptTransaction = false;
+    let scriptAutocommitOff = false;
+    let pending = 0;
+    let batchStarted = Date.now();
+    const scriptInCharge = () => scriptTransaction || scriptAutocommitOff;
+    // Set once a rollback turns out not to undo everything (MyISAM): groups can't be replayed then.
+    let nonTransactional = false;
+    const query = async (sql: string) => {
+      if (lost) throw new ScriptSessionLost(lost, pending);
+      try {
+        return (await connection.query(sql))[0];
+      } catch (err) {
+        if (lost || (err as { fatal?: boolean }).fatal) throw new ScriptSessionLost(lost ?? err, pending);
+        throw err;
+      }
+    };
+    const commit = async () => {
+      if (pending > 0) await query("COMMIT");
+      pending = 0;
+      batchStarted = Date.now();
+    };
+    const counted = async (statements: number) => {
+      if (scriptInCharge()) return;
+      pending += statements;
+      if (pending >= SCRIPT_BATCH_SIZE || Date.now() - batchStarted > SCRIPT_BATCH_MS) await commit();
+    };
+    const session: ScriptSession = {
+      runMany: async (statements) => {
+        const results: unknown[] = [];
+        for (const { start, end, together } of groupStatements(statements, leadingKeyword)) {
+          const group = statements.slice(start, end);
+          if (together && !nonTransactional) {
+            try {
+              await query(`SAVEPOINT overlook_group;\n${group.map(normalizeMysqlDateLiterals).join("\n;\n")}\n;\nRELEASE SAVEPOINT overlook_group`);
+              results.push(...group.map(() => null));
+              await counted(group.length);
+              continue;
+            } catch (err) {
+              if (err instanceof ScriptSessionLost) throw err;
+              if ((err as { errno?: number }).errno === 1213) {
+                // A deadlock rolled the whole transaction back: stop, saying what was lost.
+                throw new Error(`${errorText(err)} (MySQL a annulé le lot en cours : les ${pending + group.length} dernière(s) instruction(s) ne sont pas enregistrées)`);
+              }
+              // One of them failed: undo the group, then run it one by one to know which.
+              const undo = (await query("ROLLBACK TO SAVEPOINT overlook_group")) as { warningStatus?: number };
+              if (undo?.warningStatus) {
+                // Part of the group stayed in a non-transactional table: running it again would double it.
+                nonTransactional = true;
+                results.push(...group.map(() => new Error(`${errorText(err)} (groupe d'instructions interrompu sur une table non transactionnelle : certaines ont pu s'exécuter, à vérifier)`)));
+                continue;
+              }
+            }
+          }
+          results.push(...(await runOneByOne(session, group)));
+        }
+        return results;
+      },
       run: async (sql) => {
-        if (lost) throw new ScriptSessionLost(lost);
+        const control = transactionControl(sql);
+        if (control && !scriptInCharge()) await commit();
         try {
-          await connection.query(normalizeMysqlDateLiterals(sql));
+          await query(normalizeMysqlDateLiterals(sql));
         } catch (err) {
-          if (lost || (err as { fatal?: boolean }).fatal) throw new ScriptSessionLost(lost ?? err);
+          // A deadlock rolls the whole transaction back, not just the statement.
+          if ((err as { errno?: number }).errno === 1213 && pending > 0) {
+            const lostCount = pending;
+            pending = 0;
+            throw new Error(`${errorText(err)} (MySQL a aussi annulé les ${lostCount} instruction(s) précédente(s) de son lot)`);
+          }
           throw err;
         }
+        if (control === "begin") scriptTransaction = true;
+        else if (control === "end") scriptTransaction = false;
+        else if (control === "autocommitOff") scriptAutocommitOff = true;
+        else if (control === "autocommitOn") {
+          // Back to one commit per statement for the script; we keep batching.
+          scriptAutocommitOff = false;
+          await query("SET autocommit = 0");
+        }
+        if (!control) await counted(1);
       },
-      // Thrown away rather than handed back to the pool: a dump's SET FOREIGN_KEY_CHECKS=0 would stick to it.
-      close: async () => connection.destroy(),
+      close: async () => {
+        try {
+          // What the script left uncommitted is rolled back, as the mysql client does on exit.
+          if (!lost) await query(scriptInCharge() ? "ROLLBACK" : "COMMIT");
+        } finally {
+          // Thrown away rather than handed back to the pool: a dump's SET FOREIGN_KEY_CHECKS=0 would stick to it.
+          connection.destroy();
+        }
+      },
     };
+    return session;
   }
 
   async close(): Promise<void> {

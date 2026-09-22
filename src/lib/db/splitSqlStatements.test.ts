@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { leadingKeyword, splitSqlStatements, SqlStatementSplitter } from "./splitSqlStatements";
+import { leadingKeyword, splitSqlStatements, SqlStatementSplitter, transactionControl } from "./splitSqlStatements";
 
 const SCRIPT = `-- header; with a semicolon
 CREATE TABLE "a;b" (id int, label text);
@@ -74,5 +74,19 @@ describe("leadingKeyword", () => {
     const started = Date.now();
     leadingKeyword(" ".repeat(50_000) + "/* ".repeat(5_000) + "(");
     expect(Date.now() - started).toBeLessThan(200);
+  });
+});
+
+describe("transactionControl", () => {
+  it("spots a script's own transactions", () => {
+    expect(transactionControl("/* x */ START TRANSACTION")).toBe("begin");
+    expect(transactionControl("begin")).toBe("begin");
+    expect(transactionControl("COMMIT")).toBe("end");
+    expect(transactionControl("ROLLBACK")).toBe("end");
+    expect(transactionControl("ROLLBACK TO SAVEPOINT a")).toBeNull();
+    expect(transactionControl("SET autocommit=0")).toBe("autocommitOff");
+    expect(transactionControl("SET @@session.autocommit = 1")).toBe("autocommitOn");
+    expect(transactionControl("INSERT INTO commits VALUES (1)")).toBeNull();
+    expect(transactionControl("SET NAMES utf8mb4")).toBeNull();
   });
 });

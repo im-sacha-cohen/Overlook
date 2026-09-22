@@ -138,10 +138,31 @@ export class SqlStatementSplitter {
   }
 }
 
-/** The statement's first word, past any leading comments, in upper case. Each alternative matches one way only, so it can't backtrack for long. */
+/** Whitespace and comments a statement may start with. Each alternative matches one way only, so it can't backtrack for long. */
+const LEADING_NOISE = /^(?:\s|--[^\n]*|\/\*(?:[^*]|\*(?!\/))*\*\/)*/;
+
+/** The statement's first word, past any leading comments, in upper case. */
 export function leadingKeyword(sql: string): string {
-  const match = /^(?:\s|--[^\n]*|\/\*(?:[^*]|\*(?!\/))*\*\/)*([A-Za-z]+)/.exec(sql);
-  return match ? match[1].toUpperCase() : "";
+  const match = /^[A-Za-z]+/.exec(sql.slice(LEADING_NOISE.exec(sql)![0].length));
+  return match ? match[0].toUpperCase() : "";
+}
+
+export type TransactionControl = "begin" | "end" | "autocommitOff" | "autocommitOn";
+
+/**
+ * Whether the statement opens or ends a transaction, or switches autocommit
+ * (MySQL): a script's own transactions are left to it, not batched.
+ */
+export function transactionControl(sql: string): TransactionControl | null {
+  const start = LEADING_NOISE.exec(sql)![0].length;
+  const code = sql.slice(start, start + 80);
+  if (/^(BEGIN|START\s+TRANSACTION)\b/i.test(code)) return "begin";
+  if (/^(COMMIT|END|ABORT)\b/i.test(code)) return "end";
+  // ROLLBACK TO SAVEPOINT stays inside the transaction.
+  if (/^ROLLBACK\b/i.test(code) && !/^ROLLBACK\s+(WORK\s+|TRANSACTION\s+)?TO\b/i.test(code)) return "end";
+  const autocommit = /^SET\s+(?:@@(?:SESSION\.)?|SESSION\s+)?autocommit\s*(?:=|TO)\s*'?(\w+)/i.exec(code);
+  if (autocommit) return /^(0|off|false)$/i.test(autocommit[1]) ? "autocommitOff" : "autocommitOn";
+  return null;
 }
 
 // MySQL rejects ISO 8601 datetime literals with a trailing "Z" (and some

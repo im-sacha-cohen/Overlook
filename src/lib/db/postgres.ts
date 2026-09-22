@@ -7,6 +7,10 @@ import {
   primaryKeyOf,
   ReadOnlyViolation,
   ScriptSessionLost,
+  SCRIPT_BATCH_MS,
+  SCRIPT_BATCH_SIZE,
+  groupStatements,
+  runOneByOne,
   assertCreatableType,
   previewWithAdapter,
   type DatabaseAdapter,
@@ -19,6 +23,7 @@ import {
 } from "./adapter";
 import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, distinctQueryTables, distinctRows, loadRelatedTables, topDistinct } from "./where";
 import { tlsOptions, type AdapterConnection } from "./network";
+import { leadingKeyword, transactionControl } from "./splitSqlStatements";
 
 const CREATABLE_TYPE_SQL: Record<Exclude<LogicalType, "relation" | "unknown">, string> = {
   text: "text",
@@ -475,21 +480,97 @@ export class PostgresAdapter implements DatabaseAdapter {
     let lost: Error | null = null;
     client.on("error", (err) => (lost = err));
     client.on("end", () => (lost ??= new Error("fermée par le serveur")));
-    return {
+    // Statements run in batch transactions. An error aborts a PostgreSQL transaction,
+    // so a savepoint is always set before each statement: a failure rolls back to it
+    // and the batch goes on. Statement and savepoint go in one round trip.
+    let batchOpen = false;
+    let scriptTransaction = false;
+    let pending = 0;
+    let batchStarted = 0;
+    const query = async (text: string) => {
+      if (lost) throw new ScriptSessionLost(lost, pending);
+      try {
+        await client.query(text);
+      } catch (err) {
+        // A dropped connection fails the query first and says so just after.
+        await new Promise((resolve) => setImmediate(resolve));
+        if (lost) throw new ScriptSessionLost(lost, pending);
+        throw err;
+      }
+    };
+    const commit = async () => {
+      if (batchOpen) await query("COMMIT");
+      batchOpen = false;
+      pending = 0;
+    };
+    const openBatch = async () => {
+      if (batchOpen) return;
+      await query("BEGIN; SAVEPOINT overlook_statement");
+      batchOpen = true;
+      batchStarted = Date.now();
+    };
+    const counted = async (statements: number) => {
+      pending += statements;
+      if (pending >= SCRIPT_BATCH_SIZE || Date.now() - batchStarted > SCRIPT_BATCH_MS) await commit();
+    };
+    const session: ScriptSession = {
+      runMany: async (statements) => {
+        const results: unknown[] = [];
+        for (const { start, end, together } of groupStatements(statements, leadingKeyword)) {
+          const group = statements.slice(start, end);
+          if (together && !scriptTransaction) {
+            await openBatch();
+            try {
+              await query(`${group.join("\n;\n")}\n;\nRELEASE SAVEPOINT overlook_statement; SAVEPOINT overlook_statement`);
+              results.push(...group.map(() => null));
+              await counted(group.length);
+              continue;
+            } catch (err) {
+              if (err instanceof ScriptSessionLost) throw err;
+              // One of them failed: undo the group, then run it one by one to know which.
+              await query("ROLLBACK TO SAVEPOINT overlook_statement");
+            }
+          }
+          results.push(...(await runOneByOne(session, group)));
+        }
+        return results;
+      },
       run: async (sql) => {
-        if (lost) throw new ScriptSessionLost(lost);
+        const control = transactionControl(sql);
+        if (control || scriptTransaction) {
+          // The script's own transactions run as written.
+          if (control) await commit();
+          await query(sql);
+          if (control === "begin") scriptTransaction = true;
+          else if (control === "end") scriptTransaction = false;
+          return;
+        }
+        await openBatch();
         try {
-          await client.query(sql);
+          // The newline keeps a trailing -- comment from swallowing what follows.
+          await query(`${sql}\n;\nRELEASE SAVEPOINT overlook_statement; SAVEPOINT overlook_statement`);
         } catch (err) {
-          // A dropped connection fails the query first and says so just after.
-          await new Promise((resolve) => setImmediate(resolve));
-          if (lost) throw new ScriptSessionLost(lost);
-          throw err;
+          if (err instanceof ScriptSessionLost) throw err;
+          await query("ROLLBACK TO SAVEPOINT overlook_statement");
+          // 25001: VACUUM, CREATE DATABASE… can't run inside a transaction: on its own, then.
+          if ((err as { code?: string }).code !== "25001") throw err;
+          await commit();
+          await query(sql);
+          return;
+        }
+        await counted(1);
+      },
+      close: async () => {
+        try {
+          if (!lost) await commit();
+        } finally {
+          // Thrown away rather than handed back to the pool: the script's SET would stick to it,
+          // and a transaction the script left open is rolled back with it.
+          client.release(true);
         }
       },
-      // Thrown away rather than handed back to the pool: the script's SET would stick to it.
-      close: async () => client.release(true),
     };
+    return session;
   }
 
   async close(): Promise<void> {

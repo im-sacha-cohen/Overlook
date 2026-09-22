@@ -110,6 +110,92 @@ for (const target of targets) {
       expect(await count()).toBeGreaterThan(0);
     });
 
+    it("keeps a batch when a statement in it fails, whatever the error", async () => {
+      await adapter.runStatement(`DELETE FROM ${TABLE} WHERE id >= 10000`);
+      const before = await count();
+      const session = await adapter.openScriptSession();
+      await session.run(`INSERT INTO ${TABLE} VALUES (10001, 'a')`);
+      await expect(session.run(`INSERT INTO ${TABLE} VALUES (10001, 'duplicate')`)).rejects.toThrow();
+      await expect(session.run(`INSERT INTO nowhere VALUES (1)`)).rejects.toThrow();
+      await expect(session.run(`INSERT INTO ${TABLE} VALUES (`)).rejects.toThrow();
+      await session.run(`INSERT INTO ${TABLE} VALUES (10002, 'b') -- trailing comment`);
+      await session.close();
+      expect(await count()).toBe(before + 2);
+    });
+
+    it("runs a dump's LOCK TABLES and its own commits", async () => {
+      await adapter.runStatement(`DELETE FROM ${TABLE} WHERE id >= 10000`);
+      const before = await count();
+      const session = await adapter.openScriptSession();
+      if (target.engine === "mysql") {
+        await session.run(`LOCK TABLES ${TABLE} WRITE`);
+        await session.run(`INSERT INTO ${TABLE} VALUES (10003, 'locked')`);
+        await session.run("UNLOCK TABLES");
+        await session.run("SET autocommit = 0");
+        await session.run(`INSERT INTO ${TABLE} VALUES (10004, 'no autocommit')`);
+        await session.run("COMMIT");
+        await session.run("SET autocommit = 1");
+      }
+      await session.run(target.engine === "sqlite" ? "BEGIN" : "START TRANSACTION");
+      await session.run(`INSERT INTO ${TABLE} VALUES (10005, 'own transaction')`);
+      await session.run("COMMIT");
+      await session.run(`INSERT INTO ${TABLE} VALUES (10006, 'batched again')`);
+      await session.close();
+      expect(await count()).toBe(before + (target.engine === "mysql" ? 4 : 2));
+    });
+
+    it("runs what can't go in a transaction on its own", async () => {
+      if (target.engine !== "postgres") return;
+      const session = await adapter.openScriptSession();
+      await session.run(`INSERT INTO ${TABLE} VALUES (10007, 'before vacuum')`);
+      await session.run(`VACUUM ${TABLE}`);
+      await session.close();
+      expect(Number((await adapter.runRawQuery(`SELECT COUNT(*) AS n FROM ${TABLE} WHERE id = 10007`)).rows[0].n)).toBe(1);
+    });
+
+    it("goes fast on single-row INSERTs", async () => {
+      await adapter.runStatement(`DELETE FROM ${TABLE} WHERE id >= 20000`);
+      const session = await adapter.openScriptSession();
+      const started = Date.now();
+      for (let i = 20000; i < 30000; i++) await session.run(`INSERT INTO ${TABLE} VALUES (${i}, 'row ${i}')`);
+      await session.close();
+      const ms = Date.now() - started;
+      console.log(`${target.engine}: 10000 single-row INSERTs in ${ms} ms`);
+      expect(await count()).toBeGreaterThanOrEqual(10000);
+    }, 60_000);
+
+    it("sends row changes together and still says which one failed", async () => {
+      await adapter.runStatement(`DELETE FROM ${TABLE} WHERE id >= 30000`);
+      const before = await count();
+      const session = await adapter.openScriptSession();
+      const statements = [
+        `INSERT INTO ${TABLE} VALUES (30001, 'a')`,
+        `INSERT INTO ${TABLE} VALUES (30002, 'b')`,
+        `INSERT INTO ${TABLE} VALUES (30001, 'duplicate')`,
+        `UPDATE ${TABLE} SET label = 'changed' WHERE id = 30002`,
+        `CREATE TABLE IF NOT EXISTS overlook_script_side (id integer)`,
+        `INSERT INTO nowhere VALUES (1)`,
+        `DELETE FROM ${TABLE} WHERE id = 30002 -- trailing comment`,
+        `INSERT INTO ${TABLE} VALUES (30003, 'it''s')`,
+      ];
+      const errors = await session.runMany(statements);
+      await session.close();
+      await adapter.runStatement("DROP TABLE IF EXISTS overlook_script_side");
+      expect(errors.map((e) => (e ? "error" : "ok"))).toEqual(["ok", "ok", "error", "ok", "ok", "error", "ok", "ok"]);
+      expect(await count()).toBe(before + 2);
+    });
+
+    it("goes fast on single-row INSERTs sent together", async () => {
+      await adapter.runStatement(`DELETE FROM ${TABLE} WHERE id >= 40000`);
+      const session = await adapter.openScriptSession();
+      const started = Date.now();
+      const statements = Array.from({ length: 10000 }, (_, i) => `INSERT INTO ${TABLE} VALUES (${40000 + i}, 'row ${i}')`);
+      for (let i = 0; i < statements.length; i += 200) await session.runMany(statements.slice(i, i + 200));
+      await session.close();
+      console.log(`${target.engine}: 10000 single-row INSERTs, grouped, in ${Date.now() - started} ms`);
+      expect(Number((await adapter.runRawQuery(`SELECT COUNT(*) AS n FROM ${TABLE} WHERE id >= 40000`)).rows[0].n)).toBe(10000);
+    }, 60_000);
+
     it("rolls back a transaction the script leaves open", async () => {
       const before = await count();
       const session = await adapter.openScriptSession();

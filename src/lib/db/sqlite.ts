@@ -9,6 +9,7 @@ import {
   type DatabaseAdapter,
   type DropTablesOptions,
   type ScriptSession,
+  runOneByOne,
   type SelectOptions,
   type SqlStatement,
   type WriteOp,
@@ -399,7 +400,9 @@ export class SqliteAdapter implements DatabaseAdapter {
       ours = false;
       batched = 0;
     };
-    return {
+    // Local and synchronous: no round trip to save, one statement after the other.
+    const session: ScriptSession = {
+      runMany: (statements) => runOneByOne(session, statements),
       run: async (sql) => {
         assertNoFileAccess(sql);
         if (SQLITE_OUTSIDE_BATCH.test(leadingKeyword(sql))) {
@@ -434,6 +437,7 @@ export class SqliteAdapter implements DatabaseAdapter {
         db.pragma("foreign_keys = ON");
       },
     };
+    return session;
   }
 
   async close(): Promise<void> {

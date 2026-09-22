@@ -15,15 +15,76 @@ export interface SelectOptions extends RowQuery {
  */
 export interface ScriptSession {
   run(sql: string): Promise<void>;
+  /**
+   * Runs statements in order and says, for each, the error it hit (null when it ran).
+   * INSERT/UPDATE/DELETE go several per round trip, which is what counts on a remote
+   * database. Throws when the script can't go on (connection lost, batch rolled back).
+   */
+  runMany(statements: string[]): Promise<unknown[]>;
   /** Commits what the session itself batched and lets go of the connection. */
   close(): Promise<void>;
 }
 
 /** The session's connection is gone: the statements after this one can't run either. */
 export class ScriptSessionLost extends Error {
-  constructor(cause: unknown) {
-    super(`Connexion à la base perdue : ${cause instanceof Error ? cause.message : String(cause)}`);
+  /** `unsaved`: statements of the batch not yet committed, lost with the connection. */
+  constructor(cause: unknown, unsaved = 0) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    super(`Connexion à la base perdue : ${reason}${unsaved > 0 ? ` (les ${unsaved} dernière(s) instruction(s), pas encore enregistrées, sont perdues)` : ""}`);
   }
+}
+
+/**
+ * A script's statements are committed in batches: one commit per statement
+ * costs a disk sync each, which makes a dump of single-row INSERTs crawl.
+ * A batch ends after this many statements or this long, whichever comes first.
+ */
+export const SCRIPT_BATCH_SIZE = 2000;
+export const SCRIPT_BATCH_MS = 2000;
+
+/** Statements sent in one round trip, at most, and their total length. */
+const SCRIPT_GROUP_SIZE = 200;
+const SCRIPT_GROUP_CHARS = 1_000_000;
+const GROUPABLE = new Set(["INSERT", "UPDATE", "DELETE", "REPLACE"]);
+
+/**
+ * Cuts statements into runs to send together (plain row changes, which neither
+ * commit nor change the transaction) and statements to send alone.
+ */
+export function groupStatements(statements: string[], keywordOf: (sql: string) => string): { start: number; end: number; together: boolean }[] {
+  const runs: { start: number; end: number; together: boolean }[] = [];
+  let i = 0;
+  while (i < statements.length) {
+    if (!GROUPABLE.has(keywordOf(statements[i]))) {
+      runs.push({ start: i, end: i + 1, together: false });
+      i++;
+      continue;
+    }
+    let j = i;
+    let chars = 0;
+    while (j < statements.length && j - i < SCRIPT_GROUP_SIZE && GROUPABLE.has(keywordOf(statements[j])) && (j === i || chars + statements[j].length <= SCRIPT_GROUP_CHARS)) {
+      chars += statements[j].length;
+      j++;
+    }
+    runs.push({ start: i, end: j, together: j - i > 1 });
+    i = j;
+  }
+  return runs;
+}
+
+/** runMany for a session with no faster way: one statement after the other. */
+export async function runOneByOne(session: Pick<ScriptSession, "run">, statements: string[]): Promise<unknown[]> {
+  const results: unknown[] = [];
+  for (const sql of statements) {
+    try {
+      await session.run(sql);
+      results.push(null);
+    } catch (err) {
+      if (err instanceof ScriptSessionLost) throw err;
+      results.push(err);
+    }
+  }
+  return results;
 }
 
 export interface SqlStatement {

@@ -1,4 +1,4 @@
-import { ScriptSessionLost, type ScriptSession } from "../db/adapter";
+import type { ScriptSession } from "../db/adapter";
 import { SqlStatementSplitter } from "../db/splitSqlStatements";
 import { recordWrite } from "./journal";
 import { errorMessage } from "./respond";
@@ -21,6 +21,8 @@ const KEEP_FINISHED_MS = 60_000;
  * would hold the server until its end, cancel and every other request included.
  */
 const YIELD_EVERY_MS = 50;
+/** Statements handed to the session at once: it sends the row changes among them together. */
+const STATEMENTS_PER_CALL = 200;
 
 export interface ImportFailure {
   statement: number;
@@ -116,23 +118,25 @@ class SqlImport {
 
   private async run(statements: string[]): Promise<void> {
     let lastYield = Date.now();
-    for (const sql of statements) {
+    for (let i = 0; i < statements.length; i += STATEMENTS_PER_CALL) {
       if (Date.now() - lastYield > YIELD_EVERY_MS) {
         await new Promise((resolve) => setImmediate(resolve));
         lastYield = Date.now();
       }
       if (this.cancelRequested) return;
-      this.statements++;
-      try {
-        await this.session.run(sql);
-        this.executed++;
-      } catch (err) {
-        if (err instanceof ScriptSessionLost) throw err;
-        this.failedCount++;
-        if (this.failed.length < MAX_REPORTED_FAILURES) this.failed.push({ statement: this.statements, sql: sql.slice(0, 200), message: errorMessage(err) });
-      }
-      // Characters stand in for bytes (close enough for a progress bar); the piece's end sets the exact figure.
-      this.processedBytes = Math.min(this.bytes, this.processedBytes + sql.length + 1);
+      const group = statements.slice(i, i + STATEMENTS_PER_CALL);
+      const errors = await this.session.runMany(group);
+      group.forEach((sql, k) => {
+        this.statements++;
+        const err = errors[k];
+        if (err == null) this.executed++;
+        else {
+          this.failedCount++;
+          if (this.failed.length < MAX_REPORTED_FAILURES) this.failed.push({ statement: this.statements, sql: sql.slice(0, 200), message: errorMessage(err) });
+        }
+        // Characters stand in for bytes (close enough for a progress bar); the piece's end sets the exact figure.
+        this.processedBytes = Math.min(this.bytes, this.processedBytes + sql.length + 1);
+      });
     }
   }
 
