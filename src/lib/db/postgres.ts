@@ -10,6 +10,7 @@ import {
   SCRIPT_BATCH_MS,
   SCRIPT_BATCH_SIZE,
   groupStatements,
+  referencingFirst,
   runOneByOne,
   assertCreatableType,
   previewWithAdapter,
@@ -311,6 +312,8 @@ export class PostgresAdapter implements DatabaseAdapter {
       case "dropTables":
         op.tables.forEach(assertValidIdentifier);
         return [{ sql: `DROP TABLE ${op.tables.map(q).join(", ")}${op.ignoreForeignKeys ? " CASCADE" : ""}`, params: [] }];
+      case "emptyTables":
+        return (await this.emptyPlan(op.tables, op.ignoreForeignKeys === true)).map((sql) => ({ sql, params: [] }));
     }
   }
 
@@ -411,6 +414,54 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   async dropTables(tables: string[], { ignoreForeignKeys = false }: DropTablesOptions = {}): Promise<void> {
     await this.runStatements(await this.buildWrite({ kind: "dropTables", tables, ignoreForeignKeys }));
+  }
+
+  async emptyTables(tables: string[], { ignoreForeignKeys = false }: DropTablesOptions = {}): Promise<void> {
+    const statements = await this.emptyPlan(tables, ignoreForeignKeys);
+    const client = await this.pool.connect();
+    try {
+      // All or nothing: a DELETE blocked by a foreign key leaves the other tables as they were.
+      await client.query("BEGIN");
+      for (const sql of statements) await client.query(sql);
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * TRUNCATE (fast, RESTART IDENTITY) refuses a table a foreign key points to, unless
+   * the referencing table is truncated with it. When a table outside the list points
+   * in, DELETE referencing tables first instead, so it fails only if rows there still
+   * point in, then restart the sequences. CASCADE (ignoreForeignKeys) empties those too.
+   */
+  private async emptyPlan(tables: string[], ignoreForeignKeys: boolean): Promise<string[]> {
+    tables.forEach(assertValidIdentifier);
+    const truncate = [`TRUNCATE TABLE ${tables.map(q).join(", ")} RESTART IDENTITY${ignoreForeignKeys ? " CASCADE" : ""}`];
+    if (ignoreForeignKeys) return truncate;
+    const regclasses = tables.map(q);
+    const { rows: references } = await this.pool.query<{ fromTable: string; toTable: string }>(
+      `SELECT src.relname AS "fromTable", dst.relname AS "toTable" FROM pg_constraint c
+       JOIN pg_class src ON src.oid = c.conrelid JOIN pg_class dst ON dst.oid = c.confrelid
+       WHERE c.contype = 'f' AND c.confrelid = ANY($1::text[]::regclass[])`,
+      [regclasses],
+    );
+    if (references.every((r) => tables.includes(r.fromTable))) return truncate;
+    const order = referencingFirst(tables, references);
+    // Serial and identity columns: their sequence starts again at 1.
+    const { rows: sequenced } = await this.pool.query<{ table: string; column: string }>(
+      `SELECT c.relname AS "table", a.attname AS "column" FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+       WHERE a.attrelid = ANY($1::text[]::regclass[]) AND a.attnum > 0 AND NOT a.attisdropped
+         AND pg_get_serial_sequence(quote_ident(c.relname), a.attname) IS NOT NULL`,
+      [regclasses],
+    );
+    return [
+      ...order.map((table) => `DELETE FROM ${q(table)}`),
+      ...sequenced.map((s) => `SELECT setval(pg_get_serial_sequence('${q(s.table).replace(/'/g, "''")}', '${s.column.replace(/'/g, "''")}'), 1, false)`),
+    ];
   }
 
   async bulkInsert(table: string, rows: Row[]): Promise<number> {

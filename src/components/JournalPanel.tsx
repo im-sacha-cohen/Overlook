@@ -16,6 +16,7 @@ const ACTIONS: JournalAction[] = [
   "importRows",
   "createTable",
   "dropTables",
+  "emptyTables",
   "addColumn",
   "renameColumn",
   "changeColumnType",

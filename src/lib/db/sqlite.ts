@@ -231,6 +231,12 @@ export class SqliteAdapter implements DatabaseAdapter {
         if (!op.ignoreForeignKeys) return drops;
         return [{ sql: "PRAGMA foreign_keys = OFF", params: [] }, ...drops, { sql: "PRAGMA foreign_keys = ON", params: [] }];
       }
+      case "emptyTables": {
+        op.tables.forEach(assertValidIdentifier);
+        const statements = this.emptyStatements(op.tables);
+        if (!op.ignoreForeignKeys) return statements;
+        return [{ sql: "PRAGMA foreign_keys = OFF", params: [] }, ...statements, { sql: "PRAGMA foreign_keys = ON", params: [] }];
+      }
     }
   }
 
@@ -329,6 +335,31 @@ export class SqliteAdapter implements DatabaseAdapter {
     }
     // A reference cycle can't be ordered: keep the given order and let SQLite report it.
     return [...ordered, ...remaining];
+  }
+
+  /**
+   * SQLite has no TRUNCATE: DELETE each table, referencing ones first (as for a drop),
+   * then restart AUTOINCREMENT counters, kept in sqlite_sequence when there are any.
+   */
+  private emptyStatements(tables: string[]): SqlStatement[] {
+    const statements: SqlStatement[] = this.dropOrder(tables).map((table) => ({ sql: `DELETE FROM ${q(table)}`, params: [] }));
+    const hasSequence = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence'").get();
+    if (hasSequence) statements.push({ sql: `DELETE FROM sqlite_sequence WHERE name IN (${tables.map(() => "?").join(", ")})`, params: tables });
+    return statements;
+  }
+
+  async emptyTables(tables: string[], { ignoreForeignKeys = false }: DropTablesOptions = {}): Promise<void> {
+    tables.forEach(assertValidIdentifier);
+    const statements = this.emptyStatements(tables);
+    // PRAGMA foreign_keys is a no-op inside a transaction, so flip it around it.
+    if (ignoreForeignKeys) this.db.pragma("foreign_keys = OFF");
+    try {
+      this.db.transaction(() => {
+        for (const st of statements) this.db.prepare(st.sql).run(...st.params);
+      })();
+    } finally {
+      if (ignoreForeignKeys) this.db.pragma("foreign_keys = ON");
+    }
   }
 
   async dropTables(tables: string[], { ignoreForeignKeys = false }: DropTablesOptions = {}): Promise<void> {

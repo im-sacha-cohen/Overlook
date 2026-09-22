@@ -195,7 +195,9 @@ export type WriteOp =
   | { kind: "renameColumn"; table: string; oldName: string; newName: string }
   | { kind: "changeColumnType"; table: string; column: string; type: LogicalType }
   | { kind: "dropColumn"; table: string; column: string }
-  | { kind: "dropTables"; tables: string[]; ignoreForeignKeys?: boolean };
+  | { kind: "dropTables"; tables: string[]; ignoreForeignKeys?: boolean }
+  /** Deletes every row, keeping the tables, and restarts their auto-increment counters. */
+  | { kind: "emptyTables"; tables: string[]; ignoreForeignKeys?: boolean };
 
 export interface WritePreview {
   /** Readable SQL, parameters inlined (long values cut short). */
@@ -204,7 +206,7 @@ export interface WritePreview {
   script: string;
   /**
    * Rows concerned: matched by an update/delete, holding the values a column
-   * change or drop touches, or held by the dropped tables. null when unknown.
+   * change or drop touches, or held by the dropped or emptied tables. null when unknown.
    */
   rows: number | null;
 }
@@ -218,6 +220,7 @@ export type JournalAction =
   | "importRows"
   | "createTable"
   | "dropTables"
+  | "emptyTables"
   | "addColumn"
   | "renameColumn"
   | "changeColumnType"

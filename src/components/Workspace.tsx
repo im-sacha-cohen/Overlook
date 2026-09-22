@@ -202,7 +202,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
   const [pendingGuard, setPendingGuard] = useState<PendingGuard | null>(null);
   const [writeTasks, setWriteTasks] = useState<WriteTask[]>([]);
   const writeTaskSeq = useRef(0);
-  const [dropTablesRequest, setDropTablesRequest] = useState<string[] | null>(null);
+  const [dropTablesRequest, setDropTablesRequest] = useState<{ names: string[]; mode: "drop" | "empty" } | null>(null);
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [toast, setToast] = useState("");
@@ -1648,7 +1648,33 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
 
   function requestBulkDropTables() {
     if (!activeConnectionId || selectedTables.size === 0) return;
-    setDropTablesRequest([...selectedTables]);
+    setDropTablesRequest({ names: [...selectedTables], mode: "drop" });
+  }
+
+  function requestBulkEmptyTables() {
+    if (!activeConnectionId || selectedTables.size === 0) return;
+    setDropTablesRequest({ names: [...selectedTables], mode: "empty" });
+  }
+
+  async function confirmEmptyTables(names: string[], { ignoreForeignKeys }: { ignoreForeignKeys: boolean }) {
+    if (!activeConnectionId) return;
+    const connectionId = activeConnectionId;
+    const empty = async (confirm?: string) => {
+      await api.emptyTables(connectionId, names, { ignoreForeignKeys, confirm });
+      pushHistory(`${t("toast.tablesEmptied", { count: names.length })} (${names.join(", ")})`);
+      setSelectedTables(new Set());
+      await loadTables(connectionId);
+      if (activeTable && names.includes(activeTable)) await loadRows();
+    };
+    if (activeConnection?.envType === "prod") {
+      setDropTablesRequest(null);
+      setPendingGuard({ label: t("guard.bulkEmptyTables", { count: names.length, names: names.join(", ") }), op: { kind: "emptyTables", tables: names, ignoreForeignKeys }, run: empty });
+      return;
+    }
+    // Errors propagate to the dialog, which stays open to show them.
+    await empty();
+    setDropTablesRequest(null);
+    flash(t("toast.tablesEmptied", { count: names.length }));
   }
 
   async function confirmDropTables(names: string[], { ignoreForeignKeys }: { ignoreForeignKeys: boolean }) {
@@ -1899,6 +1925,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
           onSelectTableRange={selectTableRange}
           onDeselectAllTables={deselectAllTables}
           onBulkDropTables={requestBulkDropTables}
+          onBulkEmptyTables={requestBulkEmptyTables}
           onExportSelectedTables={openExportModal}
           onOpenCreateTable={() => setPanel("create-table")}
           onOpenSettings={() => setPanel("settings")}
@@ -2189,10 +2216,12 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
 
       {dropTablesRequest && activeConnection && (
         <DropTablesDialog
-          names={dropTablesRequest}
+          key={dropTablesRequest.mode}
+          mode={dropTablesRequest.mode}
+          names={dropTablesRequest.names}
           engine={activeConnection.engine}
           connectionId={activeConnection.id}
-          onConfirm={(options) => confirmDropTables(dropTablesRequest, options)}
+          onConfirm={(options) => (dropTablesRequest.mode === "empty" ? confirmEmptyTables : confirmDropTables)(dropTablesRequest.names, options)}
           onCancel={() => setDropTablesRequest(null)}
         />
       )}
@@ -2201,7 +2230,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
           connectionName={activeConnection.name}
           actionLabel={pendingGuard.label}
           requireName={pendingGuard.requireName ?? true}
-          danger={pendingGuard.op && ["deleteRows", "dropColumn", "dropTables"].includes(pendingGuard.op.kind)}
+          danger={pendingGuard.op && ["deleteRows", "dropColumn", "dropTables", "emptyTables"].includes(pendingGuard.op.kind)}
           details={
             pendingGuard.op ? (
               <WritePreviewBox connectionId={activeConnection.id} op={pendingGuard.op} />

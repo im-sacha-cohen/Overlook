@@ -267,6 +267,11 @@ export const api = {
       body: JSON.stringify({ confirm }),
     }),
 
+  emptyTables: (connectionId: string, names: string[], options: { ignoreForeignKeys?: boolean; confirm?: string } = {}) =>
+    request<{ emptied: number }>(`/api/connections/${connectionId}/tables/bulk-empty`, {
+      method: "POST",
+      body: JSON.stringify({ names, confirm: options.confirm, ignoreForeignKeys: options.ignoreForeignKeys === true }),
+    }),
   dropTables: (connectionId: string, names: string[], options: { ignoreForeignKeys?: boolean; confirm?: string } = {}) =>
     request<{ dropped: number }>(`/api/connections/${connectionId}/tables/bulk-delete`, {
       method: "POST",

@@ -9,6 +9,7 @@ import {
   SCRIPT_BATCH_MS,
   SCRIPT_BATCH_SIZE,
   groupStatements,
+  referencingFirst,
   runOneByOne,
   coerceRowValues,
   previewWithAdapter,
@@ -249,6 +250,12 @@ export class MySqlAdapter implements DatabaseAdapter {
         if (!op.ignoreForeignKeys) return [drop];
         return [{ sql: "SET FOREIGN_KEY_CHECKS = 0", params: [] }, drop, { sql: "SET FOREIGN_KEY_CHECKS = 1", params: [] }];
       }
+      case "emptyTables": {
+        const plan = await this.emptyPlan(op.tables, op.ignoreForeignKeys === true);
+        const statements = plan.statements.map((sql) => ({ sql, params: [] }));
+        if (plan.checks) return statements;
+        return [{ sql: "SET FOREIGN_KEY_CHECKS = 0", params: [] }, ...statements, { sql: "SET FOREIGN_KEY_CHECKS = 1", params: [] }];
+      }
     }
   }
 
@@ -344,6 +351,42 @@ export class MySqlAdapter implements DatabaseAdapter {
 
   async dropTables(tables: string[], { ignoreForeignKeys = false }: DropTablesOptions = {}): Promise<void> {
     tables.forEach(assertValidIdentifier);
+    await this.withForeignKeyChecks(!ignoreForeignKeys, [`DROP TABLE ${tables.map(q).join(", ")}`]);
+  }
+
+  async emptyTables(tables: string[], { ignoreForeignKeys = false }: DropTablesOptions = {}): Promise<void> {
+    const plan = await this.emptyPlan(tables, ignoreForeignKeys);
+    await this.withForeignKeyChecks(plan.checks, plan.statements);
+  }
+
+  /**
+   * TRUNCATE (fast, restarts AUTO_INCREMENT) refuses any table a foreign key points
+   * to, even from a table emptied alongside. When every such key comes from the
+   * tables being emptied, nothing can be left orphaned: TRUNCATE with the checks off.
+   * When a table outside points to them, DELETE referencing tables first with the
+   * checks on, so it fails only if rows there still point in, then restart the counters.
+   */
+  private async emptyPlan(tables: string[], ignoreForeignKeys: boolean): Promise<{ checks: boolean; statements: string[] }> {
+    tables.forEach(assertValidIdentifier);
+    const truncate = { checks: false, statements: tables.map((table) => `TRUNCATE TABLE ${q(table)}`) };
+    if (ignoreForeignKeys) return truncate;
+    const [keys] = await this.pool.query<mysql.RowDataPacket[]>(
+      `SELECT TABLE_NAME AS fromTable, REFERENCED_TABLE_NAME AS toTable FROM information_schema.KEY_COLUMN_USAGE
+       WHERE TABLE_SCHEMA = ? AND REFERENCED_TABLE_SCHEMA = ? AND REFERENCED_TABLE_NAME IN (?)`,
+      [this.database, this.database, tables],
+    );
+    const references = keys as { fromTable: string; toTable: string }[];
+    if (references.every((r) => tables.includes(r.fromTable))) return truncate;
+    const order = referencingFirst(tables, references);
+    return {
+      checks: true,
+      statements: [...order.map((table) => `DELETE FROM ${q(table)}`), ...order.map((table) => `ALTER TABLE ${q(table)} AUTO_INCREMENT = 1`)],
+    };
+  }
+
+  /** Runs the statements on one connection, with foreign key checks off for them when `checks` is false. */
+  private async withForeignKeyChecks(checks: boolean, statements: string[]): Promise<void> {
+    const ignoreForeignKeys = !checks;
     // FOREIGN_KEY_CHECKS is per session: set and restore it on one pooled connection.
     const conn = await this.pool.getConnection();
     let restored = true;
@@ -352,7 +395,7 @@ export class MySqlAdapter implements DatabaseAdapter {
         restored = false;
         await conn.query("SET FOREIGN_KEY_CHECKS = 0");
       }
-      await conn.query(`DROP TABLE ${tables.map(q).join(", ")}`);
+      for (const sql of statements) await conn.query(sql);
     } finally {
       if (!restored) {
         try {

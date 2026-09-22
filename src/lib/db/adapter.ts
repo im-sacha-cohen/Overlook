@@ -72,6 +72,28 @@ export function groupStatements(statements: string[], keywordOf: (sql: string) =
   return runs;
 }
 
+/**
+ * Orders tables so that one pointing to another comes first: deleting in that
+ * order never leaves a row pointing to a deleted one. A cycle keeps its given order.
+ */
+export function referencingFirst(tables: string[], references: { fromTable: string; toTable: string }[]): string[] {
+  const remaining = new Set(tables);
+  const ordered: string[] = [];
+  let progressed = true;
+  while (remaining.size > 0 && progressed) {
+    progressed = false;
+    for (const table of [...remaining]) {
+      const stillReferenced = references.some((r) => r.toTable === table && r.fromTable !== table && remaining.has(r.fromTable));
+      if (!stillReferenced) {
+        ordered.push(table);
+        remaining.delete(table);
+        progressed = true;
+      }
+    }
+  }
+  return [...ordered, ...remaining];
+}
+
 /** runMany for a session with no faster way: one statement after the other. */
 export async function runOneByOne(session: Pick<ScriptSession, "run">, statements: string[]): Promise<unknown[]> {
   const results: unknown[] = [];
@@ -123,6 +145,8 @@ export interface DatabaseAdapter {
    * removes the referencing constraints and dependent views).
    */
   dropTables(tables: string[], options?: DropTablesOptions): Promise<void>;
+  /** Deletes every row of the tables and restarts their counters; `ignoreForeignKeys` as for dropTables (PostgreSQL's CASCADE empties the referencing tables too). */
+  emptyTables(tables: string[], options?: DropTablesOptions): Promise<void>;
   bulkInsert(table: string, rows: Row[]): Promise<number>;
   /**
    * Runs one query from the SQL console. With `readOnly`, the database itself
@@ -229,7 +253,7 @@ export async function previewWithAdapter(
     rows = op.pkValues.length === 0 ? 0 : await countByPk(op.table, op.pkColumn, op.pkValues);
   } else if (op.kind === "changeColumnType" || op.kind === "dropColumn") {
     rows = (await adapter.getTable(op.table)).rowCount ?? null;
-  } else if (op.kind === "dropTables") {
+  } else if (op.kind === "dropTables" || op.kind === "emptyTables") {
     const metas = await Promise.all(op.tables.map((t) => adapter.getTable(t)));
     rows = metas.reduce((sum, m) => sum + (m.rowCount ?? 0), 0);
   }

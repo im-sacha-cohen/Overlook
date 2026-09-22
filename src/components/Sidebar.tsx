@@ -24,6 +24,7 @@ interface Props {
   onSelectTableRange: (names: string[], additive: boolean) => void;
   onDeselectAllTables: () => void;
   onBulkDropTables: () => void;
+  onBulkEmptyTables: () => void;
   onExportSelectedTables: () => void;
   onOpenCreateTable: () => void;
   onOpenSettings: () => void;
@@ -51,6 +52,7 @@ export function Sidebar({
   onDeselectAllTables,
   onOpenCreateTable,
   onBulkDropTables,
+  onBulkEmptyTables,
   onExportSelectedTables,
   onOpenSettings,
   onOpenTableInNewTab,
@@ -357,6 +359,15 @@ export function Sidebar({
             label={t("sidebar.export")}
             onClick={() => {
               onExportSelectedTables();
+              setMenu(null);
+            }}
+          />
+          <div style={{ height: 1, margin: "4px 6px", background: "#f0eee8" }} />
+          <MenuItem
+            label={t("sidebar.emptyTables")}
+            danger
+            onClick={() => {
+              onBulkEmptyTables();
               setMenu(null);
             }}
           />
