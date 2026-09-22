@@ -18,6 +18,7 @@ export async function GET(request: Request, { params }: Params) {
       sorts: sorts ? (JSON.parse(sorts) as RowSort[]) : undefined,
       limit: limit ? Number(limit) : undefined,
       offset: offset ? Number(offset) : undefined,
+      preview: url.searchParams.get("preview") === "1",
     });
     return Response.json(result);
   } catch (err) {

@@ -1,4 +1,4 @@
-import type { AggregateFn, ColumnMeta, Engine, FilterMatch, LogicalType, RowFilter, RowQuery, RowSort, TableMeta } from "../types";
+import { TRUNCATED_KEY, type AggregateFn, type ColumnMeta, type Engine, type FilterMatch, type LogicalType, type Row, type RowFilter, type RowQuery, type RowSort, type TableMeta, type TruncatedCells } from "../types";
 import { assertKnownColumn, assertValidIdentifier, inlineParams } from "./adapter";
 
 /*
@@ -242,6 +242,73 @@ export function buildWhere(engine: Engine, meta: TableMeta, query: RowQuery = {}
   }
 
   return { where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "", params };
+}
+
+// ---------- grid previews ----------
+// A page of 100 rows holding long texts or files would weigh tens of MB. The grid
+// gets values over PREVIEW_THRESHOLD bytes cut to PREVIEW_CHARS characters (binary
+// ones as null), and the full length to say so; small values come as they are.
+const PREVIEW_THRESHOLD = 1000;
+const PREVIEW_CHARS = 500;
+const PREVIEW_PREFIX = "__overlook_preview_";
+const LENGTH_PREFIX = "__overlook_length_";
+
+/** How a column may hold long values: text, binary, or either (SQLite stores anything anywhere). */
+function heavyKind(engine: Engine, col: ColumnMeta): "text" | "binary" | "any" | null {
+  if (engine === "sqlite") return "any";
+  const t = col.nativeType.toLowerCase();
+  if (engine === "mysql") {
+    if (/^(text|mediumtext|longtext)$/.test(t)) return "text";
+    if (/^(blob|mediumblob|longblob)$/.test(t)) return "binary";
+    return null;
+  }
+  if (t === "text" || t === "character varying") return "text";
+  if (t === "bytea") return "binary";
+  return null;
+}
+
+/**
+ * The select list for a page of the grid, with long values cut. Previews get their
+ * own names, so an ORDER BY on the column still sorts by the full value.
+ */
+export function previewSelectList(engine: Engine, meta: TableMeta): string {
+  const T = PREVIEW_THRESHOLD;
+  return meta.columns
+    .map((c) => {
+      const kind = heavyKind(engine, c);
+      const col = quoteIdent(engine, c.name);
+      if (!kind) return col;
+      const preview = quoteIdent(engine, PREVIEW_PREFIX + c.name);
+      const length = quoteIdent(engine, LENGTH_PREFIX + c.name);
+      if (engine === "sqlite") {
+        return (
+          `CASE WHEN typeof(${col}) = 'blob' AND length(${col}) > ${T} THEN NULL WHEN typeof(${col}) = 'text' AND length(CAST(${col} AS BLOB)) > ${T} THEN substr(${col}, 1, ${PREVIEW_CHARS}) ELSE ${col} END AS ${preview}, ` +
+          `CASE WHEN typeof(${col}) IN ('blob', 'text') AND length(CAST(${col} AS BLOB)) > ${T} THEN length(CAST(${col} AS BLOB)) END AS ${length}`
+        );
+      }
+      const bytes = engine === "mysql" ? `LENGTH(${col})` : `octet_length(${col})`;
+      const cut = kind === "binary" ? "NULL" : engine === "mysql" ? `LEFT(${col}, ${PREVIEW_CHARS})` : `left(${col}, ${PREVIEW_CHARS})`;
+      return `CASE WHEN ${bytes} > ${T} THEN ${cut} ELSE ${col} END AS ${preview}, CASE WHEN ${bytes} > ${T} THEN ${bytes} END AS ${length}`;
+    })
+    .join(", ");
+}
+
+/** Puts previews back under their column's name and notes which cells were cut. */
+export function applyPreviews(rows: Row[]): Row[] {
+  for (const row of rows) {
+    const truncated: TruncatedCells = {};
+    for (const key of Object.keys(row)) {
+      if (key.startsWith(PREVIEW_PREFIX)) {
+        row[key.slice(PREVIEW_PREFIX.length)] = row[key];
+        delete row[key];
+      } else if (key.startsWith(LENGTH_PREFIX)) {
+        if (row[key] !== null && row[key] !== undefined) truncated[key.slice(LENGTH_PREFIX.length)] = Number(row[key]);
+        delete row[key];
+      }
+    }
+    if (Object.keys(truncated).length > 0) row[TRUNCATED_KEY] = truncated;
+  }
+  return rows;
 }
 
 export function buildOrderBy(engine: Engine, meta: TableMeta, sorts: RowSort[] = []): string {

@@ -161,3 +161,15 @@ export function ddlPreview(tableName: string, columns: ColumnMeta[]): string {
 export function nowForColumn(column: ColumnMeta): string {
   return formatDateForDb(new Date(), column);
 }
+
+/** "205 Ko", "1,2 Mo"… */
+export function formatBytes(bytes: number, lang: Lang = "fr"): string {
+  const units = lang === "fr" ? ["o", "Ko", "Mo", "Go"] : ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${value.toLocaleString(lang === "fr" ? "fr-FR" : "en-US", { maximumFractionDigits: unit === 0 ? 0 : 1 })} ${units[unit]}`;
+}

@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api, type SqlImportStatus } from "@/lib/client/api";
-import type { AggregateFn, ColumnMeta, Connection, ConnectionInput, FilterGroup, FilterMatch, LogicalType, QueryResult, Row, RowFilter, RowQuery, RowSort, TableMeta, WriteOp, JournalEntry } from "@/lib/types";
+import { TRUNCATED_KEY, type AggregateFn, type ColumnMeta, type Connection, type ConnectionInput, type FilterGroup, type FilterMatch, type LogicalType, type QueryResult, type Row, type RowFilter, type RowQuery, type RowSort, type TableMeta, type TruncatedCells, type WriteOp, type JournalEntry } from "@/lib/types";
 import { ENV_COLORS } from "@/lib/client/env";
-import { nowForColumn, toText } from "@/lib/client/format";
+import { formatBytes, nowForColumn, toText } from "@/lib/client/format";
 import { HistoryEntry, timeNow } from "@/lib/client/history";
 import { clearLegacyColumnLayout, orderColumns, readLegacyColumnLayouts } from "@/lib/client/columnLayout";
 import { EMPTY_PREFS, type SavedView, type TablePrefs } from "@/lib/prefs";
@@ -100,7 +100,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { t } = useLang();
+  const { t, lang } = useLang();
 
   const [connections, setConnections] = useState<Connection[]>(initialConnections);
   const [folders, setFolders] = useState<string[]>(initialFolders);
@@ -346,8 +346,17 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
         search: debouncedSearch,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
+        preview: true,
       });
       if (seq !== rowsRequestSeq.current) return;
+      // Long values come cut: say so in the cell (anything that needs the whole value loads it).
+      for (const row of res.rows) {
+        const cut = row[TRUNCATED_KEY] as TruncatedCells | undefined;
+        if (!cut) continue;
+        for (const [name, bytes] of Object.entries(cut)) {
+          row[name] = row[name] === null ? t("grid.binaryValue", { size: formatBytes(bytes, lang) }) : `${row[name]}…`;
+        }
+      }
       setRowsByKey((prev) => {
         const cur = prev[key];
         if (cur && cur.total === res.total && JSON.stringify(cur.rows) === JSON.stringify(res.rows)) return prev;
@@ -359,7 +368,9 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
           setDetailRow((d) => {
             if (!d) return d;
             const fresh = res.rows.find((r) => r[pk] === d[pk]);
-            return fresh && JSON.stringify(fresh) !== JSON.stringify(d) ? fresh : d;
+            // The panel holds the whole row: a preview from the grid would replace long values with their start.
+            if (!fresh || fresh[TRUNCATED_KEY]) return d;
+            return JSON.stringify(fresh) !== JSON.stringify(d) ? fresh : d;
           });
         }
       }
@@ -372,7 +383,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
     } finally {
       if (!silent && seq === rowsRequestSeq.current) setLoadingRows(false);
     }
-  }, [activeConnectionId, activeTable, filters, filterMatch, filterGroups, sorts, debouncedSearch, page, flash]);
+  }, [activeConnectionId, activeTable, filters, filterMatch, filterGroups, sorts, debouncedSearch, page, flash, t, lang]);
 
   useEffect(() => {
     if (activeConnectionId) loadTables(activeConnectionId);
@@ -958,8 +969,31 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
     flash(t("toast.databaseDropped"));
   }
 
+  // ---------- long values ----------
+  // The grid holds previews of long values (see loadRows). Whatever shows a whole
+  // value, edits it or writes it back (detail panel, cell editor, duplicate, undo of
+  // a delete, copy) takes the rows from here, with their values whole.
+  async function fullRows(source: Row[]): Promise<Row[]> {
+    const cut = source.filter((r) => r[TRUNCATED_KEY]);
+    if (cut.length === 0 || !activeConnectionId || !activeTable || !pkColumn) return source;
+    const pk = pkColumn;
+    const res = await api.selectRows(activeConnectionId, activeTable, {
+      filters: [{ column: pk, op: "in", value: "", values: cut.map((r) => String(r[pk])) }],
+      limit: cut.length,
+    });
+    const byKey = new Map(res.rows.map((r) => [String(r[pk]), r]));
+    return source.map((r) => (r[TRUNCATED_KEY] ? (byKey.get(String(r[pk])) ?? r) : r));
+  }
+
+  function openDetail(row: Row) {
+    if (!row[TRUNCATED_KEY]) return setDetailRow(row);
+    fullRows([row])
+      .then(([full]) => setDetailRow(full))
+      .catch((err) => flash(err instanceof Error ? err.message : String(err)));
+  }
+
   // ---------- row cell interactions ----------
-  function handleCellClick(row: Row, col: (typeof columns)[number]) {
+  async function handleCellClick(row: Row, col: (typeof columns)[number]) {
     if (!pkColumn) return flash(t("toast.noPrimaryKey"));
     const rowId = String(row[pkColumn]);
     if (col.isPrimaryKey) return;
@@ -974,8 +1008,17 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
       commitFieldChange(row, col.name, next);
       return;
     }
+    let value = row[col.name];
+    if ((row[TRUNCATED_KEY] as TruncatedCells | undefined)?.[col.name] !== undefined) {
+      // Editing a preview would save its start over the whole value.
+      try {
+        value = (await fullRows([row]))[0][col.name];
+      } catch (err) {
+        return flash(err instanceof Error ? err.message : String(err));
+      }
+    }
     setEditing({ rowId, column: col.name });
-    setEditValue(toText(row[col.name]));
+    setEditValue(toText(value));
   }
 
   function handlePasteCells(updates: { row: Row; values: Row }[]) {
@@ -1083,7 +1126,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
     if (!activeConnectionId || !activeTable || sources.length === 0) return;
     const created: Row[] = [];
     try {
-      for (const source of sources) {
+      for (const source of await fullRows(sources)) {
         // The key is left to the database (auto-increment, default); every other value is copied.
         const values: Row = {};
         columns.forEach((c) => {
@@ -1113,9 +1156,11 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
     if (!activeConnectionId || !activeTable || !pkColumn) return flash(t("toast.noPrimaryKey"));
     const rowId = row[pkColumn] as string | number;
     runGuarded(t("guard.deleteRow", { pk: pkColumn, id: String(rowId), table: activeTable }), async (confirm) => {
+      // Kept whole for the undo, which inserts it again.
+      const [whole] = await fullRows([row]);
       await api.deleteRow(activeConnectionId, activeTable, rowId, pkColumn, confirm);
       pushHistory(t("history.rowDeleted", { id: String(rowId) }), async () => {
-        await api.insertRow(activeConnectionId, activeTable, row);
+        await api.insertRow(activeConnectionId, activeTable, whole);
         await loadRows();
       });
       setDetailRow(null);
@@ -1145,8 +1190,10 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
     if (!activeConnectionId || !activeTable || !pkColumn) return flash(t("toast.noPrimaryKey"));
     const ids = [...selectedIds];
     if (ids.length === 0) return;
-    const deletedRows = rows.filter((r) => ids.includes(String(r[pkColumn])));
+    const previewedRows = rows.filter((r) => ids.includes(String(r[pkColumn])));
     confirmWrite(t("guard.bulkDeleteRows", { count: ids.length, table: activeTable }), { kind: "deleteRows", table: activeTable, pkColumn, pkValues: ids }, async (confirm) => {
+      // Kept whole for the undo, which inserts them again.
+      const deletedRows = await fullRows(previewedRows);
       await api.deleteRows(activeConnectionId, activeTable, pkColumn, ids, confirm);
       pushHistory(t("toast.rowsDeleted", { count: ids.length }), async () => {
         for (const r of deletedRows) await api.insertRow(activeConnectionId, activeTable, r);
@@ -2078,7 +2125,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
                     onCellClick={handleCellClick}
                     onCellCommit={handleCellCommit}
                     onCellCancel={handleCellCancel}
-                    onRowOpen={setDetailRow}
+                    onRowOpen={openDetail}
                     onDuplicateRow={(row) => handleDuplicateRows([row])}
                     onAddRow={() => handleAddRow()}
                     sorts={sorts}
@@ -2100,6 +2147,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
                     onEditDate={(row, col, value) => commitFieldChange(row, col.name, value)}
                     onPasteCells={handlePasteCells}
                     onCellsCopied={(count) => flash(t("toast.cellsCopied", { count }))}
+                    loadFullRows={fullRows}
                     frozenColumns={frozenColumns}
                     onToggleFrozen={toggleFrozen}
                     summaries={columnSummaries}
@@ -2113,12 +2161,12 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
                     columns={visibleColumns}
                     rows={rows}
                     boardColumn={boardColumn}
-                    onRowOpen={setDetailRow}
+                    onRowOpen={openDetail}
                     onAddCard={(groupValue) => handleAddRow(boardColumn ? { [boardColumn.name]: groupValue } : undefined)}
                   />
                 )}
-                {rowsEntry && view === "gallery" && <GalleryView columns={visibleColumns} rows={rows} onRowOpen={setDetailRow} />}
-                {rowsEntry && view === "calendar" && <CalendarView rows={rows} dateColumn={dateColumn} titleColumn={titleColumn} tagColumn={tagColumn} onRowOpen={setDetailRow} />}
+                {rowsEntry && view === "gallery" && <GalleryView columns={visibleColumns} rows={rows} onRowOpen={openDetail} />}
+                {rowsEntry && view === "calendar" && <CalendarView rows={rows} dateColumn={dateColumn} titleColumn={titleColumn} tagColumn={tagColumn} onRowOpen={openDetail} />}
               </div>
               <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
             </>

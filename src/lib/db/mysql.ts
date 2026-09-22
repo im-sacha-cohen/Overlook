@@ -21,7 +21,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
-import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, distinctQueryTables, distinctRows, loadRelatedTables, topDistinct } from "./where";
+import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, distinctQueryTables, distinctRows, loadRelatedTables, topDistinct, applyPreviews, previewSelectList } from "./where";
 import { leadingKeyword, normalizeMysqlDateLiterals, splitSqlStatements, transactionControl } from "./splitSqlStatements";
 import net from "node:net";
 import { mysqlSslOptions, type AdapterConnection } from "./network";
@@ -126,6 +126,15 @@ export class MySqlAdapter implements DatabaseAdapter {
   }
 
   async getTable(table: string): Promise<TableMeta> {
+    const meta = await this.describeTable(table);
+    const [countRows] = await this.pool.query<mysql.RowDataPacket[]>(
+      `SELECT COUNT(*) AS count FROM ${q(table)}`
+    );
+    return { ...meta, rowCount: Number(countRows[0]?.count ?? 0) };
+  }
+
+  /** The table's columns, without counting its rows (a full scan on a big InnoDB table). */
+  private async describeTable(table: string): Promise<TableMeta> {
     assertValidIdentifier(table);
     const [colRows] = await this.pool.query<mysql.RowDataPacket[]>(
       `SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY
@@ -157,23 +166,21 @@ export class MySqlAdapter implements DatabaseAdapter {
       };
     });
 
-    const [countRows] = await this.pool.query<mysql.RowDataPacket[]>(
-      `SELECT COUNT(*) AS count FROM ${q(table)}`
-    );
-    return { name: table, columns, rowCount: Number(countRows[0]?.count ?? 0) };
+    return { name: table, columns, rowCount: 0 };
   }
 
   async selectRows(table: string, opts: SelectOptions) {
-    const meta = await this.getTable(table);
+    const meta = await this.describeTable(table);
     const { where, params } = buildWhere("mysql", meta, opts, await loadRelatedTables(meta, opts, (t) => this.getTable(t)));
     const orderBy = buildOrderBy("mysql", meta, opts.sorts);
     const limit = opts.limit ?? 100;
     const offset = opts.offset ?? 0;
 
     const [rows] = await this.pool.query<mysql.RowDataPacket[]>(
-      `SELECT * FROM ${q(table)} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`,
+      `SELECT ${opts.preview ? previewSelectList("mysql", meta) : "*"} FROM ${q(table)} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`,
       params
     );
+    if (opts.preview) applyPreviews(rows as Row[]);
     const [countRows] = await this.pool.query<mysql.RowDataPacket[]>(
       `SELECT COUNT(*) AS count FROM ${q(table)} ${where}`,
       params

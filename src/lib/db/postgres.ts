@@ -22,7 +22,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
-import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, distinctQueryTables, distinctRows, loadRelatedTables, topDistinct } from "./where";
+import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, distinctQueryTables, distinctRows, loadRelatedTables, topDistinct, applyPreviews, previewSelectList } from "./where";
 import { tlsOptions, type AdapterConnection } from "./network";
 import { leadingKeyword, transactionControl } from "./splitSqlStatements";
 
@@ -133,7 +133,8 @@ export class PostgresAdapter implements DatabaseAdapter {
     }
   }
 
-  private async loadTable(client: PoolClient, table: string): Promise<TableMeta> {
+  /** `withCount` false skips counting the rows, a full scan on a big table. */
+  private async loadTable(client: PoolClient, table: string, withCount = true): Promise<TableMeta> {
     assertValidIdentifier(table);
     const { rows: colRows } = await client.query<{
       column_name: string;
@@ -202,15 +203,21 @@ export class PostgresAdapter implements DatabaseAdapter {
       });
     }
 
-    const { rows: countRows } = await client.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM ${q(table)}`
-    );
+    const { rows: countRows } = withCount
+      ? await client.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM ${q(table)}`)
+      : { rows: [] };
 
     return { name: table, columns, rowCount: Number(countRows[0]?.count ?? 0) };
   }
 
   async selectRows(table: string, opts: SelectOptions) {
-    const meta = await this.getTable(table);
+    const described = await this.pool.connect();
+    let meta: TableMeta;
+    try {
+      meta = await this.loadTable(described, table, false);
+    } finally {
+      described.release();
+    }
     const { where, params } = buildWhere("postgres", meta, opts, await loadRelatedTables(meta, opts, (t) => this.getTable(t)));
     const orderBy = buildOrderBy("postgres", meta, opts.sorts);
     const limit = opts.limit ?? 100;
@@ -218,8 +225,9 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     const client = await this.pool.connect();
     try {
-      const sql = `SELECT * FROM ${q(table)} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`;
+      const sql = `SELECT ${opts.preview ? previewSelectList("postgres", meta) : "*"} FROM ${q(table)} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`;
       const { rows } = await client.query(sql, params);
+      if (opts.preview) applyPreviews(rows);
       const countRes = await client.query<{ count: string }>(
         `SELECT COUNT(*)::text AS count FROM ${q(table)} ${where}`,
         params

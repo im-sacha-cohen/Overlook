@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { AggregateFn, ColumnMeta, Row, RowSort } from "@/lib/types";
+import { TRUNCATED_KEY, type AggregateFn, type ColumnMeta, type Row, type RowSort, type TruncatedCells } from "@/lib/types";
 import { aggregatesFor } from "@/lib/db/where";
 import { formatValue, pillStyle, toText } from "@/lib/client/format";
 import { groupRows } from "@/lib/client/group";
@@ -45,6 +45,8 @@ interface Props {
   /** Cells pasted over a selection: one entry per row, with the values that fit their column. */
   onPasteCells: (updates: { row: Row; values: Row }[]) => void;
   onCellsCopied: (count: number) => void;
+  /** Rows with their long values whole, for cells the grid only holds a preview of. */
+  loadFullRows: (rows: Row[]) => Promise<Row[]>;
   /** Columns pinned to the left; the parent already puts them first. */
   frozenColumns: string[];
   onToggleFrozen: (column: string) => void;
@@ -99,6 +101,7 @@ export function TableView({
   onEditDate,
   onPasteCells,
   onCellsCopied,
+  loadFullRows,
   frozenColumns,
   onToggleFrozen,
   summaries,
@@ -171,9 +174,9 @@ export function TableView({
   const inRange = (r: number, c: number) => !!bounds && r >= bounds.r0 && r <= bounds.r1 && c >= bounds.c0 && c <= bounds.c1;
 
   // The latest values for the document listeners below.
-  const clipboardState = useRef({ bounds, visibleRows, columns, onPasteCells, onCellsCopied });
+  const clipboardState = useRef({ bounds, visibleRows, columns, onPasteCells, onCellsCopied, loadFullRows });
   useEffect(() => {
-    clipboardState.current = { bounds, visibleRows, columns, onPasteCells, onCellsCopied };
+    clipboardState.current = { bounds, visibleRows, columns, onPasteCells, onCellsCopied, loadFullRows };
   });
 
   useEffect(() => {
@@ -183,17 +186,24 @@ export function TableView({
       return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || (el instanceof HTMLElement && el.isContentEditable);
     };
     const onCopy = (e: ClipboardEvent) => {
-      const { bounds: b, visibleRows: vr, columns: cols, onCellsCopied: copied } = clipboardState.current;
+      const { bounds: b, visibleRows: vr, columns: cols, onCellsCopied: copied, loadFullRows: loadFull } = clipboardState.current;
       if (!b || typing() || !e.clipboardData) return;
-      const matrix: string[][] = [];
-      for (let r = b.r0; r <= b.r1; r++) {
-        const row = vr[r];
-        if (!row) continue;
-        matrix.push(cols.slice(b.c0, b.c1 + 1).map((c) => (row[c.name] === null || row[c.name] === undefined ? "" : toText(row[c.name]))));
-      }
-      e.clipboardData.setData("text/plain", toTsv(matrix));
+      const picked = vr.slice(b.r0, b.r1 + 1).filter(Boolean);
+      const pickedColumns = cols.slice(b.c0, b.c1 + 1);
+      const tsv = (rows: Row[]) =>
+        toTsv(rows.map((row) => pickedColumns.map((c) => (row[c.name] === null || row[c.name] === undefined ? "" : toText(row[c.name])))));
       e.preventDefault();
-      copied(matrix.length * (b.c1 - b.c0 + 1));
+      const cut = picked.some((row) => pickedColumns.some((c) => (row[TRUNCATED_KEY] as TruncatedCells | undefined)?.[c.name] !== undefined));
+      if (!cut) {
+        e.clipboardData.setData("text/plain", tsv(picked));
+        copied(picked.length * pickedColumns.length);
+        return;
+      }
+      // Some cells only hold a preview: copy the full values once they're loaded.
+      loadFull(picked)
+        .then((full) => navigator.clipboard.writeText(tsv(full)))
+        .then(() => copied(picked.length * pickedColumns.length))
+        .catch(() => {});
     };
     const onPaste = (e: ClipboardEvent) => {
       const { bounds: b, visibleRows: vr, columns: cols, onPasteCells: paste } = clipboardState.current;

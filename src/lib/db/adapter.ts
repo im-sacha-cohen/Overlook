@@ -7,6 +7,8 @@ export interface SelectOptions extends RowQuery {
   sorts?: RowSort[];
   limit?: number;
   offset?: number;
+  /** For the grid: long values come cut, marked under TRUNCATED_KEY (see previewSelectList). */
+  preview?: boolean;
 }
 
 /**

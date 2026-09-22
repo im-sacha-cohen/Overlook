@@ -88,6 +88,14 @@ export interface ColumnMeta {
   hidden?: boolean;
 }
 
+/**
+ * On a row of the grid, the cells sent as a preview: column name → full length in
+ * bytes. A long text holds its first characters, a long binary value is null.
+ * Anything that writes or copies a value fetches the full row first.
+ */
+export const TRUNCATED_KEY = "__overlook_truncated";
+export type TruncatedCells = Record<string, number>;
+
 export interface TableMeta {
   name: string;
   columns: ColumnMeta[];

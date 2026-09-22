@@ -15,7 +15,7 @@ import {
   type WriteOp,
   type WritePreview,
 } from "./adapter";
-import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, distinctQueryTables, distinctRows, loadRelatedTables, topDistinct } from "./where";
+import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, distinctQueryTables, distinctRows, loadRelatedTables, topDistinct, applyPreviews, previewSelectList } from "./where";
 import { leadingKeyword } from "./splitSqlStatements";
 import { assertNoFileAccess, resolveSqlitePath } from "./sqlitePath";
 
@@ -133,8 +133,9 @@ export class SqliteAdapter implements DatabaseAdapter {
     const limit = opts.limit ?? 100;
     const offset = opts.offset ?? 0;
     const rows = this.db
-      .prepare(`SELECT * FROM ${q(table)} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`)
+      .prepare(`SELECT ${opts.preview ? previewSelectList("sqlite", meta) : "*"} FROM ${q(table)} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`)
       .all(...params) as Row[];
+    if (opts.preview) applyPreviews(rows);
     const countRow = this.db.prepare(`SELECT COUNT(*) AS count FROM ${q(table)} ${where}`).get(...params) as {
       count: number;
     };

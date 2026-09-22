@@ -176,9 +176,10 @@ export const api = {
   selectRows: (
     connectionId: string,
     table: string,
-    opts: RowQuery & { sorts?: RowSort[]; limit?: number; offset?: number }
+    opts: RowQuery & { sorts?: RowSort[]; limit?: number; offset?: number; preview?: boolean }
   ) => {
     const params = rowQueryToParams(opts);
+    if (opts.preview) params.set("preview", "1");
     if (opts.sorts?.length) params.set("sorts", JSON.stringify(opts.sorts));
     if (opts.limit) params.set("limit", String(opts.limit));
     if (opts.offset) params.set("offset", String(opts.offset));
