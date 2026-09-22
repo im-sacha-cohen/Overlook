@@ -110,6 +110,11 @@ export interface TableMeta {
   name: string;
   columns: ColumnMeta[];
   rowCount: number;
+  /**
+   * The table list gives big tables the database's own estimate, rather than counting
+   * every row; rowCount is then -1 when there is no estimate yet.
+   */
+  rowCountEstimated?: boolean;
 }
 
 export interface RowFilter {

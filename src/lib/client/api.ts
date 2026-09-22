@@ -326,9 +326,10 @@ export const api = {
 
   listJournal: (filters: JournalFilters) => request<{ entries: JournalEntry[] }>(`/api/journal?${journalQueryString(filters)}`),
   journalExportUrl: (filters: JournalFilters) => `/api/journal/export?${journalQueryString(filters)}`,
-  getSettings: () => request<{ journalRetentionDays: number }>("/api/settings"),
-  saveSettings: (settings: { journalRetentionDays: number }) =>
-    request<{ journalRetentionDays: number }>("/api/settings", { method: "PUT", body: JSON.stringify(settings) }),
+  getSettings: () => request<{ journalRetentionDays: number; pageSize: number }>("/api/settings"),
+  /** Saves the settings given; the others are left as they are. */
+  saveSettings: (settings: { journalRetentionDays?: number; pageSize?: number }) =>
+    request<{ journalRetentionDays: number; pageSize: number }>("/api/settings", { method: "PUT", body: JSON.stringify(settings) }),
   compareSchemas: (left: string, right: string) =>
     request<SchemaDiff>("/api/compare/schema", { method: "POST", body: JSON.stringify({ left, right }) }),
   compareData: (left: string, right: string, table: string) =>

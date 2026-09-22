@@ -173,3 +173,11 @@ export function formatBytes(bytes: number, lang: Lang = "fr"): string {
   }
   return `${value.toLocaleString(lang === "fr" ? "fr-FR" : "en-US", { maximumFractionDigits: unit === 0 ? 0 : 1 })} ${units[unit]}`;
 }
+
+/** A table's row count as the table list shows it: "≈ 1,2 M" for an estimate, "?" when there is none. */
+export function formatRowCount(table: { rowCount: number; rowCountEstimated?: boolean }, lang: Lang = "fr"): string {
+  const locale = lang === "fr" ? "fr-FR" : "en-US";
+  if (!table.rowCountEstimated) return table.rowCount.toLocaleString(locale);
+  if (table.rowCount < 0) return "?";
+  return `≈ ${table.rowCount.toLocaleString(locale, { notation: "compact", maximumFractionDigits: 1 })}`;
+}

@@ -90,6 +90,7 @@ export const fr: Dict = {
   "sidebar.tablesSelected_one": "table sélectionnée",
   "sidebar.tablesSelected_other": "tables sélectionnées",
   "sidebar.export": "Exporter",
+  "sidebar.rowCountEstimated": "Estimation de la base : compter chaque ligne d'une table aussi grande serait lent",
   "sidebar.emptyTables": "Vider",
   "sidebar.openInNewTab": "Ouvrir dans un nouvel onglet",
   "sidebar.openInBrowserTab": "Ouvrir dans un onglet du navigateur",
@@ -196,6 +197,8 @@ export const fr: Dict = {
   "pagination.first": "« Première",
   "pagination.last": "Dernière »",
   "pagination.of": "sur",
+  "pagination.perPage": "lignes par page",
+  "pagination.customSize": "Autre…",
   "pagination.page": "page {{page}} / {{total}}",
   "pagination.rows": "{{count}} ligne(s)",
 
@@ -720,6 +723,7 @@ export const en: Dict = {
   "sidebar.tablesSelected_one": "table selected",
   "sidebar.tablesSelected_other": "tables selected",
   "sidebar.export": "Export",
+  "sidebar.rowCountEstimated": "The database's estimate: counting every row of a table this big would be slow",
   "sidebar.emptyTables": "Empty",
   "sidebar.openInNewTab": "Open in new tab",
   "sidebar.openInBrowserTab": "Open in new browser tab",
@@ -826,6 +830,8 @@ export const en: Dict = {
   "pagination.first": "« First",
   "pagination.last": "Last »",
   "pagination.of": "of",
+  "pagination.perPage": "rows per page",
+  "pagination.customSize": "Other…",
   "pagination.page": "page {{page}} / {{total}}",
   "pagination.rows": "{{count}} row(s)",
 

@@ -1,6 +1,7 @@
 import { existsSync } from "fs";
 import { Suspense } from "react";
 import { listConnectionFolders, listConnections } from "@/lib/store/metadata";
+import { getPageSize } from "@/lib/store/settings";
 import { Workspace } from "@/components/Workspace";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { LandingContent } from "./landing/LandingContent";
@@ -24,7 +25,7 @@ export default function Home() {
   return (
     <LanguageProvider>
       <Suspense fallback={null}>
-        <Workspace initialConnections={connections} initialFolders={folders} dockerDetected={isRunningInDocker()} />
+        <Workspace initialConnections={connections} initialFolders={folders} initialPageSize={getPageSize()} dockerDetected={isRunningInDocker()} />
       </Suspense>
     </LanguageProvider>
   );

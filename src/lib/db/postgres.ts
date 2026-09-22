@@ -9,6 +9,7 @@ import {
   ScriptSessionLost,
   SCRIPT_BATCH_MS,
   SCRIPT_BATCH_SIZE,
+  EXACT_COUNT_BELOW,
   groupStatements,
   referencingFirst,
   runOneByOne,
@@ -92,14 +93,28 @@ export class PostgresAdapter implements DatabaseAdapter {
   async listTables(): Promise<TableMeta[]> {
     const client = await this.pool.connect();
     try {
-      const { rows: tableRows } = await client.query<{ table_name: string }>(
-        `SELECT table_name FROM information_schema.tables
-         WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-         ORDER BY table_name`
+      // reltuples: PostgreSQL's estimate, kept up by ANALYZE (-1 when a table never was).
+      const { rows: tableRows } = await client.query<{ table_name: string; estimate: string | null; bytes: string | null }>(
+        `SELECT t.table_name, c.reltuples::bigint::text AS estimate, pg_relation_size(c.oid)::text AS bytes
+         FROM information_schema.tables t
+         LEFT JOIN pg_class c ON c.relname = t.table_name AND c.relnamespace = 'public'::regnamespace
+         WHERE t.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+         ORDER BY t.table_name`
       );
+      const described = await this.describeTables(client);
       const tables: TableMeta[] = [];
       for (const t of tableRows) {
-        tables.push(await this.loadTable(client, t.table_name));
+        const estimate = t.estimate === null ? -1 : Number(t.estimate);
+        // -1: no estimate yet, and the table is too big to count here.
+        const meta = { name: t.table_name, columns: described.get(t.table_name) ?? [], rowCount: estimate };
+        // Counted while cheap: a small estimate, or a table never analyzed but small on disk.
+        const cheap = estimate >= 0 ? estimate < EXACT_COUNT_BELOW : Number(t.bytes ?? 0) < 64 * 1024 * 1024;
+        if (!cheap) {
+          tables.push({ ...meta, rowCountEstimated: true });
+          continue;
+        }
+        const { rows: countRows } = await client.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM ${q(t.table_name)}`);
+        tables.push({ ...meta, rowCount: Number(countRows[0]?.count ?? 0) });
       }
       return tables;
     } finally {
@@ -136,78 +151,95 @@ export class PostgresAdapter implements DatabaseAdapter {
   /** `withCount` false skips counting the rows, a full scan on a big table. */
   private async loadTable(client: PoolClient, table: string, withCount = true): Promise<TableMeta> {
     assertValidIdentifier(table);
-    const { rows: colRows } = await client.query<{
-      column_name: string;
-      data_type: string;
-      udt_name: string;
-      is_nullable: string;
-    }>(
-      `SELECT column_name, data_type, udt_name, is_nullable
-       FROM information_schema.columns
-       WHERE table_schema = 'public' AND table_name = $1
-       ORDER BY ordinal_position`,
-      [table]
-    );
-
-    const { rows: pkRows } = await client.query<{ column_name: string }>(
-      `SELECT kcu.column_name
-       FROM information_schema.table_constraints tc
-       JOIN information_schema.key_column_usage kcu
-         ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
-       WHERE tc.table_schema = 'public' AND tc.table_name = $1 AND tc.constraint_type = 'PRIMARY KEY'`,
-      [table]
-    );
-    const pkNames = new Set(pkRows.map((r) => r.column_name));
-
-    const { rows: fkRows } = await client.query<{
-      column_name: string;
-      foreign_table_name: string;
-      foreign_column_name: string;
-    }>(
-      `SELECT kcu.column_name, ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name
-       FROM information_schema.table_constraints tc
-       JOIN information_schema.key_column_usage kcu
-         ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
-       JOIN information_schema.constraint_column_usage ccu
-         ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
-       WHERE tc.table_schema = 'public' AND tc.table_name = $1 AND tc.constraint_type = 'FOREIGN KEY'`,
-      [table]
-    );
-    const fkByColumn = new Map(fkRows.map((r) => [r.column_name, r]));
-
-    const columns: ColumnMeta[] = [];
-    for (const c of colRows) {
-      let logicalType = nativeToLogical(c.data_type);
-      let options: string[] | undefined;
-      if (c.data_type.toLowerCase() === "user-defined") {
-        const { rows: enumRows } = await client.query<{ enumlabel: string }>(
-          `SELECT e.enumlabel FROM pg_type t
-           JOIN pg_enum e ON t.oid = e.enumtypid
-           WHERE t.typname = $1 ORDER BY e.enumsortorder`,
-          [c.udt_name]
-        );
-        if (enumRows.length > 0) {
-          logicalType = "select";
-          options = enumRows.map((r) => r.enumlabel);
-        }
-      }
-      const fk = fkByColumn.get(c.column_name);
-      columns.push({
-        name: c.column_name,
-        logicalType: fk ? "relation" : logicalType,
-        nativeType: c.data_type === "USER-DEFINED" ? c.udt_name : c.data_type,
-        nullable: c.is_nullable === "YES",
-        isPrimaryKey: pkNames.has(c.column_name),
-        options,
-        references: fk ? { table: fk.foreign_table_name, column: fk.foreign_column_name } : undefined,
-      });
-    }
-
+    const columns = (await this.describeTables(client, table)).get(table) ?? [];
     const { rows: countRows } = withCount
       ? await client.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM ${q(table)}`)
       : { rows: [] };
 
     return { name: table, columns, rowCount: Number(countRows[0]?.count ?? 0) };
+  }
+
+  /** Columns of one table, or of all of them at once (four queries whatever their number). */
+  private async describeTables(client: PoolClient, table?: string): Promise<Map<string, ColumnMeta[]>> {
+    const only = table ? " AND tc.table_name = $1" : "";
+    const args = table ? [table] : [];
+    const { rows: colRows } = await client.query<{
+      table_name: string;
+      column_name: string;
+      data_type: string;
+      udt_name: string;
+      is_nullable: string;
+    }>(
+      `SELECT table_name, column_name, data_type, udt_name, is_nullable
+       FROM information_schema.columns
+       WHERE table_schema = 'public'${table ? " AND table_name = $1" : ""}
+       ORDER BY table_name, ordinal_position`,
+      args
+    );
+
+    const { rows: pkRows } = await client.query<{ table_name: string; column_name: string }>(
+      `SELECT tc.table_name, kcu.column_name
+       FROM information_schema.table_constraints tc
+       JOIN information_schema.key_column_usage kcu
+         ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+       WHERE tc.table_schema = 'public'${only} AND tc.constraint_type = 'PRIMARY KEY'`,
+      args
+    );
+    const pkNames = new Set(pkRows.map((r) => `${r.table_name}\u0000${r.column_name}`));
+
+    const { rows: fkRows } = await client.query<{
+      table_name: string;
+      column_name: string;
+      foreign_table_name: string;
+      foreign_column_name: string;
+    }>(
+      `SELECT tc.table_name, kcu.column_name, ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name
+       FROM information_schema.table_constraints tc
+       JOIN information_schema.key_column_usage kcu
+         ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+       JOIN information_schema.constraint_column_usage ccu
+         ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
+       WHERE tc.table_schema = 'public'${only} AND tc.constraint_type = 'FOREIGN KEY'`,
+      args
+    );
+    const fkByColumn = new Map(fkRows.map((r) => [`${r.table_name}\u0000${r.column_name}`, r]));
+
+    // Enum labels, only when some column uses an enum type.
+    const enumTypes = [...new Set(colRows.filter((c) => c.data_type.toLowerCase() === "user-defined").map((c) => c.udt_name))];
+    const labels = new Map<string, string[]>();
+    if (enumTypes.length > 0) {
+      const { rows: enumRows } = await client.query<{ typname: string; enumlabel: string }>(
+        `SELECT t.typname, e.enumlabel FROM pg_type t
+         JOIN pg_enum e ON t.oid = e.enumtypid
+         WHERE t.typname = ANY($1) ORDER BY t.typname, e.enumsortorder`,
+        [enumTypes]
+      );
+      for (const r of enumRows) labels.set(r.typname, [...(labels.get(r.typname) ?? []), r.enumlabel]);
+    }
+
+    const byTable = new Map<string, ColumnMeta[]>();
+    for (const c of colRows) {
+      let logicalType = nativeToLogical(c.data_type);
+      let options: string[] | undefined;
+      if (c.data_type.toLowerCase() === "user-defined" && labels.has(c.udt_name)) {
+        logicalType = "select";
+        options = labels.get(c.udt_name);
+      }
+      const key = `${c.table_name}\u0000${c.column_name}`;
+      const fk = fkByColumn.get(key);
+      const columns = byTable.get(c.table_name) ?? [];
+      columns.push({
+        name: c.column_name,
+        logicalType: fk ? "relation" : logicalType,
+        nativeType: c.data_type === "USER-DEFINED" ? c.udt_name : c.data_type,
+        nullable: c.is_nullable === "YES",
+        isPrimaryKey: pkNames.has(key),
+        options,
+        references: fk ? { table: fk.foreign_table_name, column: fk.foreign_column_name } : undefined,
+      });
+      byTable.set(c.table_name, columns);
+    }
+    return byTable;
   }
 
   async selectRows(table: string, opts: SelectOptions) {

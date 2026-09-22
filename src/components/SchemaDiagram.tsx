@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TableMeta } from "@/lib/types";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { formatRowCount } from "@/lib/client/format";
 
 interface Props {
   connectionId: string;
@@ -76,7 +77,7 @@ function loadPositions(connectionId: string): Positions {
 }
 
 export function SchemaDiagram({ connectionId, tables, onOpenTable, onClose }: Props) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const initialLayout = useMemo(() => autoLayout(tables), [tables]);
   const [saved, setSaved] = useState<Positions>(() => loadPositions(connectionId));
   const fitView = () => {
@@ -271,7 +272,7 @@ export function SchemaDiagram({ connectionId, tables, onOpenTable, onClose }: Pr
                       {tbl.name}
                     </text>
                     <text x={BOX_WIDTH - 12} y={20} fontSize={11} fill="#a8a39a" textAnchor="end">
-                      {tbl.rowCount.toLocaleString()}
+                      {formatRowCount(tbl, lang)}
                     </text>
                   </g>
                   {shown.map((c, i) => (

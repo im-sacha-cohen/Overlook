@@ -40,6 +40,12 @@ export class ScriptSessionLost extends Error {
 }
 
 /**
+ * The table list counts a table's rows exactly only below this estimate: above, it
+ * shows the database's estimate, since COUNT(*) reads the whole table.
+ */
+export const EXACT_COUNT_BELOW = 50_000;
+
+/**
  * A script's statements are committed in batches: one commit per statement
  * costs a disk sync each, which makes a dump of single-row INSERTs crawl.
  * A batch ends after this many statements or this long, whichever comes first.

@@ -8,6 +8,7 @@ import {
   ScriptSessionLost,
   SCRIPT_BATCH_MS,
   SCRIPT_BATCH_SIZE,
+  EXACT_COUNT_BELOW,
   groupStatements,
   referencingFirst,
   runOneByOne,
@@ -101,16 +102,32 @@ export class MySqlAdapter implements DatabaseAdapter {
   }
 
   async listTables(): Promise<TableMeta[]> {
-    const [rows] = await this.pool.query<mysql.RowDataPacket[]>(
-      `SELECT TABLE_NAME AS name FROM information_schema.tables
-       WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME`,
-      [this.database]
-    );
-    const tables: TableMeta[] = [];
-    for (const r of rows) {
-      tables.push(await this.getTable(r.name as string));
+    const conn = await this.pool.getConnection();
+    let rows: mysql.RowDataPacket[];
+    try {
+      // MySQL 8 caches these statistics for a day by default: ask for current ones (older servers don't know the setting).
+      await conn.query("SET SESSION information_schema_stats_expiry = 0").catch(() => {});
+      [rows] = await conn.query<mysql.RowDataPacket[]>(
+        `SELECT TABLE_NAME AS name, TABLE_ROWS AS estimate, ENGINE AS engine FROM information_schema.tables
+         WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME`,
+        [this.database]
+      );
+    } finally {
+      conn.release();
     }
-    return tables;
+    const described = await this.describeTables();
+    return Promise.all(
+      rows.map(async (r) => {
+        const name = r.name as string;
+        const estimate = Number(r.estimate ?? 0);
+        const meta = { name, columns: described.get(name) ?? [], rowCount: estimate };
+        // MyISAM keeps an exact count; InnoDB's is an estimate, worth replacing only while counting is cheap.
+        if (String(r.engine).toLowerCase() === "myisam") return meta;
+        if (estimate >= EXACT_COUNT_BELOW) return { ...meta, rowCountEstimated: true };
+        const [countRows] = await this.pool.query<mysql.RowDataPacket[]>(`SELECT COUNT(*) AS count FROM ${q(name)}`);
+        return { ...meta, rowCount: Number(countRows[0]?.count ?? 0) };
+      }),
+    );
   }
 
   async createTable(table: string, columns: { name: string; type: LogicalType }[]): Promise<void> {
@@ -136,24 +153,33 @@ export class MySqlAdapter implements DatabaseAdapter {
   /** The table's columns, without counting its rows (a full scan on a big InnoDB table). */
   private async describeTable(table: string): Promise<TableMeta> {
     assertValidIdentifier(table);
+    return { name: table, columns: (await this.describeTables(table)).get(table) ?? [], rowCount: 0 };
+  }
+
+  /** Columns of one table, or of all of them at once (two queries whatever their number). */
+  private async describeTables(table?: string): Promise<Map<string, ColumnMeta[]>> {
+    const only = table ? " AND TABLE_NAME = ?" : "";
+    const args = table ? [this.database, table] : [this.database];
     const [colRows] = await this.pool.query<mysql.RowDataPacket[]>(
-      `SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY
-       FROM information_schema.columns WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION`,
-      [this.database, table]
+      `SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY
+       FROM information_schema.columns WHERE TABLE_SCHEMA = ?${only} ORDER BY TABLE_NAME, ORDINAL_POSITION`,
+      args
     );
     const [fkRows] = await this.pool.query<mysql.RowDataPacket[]>(
-      `SELECT COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+      `SELECT TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
        FROM information_schema.KEY_COLUMN_USAGE
-       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND REFERENCED_TABLE_NAME IS NOT NULL`,
-      [this.database, table]
+       WHERE TABLE_SCHEMA = ?${only} AND REFERENCED_TABLE_NAME IS NOT NULL`,
+      args
     );
-    const fkByColumn = new Map(fkRows.map((r) => [r.COLUMN_NAME as string, r]));
+    const fkByColumn = new Map(fkRows.map((r) => [`${r.TABLE_NAME}\u0000${r.COLUMN_NAME}`, r]));
 
-    const columns: ColumnMeta[] = colRows.map((c) => {
+    const byTable = new Map<string, ColumnMeta[]>();
+    for (const c of colRows) {
       const columnType = String(c.COLUMN_TYPE);
       const logical = nativeToLogical(String(c.DATA_TYPE), columnType);
-      const fk = fkByColumn.get(c.COLUMN_NAME as string);
-      return {
+      const fk = fkByColumn.get(`${c.TABLE_NAME}\u0000${c.COLUMN_NAME}`);
+      const columns = byTable.get(c.TABLE_NAME as string) ?? [];
+      columns.push({
         name: c.COLUMN_NAME as string,
         logicalType: fk ? "relation" : logical,
         nativeType: columnType,
@@ -163,10 +189,10 @@ export class MySqlAdapter implements DatabaseAdapter {
         references: fk
           ? { table: fk.REFERENCED_TABLE_NAME as string, column: fk.REFERENCED_COLUMN_NAME as string }
           : undefined,
-      };
-    });
-
-    return { name: table, columns, rowCount: 0 };
+      });
+      byTable.set(c.TABLE_NAME as string, columns);
+    }
+    return byTable;
   }
 
   async selectRows(table: string, opts: SelectOptions) {

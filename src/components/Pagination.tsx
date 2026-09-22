@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 
 interface Props {
@@ -7,11 +8,17 @@ interface Props {
   pageSize: number;
   total: number;
   onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
 }
 
-export function Pagination({ page, pageSize, total, onPageChange }: Props) {
+const PAGE_SIZES = [25, 50, 100, 250, 500, 1000];
+const MAX_PAGE_SIZE = 5000;
+
+export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChange }: Props) {
   const { t, lang } = useLang();
-  if (total <= pageSize) return null;
+  const [custom, setCustom] = useState<string | null>(null);
+  // A table that fits in the smallest page needs neither pages nor their size.
+  if (total <= pageSize && total <= PAGE_SIZES[0]) return null;
   const from = total === 0 ? 0 : page * pageSize + 1;
   const to = Math.min(total, (page + 1) * pageSize);
   const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1);
@@ -33,6 +40,42 @@ export function Pagination({ page, pageSize, total, onPageChange }: Props) {
       <span>
         {from}–{to} {t("pagination.of")} {total.toLocaleString(lang === "fr" ? "fr-FR" : "en-US")}
       </span>
+      <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        {custom === null ? (
+          <select
+            value={String(pageSize)}
+            onChange={(e) => (e.target.value === "custom" ? setCustom(String(pageSize)) : onPageSizeChange(Number(e.target.value)))}
+            style={{ border: "1px solid #e8e5df", borderRadius: 6, padding: "3px 6px", background: "#fff", fontSize: 12.5, color: "#4b473f", cursor: "pointer" }}
+          >
+            {[...new Set([...PAGE_SIZES, pageSize])].sort((a, b) => a - b).map((n) => (
+              <option key={n} value={n}>
+                {n.toLocaleString(lang === "fr" ? "fr-FR" : "en-US")}
+              </option>
+            ))}
+            <option value="custom">{t("pagination.customSize")}</option>
+          </select>
+        ) : (
+          <input
+            autoFocus
+            type="number"
+            min={1}
+            max={MAX_PAGE_SIZE}
+            value={custom}
+            onChange={(e) => setCustom(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setCustom(null);
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
+            onBlur={() => {
+              const n = Math.round(Number(custom));
+              if (Number.isFinite(n) && n >= 1) onPageSizeChange(Math.min(n, MAX_PAGE_SIZE));
+              setCustom(null);
+            }}
+            style={{ width: 72, border: "1px solid #e8e5df", borderRadius: 6, padding: "3px 6px", fontSize: 12.5, fontFamily: "var(--font-mono)" }}
+          />
+        )}
+        {t("pagination.perPage")}
+      </label>
       <div style={{ flex: 1 }} />
       <button
         onClick={() => onPageChange(0)}

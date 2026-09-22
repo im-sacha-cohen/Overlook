@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { TableMeta } from "@/lib/types";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { formatRowCount } from "@/lib/client/format";
 
 export interface ExportChoice {
   format: "sql" | "ndjson" | "csv";
@@ -33,7 +34,9 @@ export function ExportModal({ connectionName, tables, initialSelected, view, onE
   );
   const [error, setError] = useState<string | null>(null);
 
-  const totalRows = view ? view.rowCount : tables.filter((t) => selected.has(t.name)).reduce((sum, t) => sum + t.rowCount, 0);
+  const picked = tables.filter((t) => selected.has(t.name));
+  const totalRows = view ? view.rowCount : picked.reduce((sum, t) => sum + Math.max(t.rowCount, 0), 0);
+  const totalEstimated = !view && picked.some((t) => t.rowCountEstimated);
   // A CSV file holds one table.
   const csvAllowed = !!view || selected.size === 1;
 
@@ -118,7 +121,7 @@ export function ExportModal({ connectionName, tables, initialSelected, view, onE
                 <label key={t.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", fontSize: 13, cursor: "pointer" }}>
                   <input type="checkbox" checked={selected.has(t.name)} onChange={() => toggleTable(t.name)} />
                   <span style={{ flex: 1 }}>{t.name}</span>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "#b4afa5" }}>{t.rowCount}</span>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "#b4afa5" }}>{formatRowCount(t, lang)}</span>
                 </label>
               ))}
             </div>
@@ -126,7 +129,7 @@ export function ExportModal({ connectionName, tables, initialSelected, view, onE
           )}
 
           <div style={{ fontSize: 12, color: "#a8a39a" }}>
-            {includeData || format === "csv" || view ? t("export.estimateRows", { count: totalRows.toLocaleString(lang === "fr" ? "fr-FR" : "en-US") }) : t("export.structureOnly")}
+            {includeData || format === "csv" || view ? t("export.estimateRows", { count: totalRows.toLocaleString(lang === "fr" ? "fr-FR" : "en-US", totalEstimated ? { notation: "compact", maximumFractionDigits: 1 } : {}) }) : t("export.structureOnly")}
           </div>
 
           {error && (

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { TableMeta } from "@/lib/types";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { formatRowCount } from "@/lib/client/format";
 
 interface Props {
   tables: TableMeta[];
@@ -58,7 +59,9 @@ export function Sidebar({
   onOpenTableInNewTab,
   tableHref,
 }: Props) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
+  // The table list below names each table `t`.
+  const tr = t;
   const [menu, setMenu] = useState<{ x: number; y: number; table: string } | null>(null);
   // Last table clicked without Shift: the fixed end of a Shift-click range.
   const rangeAnchor = useRef<string | null>(null);
@@ -204,7 +207,9 @@ export function Sidebar({
               >
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "#b4afa5" }}>▦</span>
                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</span>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "#b4afa5" }}>{t.rowCount}</span>
+                <span title={t.rowCountEstimated ? tr("sidebar.rowCountEstimated") : undefined} style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "#b4afa5", whiteSpace: "nowrap" }}>
+                  {formatRowCount(t, lang)}
+                </span>
               </div>
               {showColumns && active && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 1, margin: "2px 0 6px 24px", paddingLeft: 10, borderLeft: "1px solid #eceae4" }}>

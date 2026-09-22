@@ -52,7 +52,6 @@ import { SettingsPanel } from "./SettingsPanel";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 
 const VIEW_KINDS: ViewKind[] = ["table", "board", "calendar", "gallery"];
-const PAGE_SIZE = 100;
 const EMPTY_TABLES: TableMeta[] = [];
 const EMPTY_ROWS: Row[] = [];
 // How long a connection can take before we offer to cancel.
@@ -64,6 +63,8 @@ const SQL_IMPORT_POLL_MS = 500;
 interface Props {
   initialConnections: Connection[];
   initialFolders: string[];
+  /** Rows per page, a setting saved on the server for every table. */
+  initialPageSize: number;
   dockerDetected?: boolean;
 }
 
@@ -96,7 +97,7 @@ function GridSkeleton() {
   );
 }
 
-export function Workspace({ initialConnections, initialFolders, dockerDetected }: Props) {
+export function Workspace({ initialConnections, initialFolders, initialPageSize, dockerDetected }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -201,6 +202,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
   const [unlockedConnections, setUnlockedConnections] = useState<Set<string>>(new Set());
   const [pendingGuard, setPendingGuard] = useState<PendingGuard | null>(null);
   const [writeTasks, setWriteTasks] = useState<WriteTask[]>([]);
+  const [pageSize, setPageSize] = useState(initialPageSize);
   const writeTaskSeq = useRef(0);
   const [dropTablesRequest, setDropTablesRequest] = useState<{ names: string[]; mode: "drop" | "empty" } | null>(null);
 
@@ -344,8 +346,8 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
         filterGroups,
         sorts,
         search: debouncedSearch,
-        limit: PAGE_SIZE,
-        offset: page * PAGE_SIZE,
+        limit: pageSize,
+        offset: page * pageSize,
         preview: true,
       });
       if (seq !== rowsRequestSeq.current) return;
@@ -388,7 +390,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
     } finally {
       if (!silent && seq === rowsRequestSeq.current) setLoadingRows(false);
     }
-  }, [activeConnectionId, activeTable, filters, filterMatch, filterGroups, sorts, debouncedSearch, page, flash, t, lang]);
+  }, [activeConnectionId, activeTable, filters, filterMatch, filterGroups, sorts, debouncedSearch, page, pageSize, flash, t, lang]);
 
   useEffect(() => {
     if (activeConnectionId) loadTables(activeConnectionId);
@@ -972,6 +974,14 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
     setEditingConnectionId(null);
     await forgetConnectionLocally(id);
     flash(t("toast.databaseDropped"));
+  }
+
+  // ---------- page size ----------
+  // Saved on the server: the same for every table, connection and browser.
+  function changePageSize(size: number) {
+    setPageSize(size);
+    setPage(0);
+    api.saveSettings({ pageSize: size }).catch((err) => flash(err instanceof Error ? err.message : String(err)));
   }
 
   // ---------- long values ----------
@@ -1836,12 +1846,12 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
     if (!activeTable || !activeConnection || columns.length === 0) return "";
     try {
       const byName = new Map(tables.map((tb) => [tb.name, tb]));
-      return describeSelect(activeConnection.engine, { name: activeTable, columns, rowCount: 0 }, { filters, filterMatch, filterGroups, sorts, search: debouncedSearch, limit: PAGE_SIZE, offset: page * PAGE_SIZE }, (name) => byName.get(name));
+      return describeSelect(activeConnection.engine, { name: activeTable, columns, rowCount: 0 }, { filters, filterMatch, filterGroups, sorts, search: debouncedSearch, limit: pageSize, offset: page * pageSize }, (name) => byName.get(name));
     } catch {
       // A saved filter can name a column that no longer exists; the grid reports that error.
       return "";
     }
-  }, [activeTable, activeConnection, filters, filterMatch, filterGroups, sorts, debouncedSearch, columns, page, tables]);
+  }, [activeTable, activeConnection, filters, filterMatch, filterGroups, sorts, debouncedSearch, columns, page, pageSize, tables]);
 
   // ---------- derived view helpers ----------
   const boardColumn = useMemo(() => {
@@ -2178,7 +2188,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
                 {rowsEntry && view === "gallery" && <GalleryView columns={visibleColumns} rows={rows} onRowOpen={openDetail} />}
                 {rowsEntry && view === "calendar" && <CalendarView rows={rows} dateColumn={dateColumn} titleColumn={titleColumn} tagColumn={tagColumn} onRowOpen={openDetail} />}
               </div>
-              <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
+              <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={changePageSize} />
             </>
           )}
         </div>
