@@ -9,9 +9,21 @@ export interface SelectOptions extends RowQuery {
   offset?: number;
 }
 
-export interface ImportReport {
-  executed: number;
-  failed: { statement: number; sql: string; message: string }[];
+/**
+ * One connection kept for a whole SQL script, so the SET, BEGIN… a dump starts
+ * with still apply to the statements that follow them.
+ */
+export interface ScriptSession {
+  run(sql: string): Promise<void>;
+  /** Commits what the session itself batched and lets go of the connection. */
+  close(): Promise<void>;
+}
+
+/** The session's connection is gone: the statements after this one can't run either. */
+export class ScriptSessionLost extends Error {
+  constructor(cause: unknown) {
+    super(`Connexion à la base perdue : ${cause instanceof Error ? cause.message : String(cause)}`);
+  }
 }
 
 export interface SqlStatement {
@@ -58,7 +70,7 @@ export interface DatabaseAdapter {
    */
   runRawQuery(sql: string, options?: { readOnly?: boolean }): Promise<QueryResult>;
   runStatement(sql: string): Promise<void>;
-  runScript(sql: string): Promise<ImportReport>;
+  openScriptSession(): Promise<ScriptSession>;
   close(): Promise<void>;
 }
 

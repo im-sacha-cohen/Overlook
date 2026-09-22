@@ -5,11 +5,12 @@ import {
   assertKnownColumn,
   assertValidIdentifier,
   ReadOnlyViolation,
+  ScriptSessionLost,
   coerceRowValues,
   previewWithAdapter,
   type DatabaseAdapter,
   type DropTablesOptions,
-  type ImportReport,
+  type ScriptSession,
   type SelectOptions,
   type SqlStatement,
   type WriteOp,
@@ -429,22 +430,24 @@ export class MySqlAdapter implements DatabaseAdapter {
     await this.pool.query(normalizeMysqlDateLiterals(sql));
   }
 
-  async runScript(sql: string): Promise<ImportReport> {
-    const statements = splitSqlStatements(sql);
-    const report: ImportReport = { executed: 0, failed: [] };
-    for (let i = 0; i < statements.length; i++) {
-      try {
-        await this.runStatement(statements[i]);
-        report.executed++;
-      } catch (err) {
-        report.failed.push({
-          statement: i + 1,
-          sql: statements[i].slice(0, 200),
-          message: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-    return report;
+  async openScriptSession(): Promise<ScriptSession> {
+    const connection = await this.pool.getConnection();
+    let lost: Error | null = null;
+    connection.on("error", (err: Error) => (lost = err));
+    connection.on("end", () => (lost ??= new Error("fermée par le serveur")));
+    return {
+      run: async (sql) => {
+        if (lost) throw new ScriptSessionLost(lost);
+        try {
+          await connection.query(normalizeMysqlDateLiterals(sql));
+        } catch (err) {
+          if (lost || (err as { fatal?: boolean }).fatal) throw new ScriptSessionLost(lost ?? err);
+          throw err;
+        }
+      },
+      // Thrown away rather than handed back to the pool: a dump's SET FOREIGN_KEY_CHECKS=0 would stick to it.
+      close: async () => connection.destroy(),
+    };
   }
 
   async close(): Promise<void> {

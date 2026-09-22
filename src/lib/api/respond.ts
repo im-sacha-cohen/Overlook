@@ -4,7 +4,7 @@ export function errorResponse(err: unknown, status = 400) {
 
 // Network failures (e.g. pg's ECONNREFUSED) can come as an AggregateError with an empty
 // message; dig out something the user can read.
-function errorMessage(err: unknown): string {
+export function errorMessage(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
   if (err.message) return err.message;
   if (err instanceof AggregateError && err.errors.length > 0) return errorMessage(err.errors[0]);

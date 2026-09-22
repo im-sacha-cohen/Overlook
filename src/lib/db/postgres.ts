@@ -6,18 +6,18 @@ import {
   assertValidIdentifier,
   primaryKeyOf,
   ReadOnlyViolation,
+  ScriptSessionLost,
   assertCreatableType,
   previewWithAdapter,
   type DatabaseAdapter,
   type DropTablesOptions,
-  type ImportReport,
+  type ScriptSession,
   type SelectOptions,
   type SqlStatement,
   type WriteOp,
   type WritePreview,
 } from "./adapter";
 import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, distinctQueryTables, distinctRows, loadRelatedTables, topDistinct } from "./where";
-import { splitSqlStatements } from "./splitSqlStatements";
 import { tlsOptions, type AdapterConnection } from "./network";
 
 const CREATABLE_TYPE_SQL: Record<Exclude<LogicalType, "relation" | "unknown">, string> = {
@@ -470,22 +470,26 @@ export class PostgresAdapter implements DatabaseAdapter {
     await this.pool.query(sql);
   }
 
-  async runScript(sql: string): Promise<ImportReport> {
-    const statements = splitSqlStatements(sql);
-    const report: ImportReport = { executed: 0, failed: [] };
-    for (let i = 0; i < statements.length; i++) {
-      try {
-        await this.runStatement(statements[i]);
-        report.executed++;
-      } catch (err) {
-        report.failed.push({
-          statement: i + 1,
-          sql: statements[i].slice(0, 200),
-          message: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-    return report;
+  async openScriptSession(): Promise<ScriptSession> {
+    const client = await this.pool.connect();
+    let lost: Error | null = null;
+    client.on("error", (err) => (lost = err));
+    client.on("end", () => (lost ??= new Error("fermée par le serveur")));
+    return {
+      run: async (sql) => {
+        if (lost) throw new ScriptSessionLost(lost);
+        try {
+          await client.query(sql);
+        } catch (err) {
+          // A dropped connection fails the query first and says so just after.
+          await new Promise((resolve) => setImmediate(resolve));
+          if (lost) throw new ScriptSessionLost(lost);
+          throw err;
+        }
+      },
+      // Thrown away rather than handed back to the pool: the script's SET would stick to it.
+      close: async () => client.release(true),
+    };
   }
 
   async close(): Promise<void> {

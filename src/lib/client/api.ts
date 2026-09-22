@@ -72,7 +72,30 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/** Where a SQL import stands after each piece (see lib/api/sqlImports). */
+export interface SqlImportStatus {
+  state: "running" | "done" | "cancelled" | "error";
+  bytes: number;
+  statements: number;
+  executed: number;
+  failedCount: number;
+  failed: { statement: number; sql: string; message: string }[];
+  error: string | null;
+}
+
 export const api = {
+  startSqlImport: (connectionId: string, fileName: string | null, confirm?: string) =>
+    request<{ importId: string }>(`/api/connections/${connectionId}/import-sql`, { method: "POST", body: JSON.stringify({ fileName, confirm }) }),
+  sendSqlImportPiece: (connectionId: string, importId: string, offset: number, piece: Blob, last: boolean, signal?: AbortSignal) =>
+    request<SqlImportStatus>(`/api/connections/${connectionId}/import-sql/${importId}?offset=${offset}${last ? "&end=1" : ""}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/sql" },
+      body: piece,
+      signal,
+    }),
+  cancelSqlImport: (connectionId: string, importId: string) =>
+    request<SqlImportStatus>(`/api/connections/${connectionId}/import-sql/${importId}`, { method: "DELETE" }),
+
   listConnections: () => request<{ connections: Connection[]; folders: string[] }>("/api/connections"),
 
   listConnectionFolders: () => request<{ folders: string[] }>("/api/connections/folders"),

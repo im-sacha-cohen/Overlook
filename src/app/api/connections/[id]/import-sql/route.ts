@@ -2,72 +2,25 @@ import { getAdapter } from "@/lib/db/registry";
 import { getConnection } from "@/lib/store/metadata";
 import { checkConfirm } from "@/lib/api/guard";
 import { errorResponse } from "@/lib/api/respond";
-import { recordWrite } from "@/lib/api/journal";
-import { splitSqlStatements } from "@/lib/db/splitSqlStatements";
+import { startSqlImport } from "@/lib/api/sqlImports";
 
 type Params = { params: Promise<{ id: string }> };
 
+// Starts a SQL import. The script itself follows in pieces, sent to ./[importId].
 export async function POST(request: Request, { params }: Params) {
   const { id } = await params;
   try {
-    const body = (await request.json()) as { sql: string; confirm?: string };
-    if (!body.sql || !body.sql.trim()) return errorResponse(new Error("Script SQL vide"));
+    const body = (await request.json()) as { fileName?: unknown; confirm?: string };
     const conn = getConnection(id);
     if (!conn) return errorResponse(new Error("Connexion introuvable"), 404);
     const guard = checkConfirm(conn, body.confirm);
     if (!guard.ok) return errorResponse(new Error(guard.error), 412);
 
-    const statements = splitSqlStatements(body.sql);
-    const adapter = getAdapter(id);
-    const encoder = new TextEncoder();
-
-    let cancelled = false;
-    const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        const failed: { statement: number; sql: string; message: string }[] = [];
-        let executed = 0;
-        const send = (obj: unknown) => {
-          if (cancelled) return;
-          try {
-            controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
-          } catch {
-            // stream already closed client-side, ignore
-          }
-        };
-        send({ type: "start", total: statements.length });
-        for (let i = 0; i < statements.length && !cancelled; i++) {
-          try {
-            await adapter.runStatement(statements[i]);
-            executed++;
-          } catch (err) {
-            failed.push({
-              statement: i + 1,
-              sql: statements[i].slice(0, 200),
-              message: err instanceof Error ? err.message : String(err),
-            });
-          }
-          send({ type: "progress", index: i + 1, total: statements.length, executed, failedCount: failed.length });
-        }
-        recordWrite(
-          request,
-          id,
-          { action: "sqlScript", sql: body.sql },
-          executed,
-          cancelled ? "Import annulé" : failed.length > 0 ? `${failed.length} instruction(s) en échec sur ${statements.length}` : null,
-        );
-        if (!cancelled) {
-          send({ type: "done", executed, failed, cancelled });
-          controller.close();
-        }
-      },
-      cancel() {
-        cancelled = true;
-      },
-    });
-
-    return new Response(stream, {
-      headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "X-Total-Statements": String(statements.length) },
-    });
+    // Opened now, so an unreachable database fails here rather than on the first piece.
+    const session = await getAdapter(id).openScriptSession();
+    const fileName = typeof body.fileName === "string" && body.fileName.trim() ? body.fileName.trim().slice(0, 255) : null;
+    const imp = startSqlImport(id, session, request, fileName);
+    return Response.json({ importId: imp.id });
   } catch (err) {
     return errorResponse(err, 500);
   }

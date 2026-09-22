@@ -8,14 +8,14 @@ import {
   ReadOnlyViolation,
   type DatabaseAdapter,
   type DropTablesOptions,
-  type ImportReport,
+  type ScriptSession,
   type SelectOptions,
   type SqlStatement,
   type WriteOp,
   type WritePreview,
 } from "./adapter";
 import { aggregateResult, buildAggregate, buildDistinctValues, buildOrderBy, buildWhere, distinctQueryTables, distinctRows, loadRelatedTables, topDistinct } from "./where";
-import { splitSqlStatements } from "./splitSqlStatements";
+import { leadingKeyword } from "./splitSqlStatements";
 import { assertNoFileAccess, resolveSqlitePath } from "./sqlitePath";
 
 const CREATABLE_TYPE_SQL: Record<Exclude<LogicalType, "relation" | "unknown">, string> = {
@@ -63,6 +63,9 @@ interface ForeignKeyRow {
   from: string;
   to: string;
 }
+
+const SQLITE_BATCH_SIZE = 2000;
+const SQLITE_OUTSIDE_BATCH = /^(BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE|PRAGMA|VACUUM)\b/i;
 
 export class SqliteAdapter implements DatabaseAdapter {
   private db: Database.Database;
@@ -385,22 +388,52 @@ export class SqliteAdapter implements DatabaseAdapter {
     this.db.exec(sql);
   }
 
-  async runScript(sql: string): Promise<ImportReport> {
-    const statements = splitSqlStatements(sql);
-    const report: ImportReport = { executed: 0, failed: [] };
-    for (let i = 0; i < statements.length; i++) {
-      try {
-        await this.runStatement(statements[i]);
-        report.executed++;
-      } catch (err) {
-        report.failed.push({
-          statement: i + 1,
-          sql: statements[i].slice(0, 200),
-          message: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-    return report;
+  async openScriptSession(): Promise<ScriptSession> {
+    const db = this.db;
+    // Committing after every statement costs a disk sync each: batch them instead.
+    // `ours` says the open transaction is one Overlook started, not the script.
+    let ours = false;
+    let batched = 0;
+    const commit = () => {
+      if (ours && db.inTransaction) db.exec("COMMIT");
+      ours = false;
+      batched = 0;
+    };
+    return {
+      run: async (sql) => {
+        assertNoFileAccess(sql);
+        if (SQLITE_OUTSIDE_BATCH.test(leadingKeyword(sql))) {
+          // The script's own transactions and PRAGMAs (foreign_keys is ignored inside one) run on their own.
+          commit();
+          db.exec(sql);
+          return;
+        }
+        if (!db.inTransaction) {
+          db.exec("BEGIN");
+          ours = true;
+        }
+        try {
+          db.exec(sql);
+        } catch (err) {
+          if (ours && !db.inTransaction) {
+            // Some errors make SQLite roll the whole transaction back, not just the statement.
+            const lost = batched;
+            ours = false;
+            batched = 0;
+            const message = err instanceof Error ? err.message : String(err);
+            throw new Error(lost > 0 ? `${message} (SQLite a aussi annulé les ${lost} instruction(s) précédente(s) de son lot)` : message);
+          }
+          throw err;
+        }
+        if (ours && ++batched >= SQLITE_BATCH_SIZE) commit();
+      },
+      close: async () => {
+        commit();
+        // A transaction the script left open, or foreign keys it switched off, would outlive it on this shared handle.
+        if (db.inTransaction) db.exec("ROLLBACK");
+        db.pragma("foreign_keys = ON");
+      },
+    };
   }
 
   async close(): Promise<void> {

@@ -3,30 +3,57 @@
 import { useRef, useState } from "react";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 
+/** What gets sent: a chosen file goes as is, straight from disk, never read into the page. */
+export interface SqlImportSource {
+  body: Blob;
+  fileName?: string;
+}
+
 interface Props {
   connectionName: string;
-  onImport: (sql: string) => void;
+  onImport: (source: SqlImportSource) => void;
   onClose: () => void;
 }
 
+const PREVIEW_BYTES = 2048;
+
+function formatSize(bytes: number, locale: string): string {
+  const units = locale === "fr-FR" ? ["o", "Ko", "Mo", "Go"] : ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${value.toLocaleString(locale, { maximumFractionDigits: unit === 0 ? 0 : 1 })} ${units[unit]}`;
+}
+
 export function SqlImportModal({ connectionName, onImport, onClose }: Props) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
+  const locale = lang === "fr" ? "fr-FR" : "en-US";
   const [sql, setSql] = useState("");
+  // A file is only previewed: putting a dump of hundreds of MB in the textarea freezes the tab.
+  const [file, setFile] = useState<{ file: File; preview: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  async function handleFile(file: File) {
-    const text = await file.text();
-    setSql(text);
+  async function handleFile(chosen: File) {
+    setError(null);
+    const preview = await chosen.slice(0, PREVIEW_BYTES).text();
+    setFile({ file: chosen, preview: chosen.size > PREVIEW_BYTES ? `${preview}…` : preview });
   }
 
   function handleImport() {
     setError(null);
+    if (file) {
+      onImport({ body: file.file, fileName: file.file.name });
+      return;
+    }
     if (!sql.trim()) {
       setError(t("sqlImport.needSql"));
       return;
     }
-    onImport(sql);
+    onImport({ body: new Blob([sql]) });
   }
 
   return (
@@ -63,13 +90,29 @@ export function SqlImportModal({ connectionName, onImport, onClose }: Props) {
               }}
             />
           </div>
-          <textarea
-            value={sql}
-            onChange={(e) => setSql(e.target.value)}
-            spellCheck={false}
-            placeholder={t("sqlImport.placeholder")}
-            style={{ height: 240, resize: "vertical", border: "1px solid #e8e5df", borderRadius: 9, padding: "10px 12px", fontFamily: "var(--font-mono)", fontSize: 12.5, lineHeight: 1.7, outline: "none" }}
-          />
+          {file ? (
+            <div style={{ border: "1px solid #e8e5df", borderRadius: 9, overflow: "hidden" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#faf9f6", borderBottom: "1px solid #f2f0ea", fontSize: 12.5 }}>
+                <span style={{ fontWeight: 500, color: "#26241f", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.file.name}</span>
+                <span style={{ color: "#a8a39a", flexShrink: 0 }}>{formatSize(file.file.size, locale)}</span>
+                <div style={{ flex: 1 }} />
+                <button onClick={() => setFile(null)} style={{ background: "transparent", border: "none", color: "#8b877e", cursor: "pointer", fontSize: 12, flexShrink: 0 }}>
+                  {t("sqlImport.removeFile")}
+                </button>
+              </div>
+              <pre style={{ margin: 0, height: 200, overflow: "auto", padding: "10px 12px", fontFamily: "var(--font-mono)", fontSize: 12, lineHeight: 1.6, color: "#6b675f", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                {file.preview}
+              </pre>
+            </div>
+          ) : (
+            <textarea
+              value={sql}
+              onChange={(e) => setSql(e.target.value)}
+              spellCheck={false}
+              placeholder={t("sqlImport.placeholder")}
+              style={{ height: 240, resize: "vertical", border: "1px solid #e8e5df", borderRadius: 9, padding: "10px 12px", fontFamily: "var(--font-mono)", fontSize: 12.5, lineHeight: 1.7, outline: "none" }}
+            />
+          )}
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {error && <div style={{ fontSize: 12.5, color: "var(--env-prod-fg)" }}>{error}</div>}
             <div style={{ flex: 1 }} />

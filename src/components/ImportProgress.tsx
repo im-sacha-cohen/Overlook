@@ -4,11 +4,27 @@ import { useState } from "react";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 
 export interface ImportProgressState {
-  done: number;
-  total: number;
+  /** Statements run so far; how many there are is only known at the end. */
+  statements: number;
+  /** Progress is measured on the script's bytes, whose total is known upfront. */
+  bytes: number;
+  totalBytes: number | null;
+  /** The first errors in full; `failedCount` counts them all. */
   failed: { statement: number; sql: string; message: string }[];
+  failedCount: number;
   status: "running" | "error" | "done";
   error?: string;
+}
+
+function formatSize(bytes: number, locale: string): string {
+  const units = locale === "fr-FR" ? ["o", "Ko", "Mo", "Go"] : ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${value.toLocaleString(locale, { maximumFractionDigits: unit === 0 ? 0 : 1 })} ${units[unit]}`;
 }
 
 interface Props {
@@ -20,7 +36,8 @@ interface Props {
 export function ImportProgress({ state, onCancel, onDismiss }: Props) {
   const { t, lang } = useLang();
   const [showErrors, setShowErrors] = useState(false);
-  const pct = state.total > 0 ? Math.min(100, Math.round((state.done / state.total) * 100)) : state.status === "done" ? 100 : 0;
+  const locale = lang === "fr" ? "fr-FR" : "en-US";
+  const pct = state.status === "done" ? 100 : state.totalBytes ? Math.min(100, Math.round((state.bytes / state.totalBytes) * 100)) : 0;
 
   return (
     <div
@@ -42,7 +59,7 @@ export function ImportProgress({ state, onCancel, onDismiss }: Props) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <span style={{ fontWeight: 500 }}>
           {state.status === "running" && t("importProgress.running")}
-          {state.status === "done" && (state.failed.length > 0 ? t("importProgress.doneWithErrors") : t("importProgress.done"))}
+          {state.status === "done" && (state.failedCount > 0 ? t("importProgress.doneWithErrors") : t("importProgress.done"))}
           {state.status === "error" && t("importProgress.error")}
         </span>
         <div style={{ flex: 1 }} />
@@ -57,18 +74,20 @@ export function ImportProgress({ state, onCancel, onDismiss }: Props) {
         )}
       </div>
 
-      {state.status === "error" ? (
+      {state.status === "error" && state.statements === 0 ? (
         <div style={{ color: "oklch(0.75 0.12 25)" }}>{state.error}</div>
       ) : (
         <>
           <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.15)", overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${pct}%`, background: "var(--accent)", transition: "width 0.15s ease" }} />
           </div>
+          {state.status === "error" && <div style={{ marginTop: 6, color: "oklch(0.75 0.12 25)" }}>{state.error}</div>}
           <div style={{ marginTop: 6, color: "#a8a39a" }}>
-            {state.total > 0
-              ? t("importProgress.statements", { done: state.done.toLocaleString(lang === "fr" ? "fr-FR" : "en-US"), total: state.total.toLocaleString(lang === "fr" ? "fr-FR" : "en-US") })
-              : "…"}
-            {state.failed.length > 0 && <span style={{ color: "oklch(0.75 0.12 25)" }}> · {t("importProgress.errors", { count: state.failed.length })}</span>}
+            {t("importProgress.statements", { count: state.statements.toLocaleString(locale) })}
+            {state.totalBytes && state.status === "running"
+              ? ` · ${formatSize(state.bytes, locale)} / ${formatSize(state.totalBytes, locale)}`
+              : ` · ${formatSize(state.bytes, locale)}`}
+            {state.failedCount > 0 && <span style={{ color: "oklch(0.75 0.12 25)" }}> · {t("importProgress.errors", { count: state.failedCount.toLocaleString(locale) })}</span>}
           </div>
           {state.failed.length > 0 && (
             <div style={{ marginTop: 6 }}>
@@ -85,8 +104,8 @@ export function ImportProgress({ state, onCancel, onDismiss }: Props) {
                       #{f.statement}: {f.message}
                     </div>
                   ))}
-                  {state.failed.length > 20 && (
-                    <div style={{ fontSize: 11, color: "#a8a39a" }}>{t("importProgress.andMore", { count: state.failed.length - 20 })}</div>
+                  {state.failedCount > 20 && (
+                    <div style={{ fontSize: 11, color: "#a8a39a" }}>{t("importProgress.andMore", { count: (state.failedCount - 20).toLocaleString(locale) })}</div>
                   )}
                 </div>
               )}

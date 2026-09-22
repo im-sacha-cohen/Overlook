@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { api, userHeader } from "@/lib/client/api";
+import { api, type SqlImportStatus } from "@/lib/client/api";
 import type { AggregateFn, ColumnMeta, Connection, ConnectionInput, FilterGroup, FilterMatch, LogicalType, QueryResult, Row, RowFilter, RowQuery, RowSort, TableMeta, WriteOp, JournalEntry } from "@/lib/types";
 import { ENV_COLORS } from "@/lib/client/env";
 import { nowForColumn, toText } from "@/lib/client/format";
@@ -22,7 +22,7 @@ import { DetailPanel } from "./DetailPanel";
 import { RelationTrail, type TrailEntry } from "./RelationTrail";
 import { SchemaPanel } from "./SchemaPanel";
 import { CsvImportModal } from "./CsvImportModal";
-import { SqlImportModal } from "./SqlImportModal";
+import { SqlImportModal, type SqlImportSource } from "./SqlImportModal";
 import { CreateTableModal } from "./CreateTableModal";
 import { BulkEditModal } from "./BulkEditModal";
 import { JournalPanel } from "./JournalPanel";
@@ -56,6 +56,8 @@ const EMPTY_TABLES: TableMeta[] = [];
 const EMPTY_ROWS: Row[] = [];
 // How long a connection can take before we offer to cancel.
 const SLOW_CONNECTION_MS = 3000;
+/** A SQL import goes up in pieces this size: small enough for steady progress, big enough to keep requests few. */
+const SQL_IMPORT_PIECE_BYTES = 4 * 1024 * 1024;
 
 interface Props {
   initialConnections: Connection[];
@@ -1223,90 +1225,72 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
   }
 
   // ---------- SQL import ----------
-  async function runImportSql(sql: string, confirm?: string) {
+  async function runImportSql(source: SqlImportSource, confirm?: string) {
     if (!activeConnectionId) return;
+    const connectionId = activeConnectionId;
     const controller = new AbortController();
     importAbortRef.current = controller;
-    setImportProgress({ done: 0, total: 0, failed: [], status: "running" });
+    const total = source.body.size;
+    let progress: ImportProgressState = { statements: 0, bytes: 0, totalBytes: total, failed: [], failedCount: 0, status: "running" };
+    setImportProgress(progress);
 
-    let done = 0;
-    let total = 0;
-    let failed: { statement: number; sql: string; message: string }[] = [];
+    let importId: string | null = null;
     try {
-      const res = await fetch(`/api/connections/${activeConnectionId}/import-sql`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...userHeader() },
-        body: JSON.stringify({ sql, confirm }),
-        signal: controller.signal,
-      });
-      if (!res.ok || !res.body) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.error || t("workspace.errorStatus", { status: res.status }));
+      ({ importId } = await api.startSqlImport(connectionId, source.fileName ?? null, confirm));
+      // Piece by piece, each run before the next is sent: slicing a chosen file reads
+      // only that piece from disk, and progress comes back after every one.
+      let status: SqlImportStatus | null = null;
+      for (let offset = 0; ; offset += SQL_IMPORT_PIECE_BYTES) {
+        const last = offset + SQL_IMPORT_PIECE_BYTES >= total;
+        const piece = source.body.slice(offset, offset + SQL_IMPORT_PIECE_BYTES);
+        status = await api.sendSqlImportPiece(connectionId, importId, offset, piece, last, controller.signal);
+        progress = { ...progress, bytes: status.bytes, statements: status.statements, failed: status.failed, failedCount: status.failedCount };
+        setImportProgress(progress);
+        if (last || status.state !== "running") break;
       }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { value, done: streamDone } = await reader.read();
-        if (streamDone) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const obj = JSON.parse(line);
-            if (obj.type === "progress") {
-              done = obj.index;
-              total = obj.total;
-            } else if (obj.type === "done") {
-              done = obj.executed + obj.failed.length;
-              total = done;
-              failed = obj.failed;
-            }
-          } catch {
-            // ignore malformed line
-          }
-        }
-        setImportProgress({ done, total, failed, status: "running" });
-      }
-
-      await loadTables(activeConnectionId);
+      await loadTables(connectionId);
       await loadRows();
-      setImportProgress({ done, total, failed, status: "done" });
-      if (failed.length === 0) {
+      if (status.state === "error") {
+        setImportProgress({ ...progress, status: "error", error: status.error ?? undefined });
+        return;
+      }
+      setImportProgress({ ...progress, status: "done" });
+      if (progress.failedCount === 0) {
         pushHistory(t("history.sqlImported"));
-        flash(t("toast.sqlImportedCount", { count: done }));
+        flash(t("toast.sqlImportedCount", { count: progress.statements }));
       } else {
-        pushHistory(t("history.sqlImportedWithErrors", { count: failed.length }));
-        flash(t("toast.sqlImportedPartial", { ok: done - failed.length, failed: failed.length }));
+        pushHistory(t("history.sqlImportedWithErrors", { count: progress.failedCount }));
+        flash(t("toast.sqlImportedPartial", { ok: progress.statements - progress.failedCount, failed: progress.failedCount }));
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
+        // The piece being run finishes its current statement; whatever ran stays in the database.
+        if (importId) await api.cancelSqlImport(connectionId, importId).catch(() => {});
         setImportProgress(null);
         flash(t("toast.importCancelled"));
+        void loadTables(connectionId);
         return;
       }
-      setImportProgress({ done, total, failed, status: "error", error: err instanceof Error ? err.message : String(err) });
+      setImportProgress({ ...progress, status: "error", error: err instanceof Error ? err.message : String(err) });
     } finally {
       importAbortRef.current = null;
     }
   }
 
-  function handleImportSql(sql: string) {
+  function handleImportSql(source: SqlImportSource) {
     if (!activeConnectionId) return;
     setPanel(null);
     if (activeConnection?.envType === "prod") {
       setPendingGuard({
         label: t("guard.runSqlScript", { connection: activeConnection.name }),
         run: async (confirm) => {
-          await runImportSql(sql, confirm);
+          await runImportSql(source, confirm);
         },
       });
       return;
     }
-    void runImportSql(sql);
+    void runImportSql(source);
   }
 
   function cancelImport() {
