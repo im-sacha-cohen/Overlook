@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { ColumnMeta, Row } from "@/lib/types";
-import { toEditableText, toText } from "@/lib/client/format";
+import { TRUNCATED_KEY, isBinaryColumn, isBufferJson, type ColumnMeta, type Row, type TruncatedCells } from "@/lib/types";
+import { formatBytes, toEditableText, toText } from "@/lib/client/format";
 import type { HistoryEntry } from "@/lib/client/history";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 import { DateField } from "./DateField";
@@ -21,6 +21,8 @@ interface Props {
   recentHistory: HistoryEntry[];
   onSearchRelation: (col: ColumnMeta, query: string) => Promise<Row[]>;
   getRelationLabel: (col: ColumnMeta, row: Row) => string;
+  /** Where a file cell downloads from; null when the row can't be found again (no primary key). */
+  fileUrl: (col: ColumnMeta) => string | null;
 }
 
 const WIDTH_KEY = "overlook:detailPanelWidth";
@@ -46,8 +48,17 @@ function saveWidth(width: number): void {
   }
 }
 
-export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, onClose, onDelete, onDuplicate, recentHistory, onSearchRelation, getRelationLabel }: Props) {
-  const { t } = useLang();
+export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, onClose, onDelete, onDuplicate, recentHistory, onSearchRelation, getRelationLabel, fileUrl }: Props) {
+  const { t, lang } = useLang();
+  const cut = row[TRUNCATED_KEY] as TruncatedCells | undefined;
+  /** The size of a file cell, or null when the cell holds no file. */
+  const fileSize = (c: ColumnMeta): number | null => {
+    const value = row[c.name];
+    if (cut?.[c.name]?.binary) return cut[c.name].bytes;
+    if (isBufferJson(value)) return value.data.length;
+    if (isBinaryColumn(c) && value !== null && value !== undefined) return String(value).length;
+    return null;
+  };
   const titleCol = columns.find((c) => c.logicalType === "text") ?? columns[0];
   const title = (titleCol && toText(row[titleCol.name])) || t("detailPanel.untitled");
 
@@ -120,6 +131,8 @@ export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, 
                   {toText(row[c.name])}
                   <span style={{ fontSize: 10.5, color: "#bdb8ae" }}>{t("detailPanel.primaryKey")}</span>
                 </span>
+              ) : isBinaryColumn(c) || fileSize(c) !== null ? (
+                <FileField size={fileSize(c)} url={fileSize(c) === null ? null : fileUrl(c)} label={fileSize(c) === null ? "" : t("grid.binaryValue", { size: formatBytes(fileSize(c)!, lang) })} />
               ) : c.logicalType === "checkbox" ? (
                 <span
                   onClick={() => onFieldCommit(c, !row[c.name])}
@@ -203,3 +216,19 @@ export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, 
   );
 }
 
+
+/** A file cell: its size, read-only (editing bytes as text would ruin them), and a download link. */
+function FileField({ size, url, label }: { size: number | null; url: string | null; label: string }) {
+  const { t } = useLang();
+  if (size === null) return <span style={{ fontSize: 12.5, color: "#c2bdb3" }}>—</span>;
+  return (
+    <span title={t("detailPanel.fileReadOnly")} style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "5px 8px", borderRadius: 6, background: "#f6f4ef", fontSize: 12.5, color: "#6f6b62" }}>
+      <span style={{ fontFamily: "var(--font-mono)" }}>{label}</span>
+      {url && (
+        <a href={url} download style={{ color: "var(--accent-hover)", textDecoration: "none", fontWeight: 500 }}>
+          {t("detailPanel.download")}
+        </a>
+      )}
+    </span>
+  );
+}

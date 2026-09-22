@@ -225,7 +225,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     const client = await this.pool.connect();
     try {
-      const sql = `SELECT ${opts.preview ? previewSelectList("postgres", meta) : "*"} FROM ${q(table)} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`;
+      const sql = `SELECT ${opts.preview ? previewSelectList("postgres", meta, { text: opts.preview !== "files" }) : "*"} FROM ${q(table)} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`;
       const { rows } = await client.query(sql, params);
       if (opts.preview) applyPreviews(rows);
       const countRes = await client.query<{ count: string }>(

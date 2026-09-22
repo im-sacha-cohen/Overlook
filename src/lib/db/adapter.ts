@@ -1,4 +1,4 @@
-import type { AggregateFn, ColumnMeta, LogicalType, QueryResult, Row, RowQuery, RowSort, TableMeta, WriteOp, WritePreview } from "../types";
+import { isBufferJson, type AggregateFn, type ColumnMeta, type LogicalType, type QueryResult, type Row, type RowQuery, type RowSort, type TableMeta, type WriteOp, type WritePreview } from "../types";
 
 export type { WriteOp, WritePreview };
 import type { DistinctValue } from "./where";
@@ -7,8 +7,11 @@ export interface SelectOptions extends RowQuery {
   sorts?: RowSort[];
   limit?: number;
   offset?: number;
-  /** For the grid: long values come cut, marked under TRUNCATED_KEY (see previewSelectList). */
-  preview?: boolean;
+  /**
+   * For the grid: long values come cut, marked under TRUNCATED_KEY (see previewSelectList).
+   * "files" cuts only binary values, for a view that shows texts whole.
+   */
+  preview?: boolean | "files";
 }
 
 /**
@@ -199,10 +202,13 @@ export function coerceRowValues(meta: TableMeta, values: Row): Row {
     out[name] =
       col && value === "" && col.logicalType !== "text" && col.logicalType !== "select"
         ? null
-        : // A JSON value read back (a copied row) arrives parsed; drivers can't bind an object or array.
-          col?.logicalType === "json" && value !== null && typeof value === "object" && !(value instanceof Date)
-          ? JSON.stringify(value)
-          : value;
+        : // A binary value read back (a duplicated row, an undone delete) arrives as serialized Buffer: bytes again.
+          isBufferJson(value)
+          ? Buffer.from(value.data)
+          : // A JSON value read back (a copied row) arrives parsed; drivers can't bind an object or array.
+            col?.logicalType === "json" && value !== null && typeof value === "object" && !(value instanceof Date)
+            ? JSON.stringify(value)
+            : value;
   }
   return out;
 }

@@ -4,6 +4,7 @@ import {
   assertCreatableType,
   assertKnownColumn,
   assertValidIdentifier,
+  coerceRowValues,
   previewWithAdapter,
   ReadOnlyViolation,
   type DatabaseAdapter,
@@ -133,7 +134,7 @@ export class SqliteAdapter implements DatabaseAdapter {
     const limit = opts.limit ?? 100;
     const offset = opts.offset ?? 0;
     const rows = this.db
-      .prepare(`SELECT ${opts.preview ? previewSelectList("sqlite", meta) : "*"} FROM ${q(table)} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`)
+      .prepare(`SELECT ${opts.preview ? previewSelectList("sqlite", meta, { text: opts.preview !== "files" }) : "*"} FROM ${q(table)} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`)
       .all(...params) as Row[];
     if (opts.preview) applyPreviews(rows);
     const countRow = this.db.prepare(`SELECT COUNT(*) AS count FROM ${q(table)} ${where}`).get(...params) as {
@@ -144,6 +145,7 @@ export class SqliteAdapter implements DatabaseAdapter {
 
   async insertRow(table: string, values: Row): Promise<Row> {
     const meta = await this.getTable(table);
+    values = coerceRowValues(meta, values);
     const cols = Object.keys(values).filter((k) => meta.columns.some((c) => c.name === k));
     cols.forEach((c) => assertKnownColumn(meta, c));
     const sql =

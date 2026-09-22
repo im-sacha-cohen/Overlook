@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api, type SqlImportStatus } from "@/lib/client/api";
-import { TRUNCATED_KEY, type AggregateFn, type ColumnMeta, type Connection, type ConnectionInput, type FilterGroup, type FilterMatch, type LogicalType, type QueryResult, type Row, type RowFilter, type RowQuery, type RowSort, type TableMeta, type TruncatedCells, type WriteOp, type JournalEntry } from "@/lib/types";
+import { TRUNCATED_KEY, isBinaryColumn, isBufferJson, type AggregateFn, type ColumnMeta, type Connection, type ConnectionInput, type FilterGroup, type FilterMatch, type LogicalType, type QueryResult, type Row, type RowFilter, type RowQuery, type RowSort, type TableMeta, type TruncatedCells, type WriteOp, type JournalEntry } from "@/lib/types";
 import { ENV_COLORS } from "@/lib/client/env";
 import { formatBytes, nowForColumn, toText } from "@/lib/client/format";
 import { HistoryEntry, timeNow } from "@/lib/client/history";
@@ -350,11 +350,16 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
       });
       if (seq !== rowsRequestSeq.current) return;
       // Long values come cut: say so in the cell (anything that needs the whole value loads it).
+      // Small files come whole but serialized: shown by size too, and marked so they're loaded back as bytes.
       for (const row of res.rows) {
-        const cut = row[TRUNCATED_KEY] as TruncatedCells | undefined;
+        let cut = row[TRUNCATED_KEY] as TruncatedCells | undefined;
+        for (const [name, value] of Object.entries(row)) {
+          if (isBufferJson(value)) cut = { ...cut, [name]: { bytes: value.data.length, binary: true } };
+        }
         if (!cut) continue;
-        for (const [name, bytes] of Object.entries(cut)) {
-          row[name] = row[name] === null ? t("grid.binaryValue", { size: formatBytes(bytes, lang) }) : `${row[name]}…`;
+        row[TRUNCATED_KEY] = cut;
+        for (const [name, { bytes, binary }] of Object.entries(cut)) {
+          row[name] = binary ? t("grid.binaryValue", { size: formatBytes(bytes, lang) }) : `${row[name]}…`;
         }
       }
       setRowsByKey((prev) => {
@@ -973,13 +978,16 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
   // The grid holds previews of long values (see loadRows). Whatever shows a whole
   // value, edits it or writes it back (detail panel, cell editor, duplicate, undo of
   // a delete, copy) takes the rows from here, with their values whole.
-  async function fullRows(source: Row[]): Promise<Row[]> {
+  // `files`: with binary values too, for what writes the row again; otherwise they stay
+  // out (shown by size), which spares loading a file to show or edit the rest.
+  async function fullRows(source: Row[], { files = false }: { files?: boolean } = {}): Promise<Row[]> {
     const cut = source.filter((r) => r[TRUNCATED_KEY]);
     if (cut.length === 0 || !activeConnectionId || !activeTable || !pkColumn) return source;
     const pk = pkColumn;
     const res = await api.selectRows(activeConnectionId, activeTable, {
       filters: [{ column: pk, op: "in", value: "", values: cut.map((r) => String(r[pk])) }],
       limit: cut.length,
+      preview: files ? undefined : "files",
     });
     const byKey = new Map(res.rows.map((r) => [String(r[pk]), r]));
     return source.map((r) => (r[TRUNCATED_KEY] ? (byKey.get(String(r[pk])) ?? r) : r));
@@ -1008,8 +1016,10 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
       commitFieldChange(row, col.name, next);
       return;
     }
+    const cut = (row[TRUNCATED_KEY] as TruncatedCells | undefined)?.[col.name];
+    if (isBinaryColumn(col) || cut?.binary) return flash(t("toast.binaryNotEditable"));
     let value = row[col.name];
-    if ((row[TRUNCATED_KEY] as TruncatedCells | undefined)?.[col.name] !== undefined) {
+    if (cut) {
       // Editing a preview would save its start over the whole value.
       try {
         value = (await fullRows([row]))[0][col.name];
@@ -1126,7 +1136,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
     if (!activeConnectionId || !activeTable || sources.length === 0) return;
     const created: Row[] = [];
     try {
-      for (const source of await fullRows(sources)) {
+      for (const source of await fullRows(sources, { files: true })) {
         // The key is left to the database (auto-increment, default); every other value is copied.
         const values: Row = {};
         columns.forEach((c) => {
@@ -1157,7 +1167,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
     const rowId = row[pkColumn] as string | number;
     runGuarded(t("guard.deleteRow", { pk: pkColumn, id: String(rowId), table: activeTable }), async (confirm) => {
       // Kept whole for the undo, which inserts it again.
-      const [whole] = await fullRows([row]);
+      const [whole] = await fullRows([row], { files: true });
       await api.deleteRow(activeConnectionId, activeTable, rowId, pkColumn, confirm);
       pushHistory(t("history.rowDeleted", { id: String(rowId) }), async () => {
         await api.insertRow(activeConnectionId, activeTable, whole);
@@ -1193,7 +1203,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
     const previewedRows = rows.filter((r) => ids.includes(String(r[pkColumn])));
     confirmWrite(t("guard.bulkDeleteRows", { count: ids.length, table: activeTable }), { kind: "deleteRows", table: activeTable, pkColumn, pkValues: ids }, async (confirm) => {
       // Kept whole for the undo, which inserts them again.
-      const deletedRows = await fullRows(previewedRows);
+      const deletedRows = await fullRows(previewedRows, { files: true });
       await api.deleteRows(activeConnectionId, activeTable, pkColumn, ids, confirm);
       pushHistory(t("toast.rowsDeleted", { count: ids.length }), async () => {
         for (const r of deletedRows) await api.insertRow(activeConnectionId, activeTable, r);
@@ -2186,6 +2196,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
             recentHistory={history.slice(0, 3)}
             onSearchRelation={searchRelation}
             getRelationLabel={getRelationLabel}
+            fileUrl={(col) => (pkColumn && activeConnectionId ? api.cellFileUrl(activeConnectionId, activeTable, pkColumn, detailRow[pkColumn], col.name) : null)}
           />
         )}
       </div>

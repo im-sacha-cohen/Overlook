@@ -79,8 +79,8 @@ for (const target of targets) {
       expect(typeof one.body).toBe("string");
       expect((one.body as string).length).toBe(500);
       expect(one.file).toBeNull();
-      expect(one[TRUNCATED_KEY]).toEqual({ body: 3001, file: 5000 });
-      expect(two[TRUNCATED_KEY]).toEqual({ body: 3001 });
+      expect(one[TRUNCATED_KEY]).toEqual({ body: { bytes: 3001, binary: false }, file: { bytes: 5000, binary: true } });
+      expect(two[TRUNCATED_KEY]).toEqual({ body: { bytes: 3001, binary: false } });
       expect(two.file).toBeNull();
       expect(three.body).toBe("short");
       expect(three[TRUNCATED_KEY]).toBeUndefined();
@@ -94,6 +94,24 @@ for (const target of targets) {
       const { rows } = await adapter.selectRows(TABLE, { preview: true, sorts: [{ column: "body", dir: "asc" }] });
       // "short" first; then 2 before 1, which differ only after the preview's end.
       expect(rows.map((r) => Number(r.id))).toEqual([3, 2, 1]);
+    });
+
+    it("can leave only files out", async () => {
+      const { rows } = await adapter.selectRows(TABLE, { preview: "files", sorts: [{ column: "id", dir: "asc" }] });
+      expect((rows[0].body as string).length).toBe(3001);
+      expect(rows[0].file).toBeNull();
+      expect(rows[0][TRUNCATED_KEY]).toEqual({ file: { bytes: 5000, binary: true } });
+      expect(rows[1][TRUNCATED_KEY]).toBeUndefined();
+    });
+
+    it("writes a file read back as JSON as bytes again", async () => {
+      const { rows } = await adapter.selectRows(TABLE, { filters: [{ column: "id", op: "eq", value: "3" }] });
+      // What the browser sends back when it duplicates the row.
+      const sent = JSON.parse(JSON.stringify(rows[0]));
+      await adapter.insertRow(TABLE, { ...sent, id: 4 });
+      const { rows: copy } = await adapter.selectRows(TABLE, { filters: [{ column: "id", op: "eq", value: "4" }] });
+      expect(Buffer.from(copy[0].file as Uint8Array).equals(Buffer.from(rows[0].file as Uint8Array))).toBe(true);
+      await adapter.deleteRow(TABLE, "id", 4);
     });
 
     it("still gives whole values without preview", async () => {

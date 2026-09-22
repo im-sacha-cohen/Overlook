@@ -177,7 +177,7 @@ export class MySqlAdapter implements DatabaseAdapter {
     const offset = opts.offset ?? 0;
 
     const [rows] = await this.pool.query<mysql.RowDataPacket[]>(
-      `SELECT ${opts.preview ? previewSelectList("mysql", meta) : "*"} FROM ${q(table)} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`,
+      `SELECT ${opts.preview ? previewSelectList("mysql", meta, { text: opts.preview !== "files" }) : "*"} FROM ${q(table)} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`,
       params
     );
     if (opts.preview) applyPreviews(rows as Row[]);

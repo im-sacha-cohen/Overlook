@@ -90,11 +90,21 @@ export interface ColumnMeta {
 
 /**
  * On a row of the grid, the cells sent as a preview: column name → full length in
- * bytes. A long text holds its first characters, a long binary value is null.
- * Anything that writes or copies a value fetches the full row first.
+ * bytes, and whether the value is binary. A long text holds its first characters,
+ * a binary value is null. Anything that writes or copies a value fetches the full row first.
  */
 export const TRUNCATED_KEY = "__overlook_truncated";
-export type TruncatedCells = Record<string, number>;
+export type TruncatedCells = Record<string, { bytes: number; binary: boolean }>;
+
+/** Columns holding files rather than text: shown by size, downloaded, never edited as text. */
+export function isBinaryColumn(col: ColumnMeta): boolean {
+  return /blob|bytea|binary/i.test(col.nativeType);
+}
+
+/** A binary value as JSON carries it: Node's Buffer serialized. */
+export function isBufferJson(value: unknown): value is { type: "Buffer"; data: number[] } {
+  return typeof value === "object" && value !== null && (value as { type?: unknown }).type === "Buffer" && Array.isArray((value as { data?: unknown }).data);
+}
 
 export interface TableMeta {
   name: string;

@@ -271,19 +271,21 @@ function heavyKind(engine: Engine, col: ColumnMeta): "text" | "binary" | "any" |
  * The select list for a page of the grid, with long values cut. Previews get their
  * own names, so an ORDER BY on the column still sorts by the full value.
  */
-export function previewSelectList(engine: Engine, meta: TableMeta): string {
+export function previewSelectList(engine: Engine, meta: TableMeta, { text = true }: { text?: boolean } = {}): string {
   const T = PREVIEW_THRESHOLD;
   return meta.columns
     .map((c) => {
       const kind = heavyKind(engine, c);
       const col = quoteIdent(engine, c.name);
-      if (!kind) return col;
+      // Without `text`, only files are left out (the detail panel shows texts whole).
+      if (!kind || (!text && kind === "text")) return col;
       const preview = quoteIdent(engine, PREVIEW_PREFIX + c.name);
       const length = quoteIdent(engine, LENGTH_PREFIX + c.name);
       if (engine === "sqlite") {
+        const cutTypes = text ? "('blob', 'text')" : "('blob')";
         return (
-          `CASE WHEN typeof(${col}) = 'blob' AND length(${col}) > ${T} THEN NULL WHEN typeof(${col}) = 'text' AND length(CAST(${col} AS BLOB)) > ${T} THEN substr(${col}, 1, ${PREVIEW_CHARS}) ELSE ${col} END AS ${preview}, ` +
-          `CASE WHEN typeof(${col}) IN ('blob', 'text') AND length(CAST(${col} AS BLOB)) > ${T} THEN length(CAST(${col} AS BLOB)) END AS ${length}`
+          `CASE WHEN typeof(${col}) = 'blob' AND length(${col}) > ${T} THEN NULL WHEN ${text ? "" : "0 AND "}typeof(${col}) = 'text' AND length(CAST(${col} AS BLOB)) > ${T} THEN substr(${col}, 1, ${PREVIEW_CHARS}) ELSE ${col} END AS ${preview}, ` +
+          `CASE WHEN typeof(${col}) IN ${cutTypes} AND length(CAST(${col} AS BLOB)) > ${T} THEN length(CAST(${col} AS BLOB)) END AS ${length}`
         );
       }
       const bytes = engine === "mysql" ? `LENGTH(${col})` : `octet_length(${col})`;
@@ -296,17 +298,19 @@ export function previewSelectList(engine: Engine, meta: TableMeta): string {
 /** Puts previews back under their column's name and notes which cells were cut. */
 export function applyPreviews(rows: Row[]): Row[] {
   for (const row of rows) {
-    const truncated: TruncatedCells = {};
+    const lengths: Record<string, number> = {};
     for (const key of Object.keys(row)) {
       if (key.startsWith(PREVIEW_PREFIX)) {
         row[key.slice(PREVIEW_PREFIX.length)] = row[key];
         delete row[key];
       } else if (key.startsWith(LENGTH_PREFIX)) {
-        if (row[key] !== null && row[key] !== undefined) truncated[key.slice(LENGTH_PREFIX.length)] = Number(row[key]);
+        if (row[key] !== null && row[key] !== undefined) lengths[key.slice(LENGTH_PREFIX.length)] = Number(row[key]);
         delete row[key];
       }
     }
-    if (Object.keys(truncated).length > 0) row[TRUNCATED_KEY] = truncated;
+    const names = Object.keys(lengths);
+    // A cut text keeps its start; a cut binary value comes as null.
+    if (names.length > 0) row[TRUNCATED_KEY] = Object.fromEntries(names.map((name) => [name, { bytes: lengths[name], binary: row[name] === null }])) satisfies TruncatedCells;
   }
   return rows;
 }

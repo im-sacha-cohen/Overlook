@@ -173,13 +173,16 @@ export const api = {
       body: JSON.stringify({ name, columns }),
     }),
 
+  /** Where a cell's file downloads from. */
+  cellFileUrl: (connectionId: string, table: string, pkColumn: string, pk: unknown, column: string) =>
+    `/api/connections/${connectionId}/tables/${encodeURIComponent(table)}/file?${new URLSearchParams({ pkColumn, pk: String(pk), column })}`,
   selectRows: (
     connectionId: string,
     table: string,
-    opts: RowQuery & { sorts?: RowSort[]; limit?: number; offset?: number; preview?: boolean }
+    opts: RowQuery & { sorts?: RowSort[]; limit?: number; offset?: number; preview?: boolean | "files" }
   ) => {
     const params = rowQueryToParams(opts);
-    if (opts.preview) params.set("preview", "1");
+    if (opts.preview) params.set("preview", opts.preview === "files" ? "files" : "1");
     if (opts.sorts?.length) params.set("sorts", JSON.stringify(opts.sorts));
     if (opts.limit) params.set("limit", String(opts.limit));
     if (opts.offset) params.set("offset", String(opts.offset));
