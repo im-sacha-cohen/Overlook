@@ -1887,7 +1887,6 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
           activeTable={activeTable}
           showColumns={dir === "query"}
           onSelectTable={selectTable}
-          onOpenSchema={() => setPanel("schema")}
           onOpenDiagram={() => setPanel("diagram")}
           onOpenCompare={() => setPanel("compare")}
           onOpenCsv={() => setPanel("csv")}
@@ -2000,6 +1999,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
                   search={search}
                   onSearchChange={setSearch}
                   onAddRow={() => handleAddRow()}
+                  onOpenSchema={() => setPanel("schema")}
                   sql={equivalentSql}
                   onSuggestRelation={suggestRelationValues}
                   getRelationLabel={getRelationLabel}

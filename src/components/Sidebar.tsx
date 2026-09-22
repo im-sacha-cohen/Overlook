@@ -11,7 +11,6 @@ interface Props {
   activeTable: string | null;
   showColumns: boolean;
   onSelectTable: (name: string) => void;
-  onOpenSchema: () => void;
   onOpenDiagram: () => void;
   onOpenCompare: () => void;
   onOpenCsv: () => void;
@@ -39,7 +38,6 @@ export function Sidebar({
   activeTable,
   showColumns,
   onSelectTable,
-  onOpenSchema,
   onOpenDiagram,
   onOpenCompare,
   onOpenCsv,
@@ -66,6 +64,27 @@ export function Sidebar({
   const [importMenuOpen, setImportMenuOpen] = useState(false);
   const importBtnRef = useRef<HTMLDivElement>(null);
   const importMenuRef = useRef<HTMLDivElement>(null);
+  const [baseOpen, setBaseOpen] = useState(true);
+
+  // Read after mount: the server render has no localStorage.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(BASE_OPEN_KEY) === "0") setBaseOpen(false);
+    } catch {
+      // best-effort only
+    }
+  }, []);
+
+  function toggleBase() {
+    setBaseOpen((open) => {
+      try {
+        localStorage.setItem(BASE_OPEN_KEY, open ? "0" : "1");
+      } catch {
+        // best-effort only
+      }
+      return !open;
+    });
+  }
 
   useEffect(() => {
     if (!menu) return;
@@ -215,63 +234,83 @@ export function Sidebar({
         <div style={{ height: 8 }} />
       </div>
 
-      <div style={{ flex: "none", padding: "10px 8px", borderTop: "1px solid #f0eeE9" }}>
-        <div style={{ padding: "0 8px 6px", fontSize: 11.5, letterSpacing: "0.06em", textTransform: "uppercase", color: "#a8a39a", fontWeight: 600 }}>
+      <div style={{ flex: "none", padding: "8px 8px", borderTop: "1px solid #f0eeE9" }}>
+        <div
+          role="button"
+          aria-expanded={baseOpen}
+          onClick={toggleBase}
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 8px 4px", fontSize: 11.5, letterSpacing: "0.06em", textTransform: "uppercase", color: "#a8a39a", fontWeight: 600, cursor: "pointer", userSelect: "none" }}
+        >
           {t("sidebar.space")}
+          <span style={{ fontSize: 9, transform: baseOpen ? "rotate(90deg)" : "none", transition: "transform 0.12s ease" }}>▸</span>
         </div>
-        <SidebarAction icon="⌗" label={t("sidebar.schema")} onClick={onOpenSchema} />
-        <SidebarAction icon="⊶" label={t("sidebar.diagram")} onClick={onOpenDiagram} />
-        <SidebarAction icon="⇄" label={t("sidebar.compare")} onClick={onOpenCompare} />
-        <div style={{ position: "relative" }}>
-          <div ref={importBtnRef}>
-            <SidebarAction icon="↧" label={t("sidebar.import")} onClick={() => setImportMenuOpen((v) => !v)} />
-          </div>
-          {importMenuOpen && (
-            <div
-              ref={importMenuRef}
-              style={{
-                position: "absolute",
-                top: "100%",
-                left: 8,
-                zIndex: 80,
-                background: "#fff",
-                border: "1px solid #e5e2db",
-                borderRadius: 10,
-                boxShadow: "var(--shadow-pop)",
-                padding: 5,
-                minWidth: 170,
-                animation: "om-pop 0.1s ease",
-              }}
-            >
-              <MenuItem
-                label={t("sidebar.importCsvFile")}
-                onClick={() => {
-                  onOpenCsv();
-                  setImportMenuOpen(false);
-                }}
-              />
-              <MenuItem
-                label={t("sidebar.importSqlScript")}
-                onClick={() => {
-                  onOpenSqlImport();
-                  setImportMenuOpen(false);
-                }}
-              />
+        {baseOpen && (
+          <>
+            <SidebarGroupLabel label={t("sidebar.groupExplore")} />
+            <SidebarAction icon="⊶" label={t("sidebar.diagram")} onClick={onOpenDiagram} />
+            <SidebarAction icon="⇄" label={t("sidebar.compare")} onClick={onOpenCompare} />
+            <SidebarAction icon="↺" label={t("sidebar.history")} onClick={onOpenHistory} />
+            <SidebarGroupLabel label={t("sidebar.groupData")} />
+            <div style={{ position: "relative" }}>
+              <div ref={importBtnRef}>
+                <SidebarAction icon="↧" label={t("sidebar.import")} trailing="▸" onClick={() => setImportMenuOpen((v) => !v)} />
+              </div>
+              {importMenuOpen && (
+                <div
+                  ref={importMenuRef}
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    left: 8,
+                    zIndex: 80,
+                    background: "#fff",
+                    border: "1px solid #e5e2db",
+                    borderRadius: 10,
+                    boxShadow: "var(--shadow-pop)",
+                    padding: 5,
+                    minWidth: 170,
+                    animation: "om-pop 0.1s ease",
+                  }}
+                >
+                  <MenuItem
+                    label={t("sidebar.importCsvFile")}
+                    onClick={() => {
+                      onOpenCsv();
+                      setImportMenuOpen(false);
+                    }}
+                  />
+                  <MenuItem
+                    label={t("sidebar.importSqlScript")}
+                    onClick={() => {
+                      onOpenSqlImport();
+                      setImportMenuOpen(false);
+                    }}
+                  />
+                </div>
+              )}
             </div>
-          )}
-        </div>
-        <SidebarAction icon="↺" label={t("sidebar.history")} onClick={onOpenHistory} />
-        <SidebarAction icon="↥" label={t("sidebar.exportDatabase")} onClick={onExport} />
-        <SidebarAction icon="⚙" label={t("sidebar.settings")} onClick={onOpenSettings} />
+            <SidebarAction icon="↥" label={t("sidebar.export")} onClick={onExport} />
+          </>
+        )}
       </div>
 
-      <div style={{ flex: "none", padding: "10px 8px", borderTop: "1px solid #f0eeE9", fontSize: 12, color: "#a8a39a", lineHeight: 1.6 }}>
-        <div>
+      <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 8, padding: "8px 8px 8px 16px", borderTop: "1px solid #f0eeE9", fontSize: 12, color: "#a8a39a" }}>
+        <span
+          title={`⌘${t("sidebar.hintClick")} ${t("sidebar.hintMultiSelect")} · ⇧${t("sidebar.hintClick")} ${t("sidebar.hintRange")} · ${t("sidebar.hintRightClick")} ${t("sidebar.hintActions")}`}
+          style={{ flex: 1, minWidth: 0, cursor: "help" }}
+        >
           <span style={{ fontFamily: "var(--font-mono)" }}>⌘K</span> {t("sidebar.hintCmd")}
-        </div>
-        <div>
-          <span style={{ fontFamily: "var(--font-mono)" }}>⌘{t("sidebar.hintClick")}</span> {t("sidebar.hintMultiSelect")} · <span style={{ fontFamily: "var(--font-mono)" }}>⇧{t("sidebar.hintClick")}</span> {t("sidebar.hintRange")} · <span style={{ fontFamily: "var(--font-mono)" }}>{t("sidebar.hintRightClick")}</span> {t("sidebar.hintActions")}
-        </div>
+        </span>
+        <button
+          onClick={onOpenSettings}
+          title={t("sidebar.settings")}
+          aria-label={t("sidebar.settings")}
+          style={{ width: 28, height: 28, flex: "none", display: "grid", placeItems: "center", background: "transparent", border: "none", borderRadius: 6, color: "#8b877e", fontSize: 15, cursor: "pointer" }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = "#f4f2ed")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+        >
+          ⚙
+        </button>
       </div>
 
       {menu && (
@@ -348,7 +387,13 @@ function MenuItem({ label, onClick, danger }: { label: string; onClick: () => vo
   );
 }
 
-function SidebarAction({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
+const BASE_OPEN_KEY = "overlook:sidebarBaseOpen";
+
+function SidebarGroupLabel({ label }: { label: string }) {
+  return <div style={{ padding: "6px 8px 2px", fontSize: 11, color: "#bdb8ae" }}>{label}</div>;
+}
+
+function SidebarAction({ icon, label, onClick, trailing }: { icon: string; label: string; onClick: () => void; trailing?: string }) {
   return (
     <div
       onClick={onClick}
@@ -358,6 +403,7 @@ function SidebarAction({ icon, label, onClick }: { icon: string; label: string; 
     >
       <span style={{ color: "#b4afa5" }}>{icon}</span>
       {label}
+      {trailing && <span style={{ marginLeft: "auto", fontSize: 9, color: "#bdb8ae" }}>{trailing}</span>}
     </div>
   );
 }

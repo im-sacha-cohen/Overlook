@@ -28,6 +28,8 @@ interface Props {
   search: string;
   onSearchChange: (s: string) => void;
   onAddRow: () => void;
+  /** Columns and types of the table on screen. */
+  onOpenSchema: () => void;
   /** The statement the current view runs, shown on demand. */
   sql: string;
   /** Rows of the table a foreign key points to, matching what was typed. */
@@ -118,7 +120,7 @@ function CountBadge({ n }: { n: number }) {
 // Columns whose repeated values (roles, statuses stored as text…) are worth suggesting.
 const SUGGESTED_TYPES: ColumnMeta["logicalType"][] = ["text", "json", "unknown"];
 
-export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, filters, onFiltersChange, filterMatch, onFilterMatchChange, filterGroups, onFilterGroupsChange, sorts, onSortsChange, search, onSearchChange, onAddRow, sql, onSuggestRelation, getRelationLabel, onSuggestValues, shortcutsEnabled, tables, tableName, onCountRows }: Props) {
+export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, filters, onFiltersChange, filterMatch, onFilterMatchChange, filterGroups, onFilterGroupsChange, sorts, onSortsChange, search, onSearchChange, onAddRow, onOpenSchema, sql, onSuggestRelation, getRelationLabel, onSuggestValues, shortcutsEnabled, tables, tableName, onCountRows }: Props) {
   const { t, lang } = useLang();
   const searchRef = useRef<HTMLInputElement>(null);
   const rowsLabel = useCallback(
@@ -519,6 +521,10 @@ export function TableToolbar({ view, onSetView, columns, groupBy, onSetGroupBy, 
               <CountBadge n={sorts.length} />
             </button>
           </Hint>
+          <button style={{ ...smallBtn, display: "inline-flex", alignItems: "center", gap: 5 }} title={t("toolbar.schemaHint")} onClick={onOpenSchema}>
+            <span style={{ color: "#b4afa5" }}>⌗</span>
+            <span className="om-wide-only">{t("toolbar.schema")}</span>
+          </button>
           <button
             style={{ ...smallBtn, fontFamily: "var(--font-mono)", fontSize: 11.5, ...(showSql ? { background: "var(--accent-bg)", border: "1px solid var(--accent-border)", color: "var(--accent-hover)" } : {}) }}
             aria-pressed={showSql}
