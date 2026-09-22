@@ -1038,6 +1038,26 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
     }
   }
 
+  async function handleDuplicateRow(source: Row) {
+    if (!activeConnectionId || !activeTable) return;
+    // The key is left to the database (auto-increment, default); every other value is copied.
+    const values: Row = {};
+    columns.forEach((c) => {
+      if (!c.isPrimaryKey && c.name in source) values[c.name] = source[c.name];
+    });
+    try {
+      const { row } = await api.insertRow(activeConnectionId, activeTable, values);
+      pushHistory(t("toast.rowDuplicated"), pkColumn ? async () => {
+        await api.deleteRow(activeConnectionId, activeTable, row[pkColumn] as string, pkColumn);
+        await loadRows();
+      } : undefined);
+      await loadRows();
+      setDetailRow(row);
+    } catch (err) {
+      flash(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   function requestDeleteRow(row: Row) {
     if (!activeConnectionId || !activeTable || !pkColumn) return flash(t("toast.noPrimaryKey"));
     const rowId = row[pkColumn] as string | number;
@@ -1967,6 +1987,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
                     onCellCommit={handleCellCommit}
                     onCellCancel={handleCellCancel}
                     onRowOpen={setDetailRow}
+                    onDuplicateRow={handleDuplicateRow}
                     onAddRow={() => handleAddRow()}
                     sorts={sorts}
                     onToggleSort={toggleSort}
@@ -2021,6 +2042,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
             onFieldCommit={(col, value) => commitFieldChange(detailRow, col.name, value)}
             onClose={() => setDetailRow(null)}
             onDelete={() => requestDeleteRow(detailRow)}
+            onDuplicate={() => handleDuplicateRow(detailRow)}
             recentHistory={history.slice(0, 3)}
             onSearchRelation={searchRelation}
             getRelationLabel={getRelationLabel}

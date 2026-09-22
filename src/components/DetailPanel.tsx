@@ -17,6 +17,7 @@ interface Props {
   onFieldCommit: (col: ColumnMeta, value: unknown) => void;
   onClose: () => void;
   onDelete: () => void;
+  onDuplicate: () => void;
   recentHistory: HistoryEntry[];
   onSearchRelation: (col: ColumnMeta, query: string) => Promise<Row[]>;
   getRelationLabel: (col: ColumnMeta, row: Row) => string;
@@ -45,7 +46,7 @@ function saveWidth(width: number): void {
   }
 }
 
-export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, onClose, onDelete, recentHistory, onSearchRelation, getRelationLabel }: Props) {
+export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, onClose, onDelete, onDuplicate, recentHistory, onSearchRelation, getRelationLabel }: Props) {
   const { t } = useLang();
   const titleCol = columns.find((c) => c.logicalType === "text") ?? columns[0];
   const title = (titleCol && toText(row[titleCol.name])) || t("detailPanel.untitled");
@@ -89,6 +90,12 @@ export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, 
           {tableName}.{pkColumn ? toText(row[pkColumn]) : "?"}
         </span>
         <div style={{ flex: 1 }} />
+        <button
+          onClick={onDuplicate}
+          style={{ padding: "4px 9px", background: "#fff", border: "1px solid #eceae4", borderRadius: 7, fontSize: 12.5, color: "#8b877e", cursor: "pointer" }}
+        >
+          {t("detailPanel.duplicate")}
+        </button>
         <button
           onClick={onDelete}
           style={{ padding: "4px 9px", background: "#fff", border: "1px solid #eceae4", borderRadius: 7, fontSize: 12.5, color: "#8b877e", cursor: "pointer" }}

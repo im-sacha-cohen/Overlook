@@ -23,6 +23,7 @@ interface Props {
   onCellCommit: () => void;
   onCellCancel: () => void;
   onRowOpen: (row: Row) => void;
+  onDuplicateRow: (row: Row) => void;
   onAddRow: () => void;
   sorts: RowSort[];
   onToggleSort: (colName: string) => void;
@@ -77,6 +78,7 @@ export function TableView({
   onCellCommit,
   onCellCancel,
   onRowOpen,
+  onDuplicateRow,
   onAddRow,
   sorts,
   onToggleSort,
@@ -830,6 +832,14 @@ export function TableView({
                   label={isEmpty ? t("table.excludeEmpty") : t("table.excludeValue", { value: shown })}
                   onClick={() => {
                     onFilterByValue(relCtxMenu.col, v, true);
+                    setRelCtxMenu(null);
+                  }}
+                />
+                <div style={{ height: 1, margin: "4px 6px", background: "#f0eee8" }} />
+                <RelMenuItem
+                  label={t("table.duplicateRow")}
+                  onClick={() => {
+                    onDuplicateRow(relCtxMenu.row);
                     setRelCtxMenu(null);
                   }}
                 />
