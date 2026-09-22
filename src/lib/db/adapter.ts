@@ -120,13 +120,21 @@ export function coerceRowValues(meta: TableMeta, values: Row): Row {
   return out;
 }
 
-export function sqlLiteral(value: unknown): string {
+export interface LiteralOptions {
+  /** Keep long values whole, for SQL meant to be run rather than read. */
+  full?: boolean;
+  /** MySQL reads a backslash in a string as an escape: double it to keep it. */
+  backslashEscapes?: boolean;
+}
+
+export function sqlLiteral(value: unknown, { full = false, backslashEscapes = false }: LiteralOptions = {}): string {
   if (value === null || value === undefined) return "NULL";
   if (typeof value === "number" || typeof value === "bigint") return String(value);
   if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
   const text = value instanceof Date ? value.toISOString() : typeof value === "object" ? JSON.stringify(value) : String(value);
-  const shown = text.length > 200 ? `${text.slice(0, 200)}…` : text;
-  return `'${shown.replace(/'/g, "''")}'`;
+  const shown = !full && text.length > 200 ? `${text.slice(0, 200)}…` : text;
+  const escaped = backslashEscapes ? shown.replace(/\\/g, "\\\\") : shown;
+  return `'${escaped.replace(/'/g, "''")}'`;
 }
 
 /**
@@ -134,15 +142,16 @@ export function sqlLiteral(value: unknown): string {
  * (MySQL, SQLite) or `$n` ones (PostgreSQL). Placeholders inside quoted
  * identifiers can't occur since identifiers are validated.
  */
-export function inlineParams(statement: SqlStatement, style: "question" | "dollar"): string {
+export function inlineParams(statement: SqlStatement, style: "question" | "dollar", options?: LiteralOptions): string {
   if (statement.params.length === 0) return statement.sql;
-  if (style === "dollar") return statement.sql.replace(/\$(\d+)/g, (m, n) => (Number(n) <= statement.params.length ? sqlLiteral(statement.params[Number(n) - 1]) : m));
+  const literal = (value: unknown) => sqlLiteral(value, options);
+  if (style === "dollar") return statement.sql.replace(/\$(\d+)/g, (m, n) => (Number(n) <= statement.params.length ? literal(statement.params[Number(n) - 1]) : m));
   let i = 0;
-  return statement.sql.replace(/\?/g, (m) => (i < statement.params.length ? sqlLiteral(statement.params[i++]) : m));
+  return statement.sql.replace(/\?/g, (m) => (i < statement.params.length ? literal(statement.params[i++]) : m));
 }
 
-export function formatStatements(statements: SqlStatement[], style: "question" | "dollar"): string {
-  return statements.map((st) => `${inlineParams(st, style)};`).join("\n");
+export function formatStatements(statements: SqlStatement[], style: "question" | "dollar", options?: LiteralOptions): string {
+  return statements.map((st) => `${inlineParams(st, style, options)};`).join("\n");
 }
 
 /** Shared by the adapters: build the statements, then say how many rows they concern. */
@@ -151,6 +160,7 @@ export async function previewWithAdapter(
   op: WriteOp,
   style: "question" | "dollar",
   countByPk: (table: string, pkColumn: string, pkValues: unknown[]) => Promise<number>,
+  { backslashEscapes = false }: { backslashEscapes?: boolean } = {},
 ): Promise<WritePreview> {
   const statements = await adapter.buildWrite(op);
   let rows: number | null = null;
@@ -162,7 +172,7 @@ export async function previewWithAdapter(
     const metas = await Promise.all(op.tables.map((t) => adapter.getTable(t)));
     rows = metas.reduce((sum, m) => sum + (m.rowCount ?? 0), 0);
   }
-  return { sql: formatStatements(statements, style), rows };
+  return { sql: formatStatements(statements, style), script: formatStatements(statements, style, { full: true, backslashEscapes }), rows };
 }
 
 export function assertCreatableType(type: LogicalType): asserts type is Exclude<LogicalType, "relation" | "unknown"> {

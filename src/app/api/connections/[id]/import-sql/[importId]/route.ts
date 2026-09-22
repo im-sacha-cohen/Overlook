@@ -35,6 +35,16 @@ export async function POST(request: Request, { params }: Params) {
   }
 }
 
+/** Where the import stands, polled by the browser while a long piece runs. */
+export async function GET(request: Request, { params }: Params) {
+  const { id, importId } = await params;
+  const refusal = foreignRequestRefusal(request, "application/json");
+  if (refusal) return errorResponse(new Error(refusal), 403);
+  const imp = getSqlImport(id, importId);
+  if (!imp) return errorResponse(new Error("Import introuvable ou expiré"), 404);
+  return Response.json(imp.status());
+}
+
 /** Cancels the import: what already ran stays in the database. */
 export async function DELETE(request: Request, { params }: Params) {
   const { id, importId } = await params;

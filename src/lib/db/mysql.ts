@@ -251,7 +251,7 @@ export class MySqlAdapter implements DatabaseAdapter {
         pkValues,
       );
       return Number(rows[0]?.count ?? 0);
-    });
+    }, { backslashEscapes: true });
   }
 
   async aggregate(table: string, query: RowQuery, specs: { column: string; fn: AggregateFn }[]) {

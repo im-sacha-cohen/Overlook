@@ -39,12 +39,13 @@ import { describeSelect, isAppliedFilter } from "@/lib/db/where";
 import { decodeSharedView, encodeSharedView } from "@/lib/client/sharedView";
 import { rowQueryToParams } from "@/lib/api/rowQuery";
 import { SavedViewsBar } from "./SavedViewsBar";
-import { WritePreviewBox } from "./WritePreviewBox";
+import { SqlBox, WritePreviewBox } from "./WritePreviewBox";
 import { SelectionBar } from "./SelectionBar";
 import { Pagination } from "./Pagination";
 import { ExportModal, type ExportChoice } from "./ExportModal";
 import { ExportProgress, type ExportProgressState } from "./ExportProgress";
 import { ImportProgress, type ImportProgressState } from "./ImportProgress";
+import { WriteTaskCard, type WriteTask } from "./WriteTasks";
 import { Toast } from "./Toast";
 import { SaveIndicator } from "./SaveIndicator";
 import { SettingsPanel } from "./SettingsPanel";
@@ -58,6 +59,7 @@ const EMPTY_ROWS: Row[] = [];
 const SLOW_CONNECTION_MS = 3000;
 /** A SQL import goes up in pieces this size: small enough for steady progress, big enough to keep requests few. */
 const SQL_IMPORT_PIECE_BYTES = 4 * 1024 * 1024;
+const SQL_IMPORT_POLL_MS = 500;
 
 interface Props {
   initialConnections: Connection[];
@@ -73,6 +75,10 @@ interface PendingGuard {
   op?: WriteOp;
   /** Ask for the connection name (production). Defaults to true. */
   requireName?: boolean;
+  /** SQL to show and offer to copy when there's no `op` to preview (e.g. a console query). */
+  script?: string;
+  /** The write shows its own progress (SQL import): no background card for it. */
+  ownProgress?: boolean;
 }
 
 let historySeq = 0;
@@ -194,6 +200,8 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
 
   const [unlockedConnections, setUnlockedConnections] = useState<Set<string>>(new Set());
   const [pendingGuard, setPendingGuard] = useState<PendingGuard | null>(null);
+  const [writeTasks, setWriteTasks] = useState<WriteTask[]>([]);
+  const writeTaskSeq = useRef(0);
   const [dropTablesRequest, setDropTablesRequest] = useState<string[] | null>(null);
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -720,6 +728,39 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [view, dir, pkColumn, rows]);
+
+  // ---------- confirmed writes ----------
+  // The dialog closes on confirm and the write runs in the background: a card
+  // shows it running, then done or failed (with its SQL to run by hand).
+  function runConfirmedWrite(guard: PendingGuard, confirm?: string) {
+    if (guard.ownProgress) {
+      guard.run(confirm).catch((err) => flash(err instanceof Error ? err.message : String(err)));
+      return;
+    }
+    const id = ++writeTaskSeq.current;
+    const connectionId = activeConnectionId;
+    const update = (patch: Partial<WriteTask>) => setWriteTasks((tasks) => tasks.map((task) => (task.id === id ? { ...task, ...patch } : task)));
+    setWriteTasks((tasks) => [...tasks, { id, label: guard.label, connectionName: activeConnection?.name ?? "", status: "running" }]);
+    guard.run(confirm).then(
+      () => {
+        update({ status: "done" });
+        setTimeout(() => dismissWriteTask(id), 2500);
+      },
+      (err) => {
+        update({ status: "error", error: err instanceof Error ? err.message : String(err), script: guard.script });
+        if (guard.op && connectionId) {
+          api
+            .previewWrite(connectionId, guard.op)
+            .then((preview) => preview.script && update({ script: preview.script }))
+            .catch(() => {});
+        }
+      },
+    );
+  }
+
+  function dismissWriteTask(id: number) {
+    setWriteTasks((tasks) => tasks.filter((task) => task.id !== id));
+  }
 
   // ---------- guard helper ----------
   const runGuarded = useCallback(
@@ -1270,12 +1311,26 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
       // Piece by piece, each run before the next is sent: slicing a chosen file reads
       // only that piece from disk, and progress comes back after every one.
       let status: SqlImportStatus | null = null;
+      const show = (s: SqlImportStatus) => {
+        // A poll answered after the piece itself is older: never go backwards.
+        if (s.statements < progress.statements) return;
+        progress = { ...progress, bytes: s.processedBytes, statements: s.statements, failed: s.failed, failedCount: s.failedCount };
+        setImportProgress(progress);
+      };
       for (let offset = 0; ; offset += SQL_IMPORT_PIECE_BYTES) {
         const last = offset + SQL_IMPORT_PIECE_BYTES >= total;
         const piece = source.body.slice(offset, offset + SQL_IMPORT_PIECE_BYTES);
-        status = await api.sendSqlImportPiece(connectionId, importId, offset, piece, last, controller.signal);
-        progress = { ...progress, bytes: status.bytes, statements: status.statements, failed: status.failed, failedCount: status.failedCount };
-        setImportProgress(progress);
+        // On a remote database a piece can take a minute: ask how it's going meanwhile.
+        const id = importId;
+        const poll = setInterval(() => {
+          api.getSqlImportStatus(connectionId, id).then(show, () => {});
+        }, SQL_IMPORT_POLL_MS);
+        try {
+          status = await api.sendSqlImportPiece(connectionId, importId, offset, piece, last, controller.signal);
+        } finally {
+          clearInterval(poll);
+        }
+        show(status);
         if (last || status.state !== "running") break;
       }
 
@@ -1314,9 +1369,8 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
     if (activeConnection?.envType === "prod") {
       setPendingGuard({
         label: t("guard.runSqlScript", { connection: activeConnection.name }),
-        run: async (confirm) => {
-          await runImportSql(source, confirm);
-        },
+        ownProgress: true,
+        run: (confirm) => runImportSql(source, confirm),
       });
       return;
     }
@@ -1676,7 +1730,8 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
       const connection = activeConnection;
       return new Promise<QueryResult>((resolve, reject) => {
         setPendingGuard({
-          label: t("guard.runWriteQuery", { connection: connection.name, sql }),
+          label: t("guard.runWriteQuery", { connection: connection.name }),
+          script: sql,
           run: async (confirm) => {
             try {
               const res = await api.runQuery(connectionId, sql, allowWrite, confirm);
@@ -2147,10 +2202,16 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
           actionLabel={pendingGuard.label}
           requireName={pendingGuard.requireName ?? true}
           danger={pendingGuard.op && ["deleteRows", "dropColumn", "dropTables"].includes(pendingGuard.op.kind)}
-          details={pendingGuard.op && <WritePreviewBox connectionId={activeConnection.id} op={pendingGuard.op} />}
-          onConfirm={async () => {
-            await pendingGuard.run((pendingGuard.requireName ?? true) ? activeConnection.name : undefined);
+          details={
+            pendingGuard.op ? (
+              <WritePreviewBox connectionId={activeConnection.id} op={pendingGuard.op} />
+            ) : pendingGuard.script ? (
+              <SqlBox text={pendingGuard.script} copyText={pendingGuard.script} />
+            ) : undefined
+          }
+          onConfirm={() => {
             setPendingGuard(null);
+            runConfirmedWrite(pendingGuard, (pendingGuard.requireName ?? true) ? activeConnection.name : undefined);
           }}
           onCancel={() => setPendingGuard(null)}
         />
@@ -2179,7 +2240,14 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
       )}
 
       {exportProgress && <ExportProgress state={exportProgress} onCancel={cancelExport} onDismiss={() => setExportProgress(null)} />}
-      {importProgress && <ImportProgress state={importProgress} onCancel={cancelImport} onDismiss={() => setImportProgress(null)} />}
+      {(writeTasks.length > 0 || importProgress) && (
+        <div style={{ position: "fixed", right: 22, bottom: 22, zIndex: 65, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, pointerEvents: "none" }}>
+          {writeTasks.map((task) => (
+            <WriteTaskCard key={task.id} task={task} onDismiss={() => dismissWriteTask(task.id)} />
+          ))}
+          {importProgress && <ImportProgress state={importProgress} onCancel={cancelImport} onDismiss={() => setImportProgress(null)} />}
+        </div>
+      )}
 
       <Toast message={toast} />
       <SaveIndicator

@@ -198,8 +198,10 @@ export type WriteOp =
   | { kind: "dropTables"; tables: string[]; ignoreForeignKeys?: boolean };
 
 export interface WritePreview {
-  /** Readable SQL, parameters inlined. */
+  /** Readable SQL, parameters inlined (long values cut short). */
   sql: string;
+  /** The same statements with every value whole, to run by hand elsewhere. */
+  script: string;
   /**
    * Rows concerned: matched by an update/delete, holding the values a column
    * change or drop touches, or held by the dropped tables. null when unknown.

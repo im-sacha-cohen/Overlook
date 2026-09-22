@@ -12,27 +12,19 @@ interface Props {
   details?: ReactNode;
   /** Destructive action: red confirm button even outside production. */
   danger?: boolean;
-  onConfirm: () => Promise<void>;
+  /** Called once confirmed; the dialog doesn't wait for the write, which runs in the background. */
+  onConfirm: () => void;
   onCancel: () => void;
 }
 
 export function ProdGuardDialog({ connectionName, actionLabel, requireName = true, details, danger = false, onConfirm, onCancel }: Props) {
   const { t } = useLang();
   const [typed, setTyped] = useState("");
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const matches = !requireName || typed === connectionName;
+  // A name copied with the mouse often brings a space along: ignore those.
+  const matches = !requireName || typed.trim() === connectionName.trim();
 
-  async function handleConfirm() {
-    if (!matches) return;
-    setRunning(true);
-    setError(null);
-    try {
-      await onConfirm();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setRunning(false);
-    }
+  function handleConfirm() {
+    if (matches) onConfirm();
   }
 
   return (
@@ -79,13 +71,16 @@ export function ProdGuardDialog({ connectionName, actionLabel, requireName = tru
           {details}
           {requireName && (
             <>
-              <div style={{ fontSize: 12.5, color: "#8b877e" }}>
-                {t("prodGuard.typeBefore")} <strong style={{ fontFamily: "var(--font-mono)", color: "#26241f" }}>{connectionName}</strong> {t("prodGuard.typeAfter")}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 12.5, color: "#8b877e" }}>
+                <span>{t("prodGuard.typeBefore")}</span>
+                <CopyableName name={connectionName} />
+                <span>{t("prodGuard.typeAfter")}</span>
               </div>
               <input
                 autoFocus
                 value={typed}
                 onChange={(e) => setTyped(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleConfirm()}
                 placeholder={connectionName}
                 style={{
                   border: "1px solid #e8e5df",
@@ -98,7 +93,6 @@ export function ProdGuardDialog({ connectionName, actionLabel, requireName = tru
               />
             </>
           )}
-          {error && <div style={{ fontSize: 12.5, color: "var(--env-prod-fg)" }}>{error}</div>}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", paddingTop: 6 }}>
             <button
               onClick={onCancel}
@@ -108,7 +102,7 @@ export function ProdGuardDialog({ connectionName, actionLabel, requireName = tru
             </button>
             <button
               onClick={handleConfirm}
-              disabled={!matches || running}
+              disabled={!matches}
               style={{
                 padding: "7px 13px",
                 background: !matches ? "#e8e5df" : requireName || danger ? "var(--env-prod-strong)" : "var(--accent)",
@@ -119,11 +113,47 @@ export function ProdGuardDialog({ connectionName, actionLabel, requireName = tru
                 cursor: matches ? "pointer" : "not-allowed",
               }}
             >
-              {running ? t("common.confirmRunning") : t("common.confirm")}
+              {t("common.confirm")}
             </button>
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+/** The name to type, framed as a button that copies it, so it can be pasted instead. */
+function CopyableName({ name }: { name: string }) {
+  const { t } = useLang();
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      title={t("prodGuard.copyName")}
+      onClick={async () => {
+        await navigator.clipboard.writeText(name);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1400);
+      }}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 7,
+        padding: "3px 8px",
+        background: copied ? "var(--env-prod-bg)" : "#faf9f6",
+        border: "1px solid var(--env-prod-border)",
+        borderRadius: 6,
+        cursor: "pointer",
+        fontFamily: "var(--font-mono)",
+        fontSize: 12.5,
+        fontWeight: 600,
+        color: "#26241f",
+      }}
+    >
+      {name}
+      <span style={{ fontFamily: "var(--font-sans)", fontWeight: 400, fontSize: 11.5, color: copied ? "var(--env-prod-fg)" : "#8b877e" }}>
+        {copied ? t("equivalentSql.copied") : "⧉"}
+      </span>
+    </button>
   );
 }

@@ -42,18 +42,15 @@ export function ImportProgress({ state, onCancel, onDismiss }: Props) {
   return (
     <div
       style={{
-        position: "fixed",
-        bottom: 22,
-        right: 22,
         width: 300,
         background: "#26241f",
         color: "#f7f6f2",
         borderRadius: 11,
         padding: "12px 14px",
         boxShadow: "0 12px 30px rgba(35,31,24,0.25)",
-        zIndex: 65,
         animation: "om-pop 0.14s ease",
         fontSize: 12.5,
+        pointerEvents: "auto",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>

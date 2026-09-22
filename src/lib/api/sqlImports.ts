@@ -30,7 +30,10 @@ export interface ImportFailure {
 
 export interface ImportStatus {
   state: "running" | "done" | "cancelled" | "error";
+  /** Bytes received. */
   bytes: number;
+  /** Bytes whose statements have run, roughly: what the progress bar shows. */
+  processedBytes: number;
   statements: number;
   executed: number;
   failedCount: number;
@@ -52,6 +55,7 @@ class SqlImport {
   private state: ImportStatus["state"] = "running";
   private error: string | null = null;
   private bytes = 0;
+  private processedBytes = 0;
   private statements = 0;
   private executed = 0;
   private failedCount = 0;
@@ -74,8 +78,8 @@ class SqlImport {
   }
 
   status(): ImportStatus {
-    const { state, bytes, statements, executed, failedCount, failed, error } = this;
-    return { state, bytes, statements, executed, failedCount, failed, error };
+    const { state, bytes, processedBytes, statements, executed, failedCount, failed, error } = this;
+    return { state, bytes, processedBytes, statements, executed, failedCount, failed, error };
   }
 
   /** Runs the piece starting at byte `offset`; `last` ends the script after it. */
@@ -95,6 +99,7 @@ class SqlImport {
       await this.finish("error", errorMessage(err));
     } finally {
       this.busy = false;
+      this.processedBytes = this.bytes;
     }
     if (this.cancelRequested) await this.finish("cancelled");
     else if (last) await this.finish("done");
@@ -126,6 +131,8 @@ class SqlImport {
         this.failedCount++;
         if (this.failed.length < MAX_REPORTED_FAILURES) this.failed.push({ statement: this.statements, sql: sql.slice(0, 200), message: errorMessage(err) });
       }
+      // Characters stand in for bytes (close enough for a progress bar); the piece's end sets the exact figure.
+      this.processedBytes = Math.min(this.bytes, this.processedBytes + sql.length + 1);
     }
   }
 

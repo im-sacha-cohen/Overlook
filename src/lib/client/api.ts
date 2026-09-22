@@ -76,6 +76,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 export interface SqlImportStatus {
   state: "running" | "done" | "cancelled" | "error";
   bytes: number;
+  processedBytes: number;
   statements: number;
   executed: number;
   failedCount: number;
@@ -93,6 +94,8 @@ export const api = {
       body: piece,
       signal,
     }),
+  getSqlImportStatus: (connectionId: string, importId: string) =>
+    request<SqlImportStatus>(`/api/connections/${connectionId}/import-sql/${importId}`),
   cancelSqlImport: (connectionId: string, importId: string) =>
     request<SqlImportStatus>(`/api/connections/${connectionId}/import-sql/${importId}`, { method: "DELETE" }),
 
