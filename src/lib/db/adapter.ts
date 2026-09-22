@@ -110,7 +110,12 @@ export function coerceRowValues(meta: TableMeta, values: Row): Row {
   for (const [name, value] of Object.entries(values)) {
     const col = meta.columns.find((c) => c.name === name);
     out[name] =
-      col && value === "" && col.logicalType !== "text" && col.logicalType !== "select" ? null : value;
+      col && value === "" && col.logicalType !== "text" && col.logicalType !== "select"
+        ? null
+        : // A JSON value read back (a copied row) arrives parsed; drivers can't bind an object or array.
+          col?.logicalType === "json" && value !== null && typeof value === "object" && !(value instanceof Date)
+          ? JSON.stringify(value)
+          : value;
   }
   return out;
 }

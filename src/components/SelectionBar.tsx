@@ -7,9 +7,10 @@ interface Props {
   onClear: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onDuplicate: () => void;
 }
 
-export function SelectionBar({ count, onClear, onDelete, onEdit }: Props) {
+export function SelectionBar({ count, onClear, onDelete, onEdit, onDuplicate }: Props) {
   const { t } = useLang();
   if (count === 0) return null;
   return (
@@ -38,6 +39,12 @@ export function SelectionBar({ count, onClear, onDelete, onEdit }: Props) {
         style={{ padding: "6px 12px", background: "transparent", border: "1px solid rgba(255,255,255,0.25)", borderRadius: 7, color: "#f7f6f2", cursor: "pointer", fontSize: 12.5 }}
       >
         {t("selectionBar.edit")}
+      </button>
+      <button
+        onClick={onDuplicate}
+        style={{ padding: "6px 12px", background: "transparent", border: "1px solid rgba(255,255,255,0.25)", borderRadius: 7, color: "#f7f6f2", cursor: "pointer", fontSize: 12.5 }}
+      >
+        {t("selectionBar.duplicate")}
       </button>
       <button
         onClick={onDelete}

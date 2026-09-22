@@ -192,6 +192,7 @@ export const fr: Dict = {
 
   "selectionBar.selected": "{{count}} ligne(s) sélectionnée(s)",
   "selectionBar.edit": "Modifier",
+  "selectionBar.duplicate": "Dupliquer",
   "selectionBar.delete": "Supprimer",
   "selectionBar.deselect": "Désélectionner",
 
@@ -423,6 +424,7 @@ export const fr: Dict = {
   "toast.databaseDropped": "Base de données supprimée",
   "toast.rowCreated": "Ligne créée",
   "toast.rowDuplicated": "Ligne dupliquée",
+  "toast.rowsDuplicated": "{{count}} lignes dupliquées",
   "toast.rowDeleted": "Ligne supprimée",
   "toast.rowsDeleted": "{{count}} ligne(s) supprimée(s)",
   "toast.tableCreated": "Table « {{name}} » créée",
@@ -794,6 +796,7 @@ export const en: Dict = {
 
   "selectionBar.selected": "{{count}} row(s) selected",
   "selectionBar.edit": "Edit",
+  "selectionBar.duplicate": "Duplicate",
   "selectionBar.delete": "Delete",
   "selectionBar.deselect": "Deselect",
 
@@ -1025,6 +1028,7 @@ export const en: Dict = {
   "toast.databaseDropped": "Database dropped",
   "toast.rowCreated": "Row created",
   "toast.rowDuplicated": "Row duplicated",
+  "toast.rowsDuplicated": "{{count}} rows duplicated",
   "toast.rowDeleted": "Row deleted",
   "toast.rowsDeleted": "{{count}} row(s) deleted",
   "toast.tableCreated": "Table \"{{name}}\" created",

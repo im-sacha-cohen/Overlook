@@ -1038,24 +1038,34 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
     }
   }
 
-  async function handleDuplicateRow(source: Row) {
-    if (!activeConnectionId || !activeTable) return;
-    // The key is left to the database (auto-increment, default); every other value is copied.
-    const values: Row = {};
-    columns.forEach((c) => {
-      if (!c.isPrimaryKey && c.name in source) values[c.name] = source[c.name];
-    });
+  async function handleDuplicateRows(sources: Row[]) {
+    if (!activeConnectionId || !activeTable || sources.length === 0) return;
+    const created: Row[] = [];
     try {
-      const { row } = await api.insertRow(activeConnectionId, activeTable, values);
-      pushHistory(t("toast.rowDuplicated"), pkColumn ? async () => {
-        await api.deleteRow(activeConnectionId, activeTable, row[pkColumn] as string, pkColumn);
-        await loadRows();
-      } : undefined);
-      await loadRows();
-      setDetailRow(row);
+      for (const source of sources) {
+        // The key is left to the database (auto-increment, default); every other value is copied.
+        const values: Row = {};
+        columns.forEach((c) => {
+          if (!c.isPrimaryKey && c.name in source) values[c.name] = source[c.name];
+        });
+        created.push((await api.insertRow(activeConnectionId, activeTable, values)).row);
+      }
     } catch (err) {
       flash(err instanceof Error ? err.message : String(err));
     }
+    if (created.length === 0) return;
+    pushHistory(created.length === 1 ? t("toast.rowDuplicated") : t("toast.rowsDuplicated", { count: created.length }), pkColumn ? async () => {
+      for (const row of created) await api.deleteRow(activeConnectionId, activeTable, row[pkColumn] as string, pkColumn);
+      await loadRows();
+    } : undefined);
+    setSelectedIds(new Set());
+    await loadRows();
+    if (created.length === 1) setDetailRow(created[0]);
+  }
+
+  function requestBulkDuplicate() {
+    if (!pkColumn) return flash(t("toast.noPrimaryKey"));
+    handleDuplicateRows(rows.filter((r) => selectedIds.has(String(r[pkColumn]))));
   }
 
   function requestDeleteRow(row: Row) {
@@ -1987,7 +1997,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
                     onCellCommit={handleCellCommit}
                     onCellCancel={handleCellCancel}
                     onRowOpen={setDetailRow}
-                    onDuplicateRow={handleDuplicateRow}
+                    onDuplicateRow={(row) => handleDuplicateRows([row])}
                     onAddRow={() => handleAddRow()}
                     sorts={sorts}
                     onToggleSort={toggleSort}
@@ -2042,7 +2052,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
             onFieldCommit={(col, value) => commitFieldChange(detailRow, col.name, value)}
             onClose={() => setDetailRow(null)}
             onDelete={() => requestDeleteRow(detailRow)}
-            onDuplicate={() => handleDuplicateRow(detailRow)}
+            onDuplicate={() => handleDuplicateRows([detailRow])}
             recentHistory={history.slice(0, 3)}
             onSearchRelation={searchRelation}
             getRelationLabel={getRelationLabel}
@@ -2146,7 +2156,7 @@ export function Workspace({ initialConnections, initialFolders, dockerDetected }
         />
       )}
 
-      <SelectionBar count={selectedIds.size} onClear={deselectAll} onDelete={requestBulkDelete} onEdit={() => setPanel("bulk-edit")} />
+      <SelectionBar count={selectedIds.size} onClear={deselectAll} onDelete={requestBulkDelete} onDuplicate={requestBulkDuplicate} onEdit={() => setPanel("bulk-edit")} />
 
       {panel === "bulk-edit" && (
         <BulkEditModal
