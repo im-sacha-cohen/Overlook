@@ -8,6 +8,7 @@ import { useLang } from "@/lib/i18n/LanguageProvider";
 import { DateField } from "./DateField";
 import { RelationField, fieldInputStyle } from "./RelationField";
 import { TypeIcon } from "./TypeIcon";
+import { Select } from "./Select";
 
 interface Props {
   row: Row;
@@ -160,18 +161,13 @@ export function DetailPanel({ row, columns, pkColumn, tableName, onFieldCommit, 
                   getLabel={getRelationLabel}
                 />
               ) : c.logicalType === "select" ? (
-                <select
+                <Select
+                  size="sm"
                   value={toText(row[c.name])}
-                  onChange={(e) => onFieldCommit(c, e.target.value)}
-                  style={{ border: "1px solid #eceae4", borderRadius: 6, padding: "4px 6px", background: "#fff", fontSize: 13, cursor: "pointer" }}
-                >
-                  <option value="" />
-                  {(c.options ?? []).map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => onFieldCommit(c, value)}
+                  options={[{ value: "", label: "" }, ...(c.options ?? []).map((o) => ({ value: o, label: o }))]}
+                  style={{ fontSize: 13, maxWidth: "100%" }}
+                />
               ) : c.logicalType === "date" ? (
                 <DateField column={c} value={row[c.name]} onCommit={(value) => onFieldCommit(c, value)} />
               ) : c.logicalType === "json" ? (

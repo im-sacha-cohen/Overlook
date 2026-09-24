@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { ProdNameConfirm, prodNameMatches } from "./ProdNameConfirm";
 
 interface Props {
   connectionName: string;
@@ -20,8 +21,7 @@ interface Props {
 export function ProdGuardDialog({ connectionName, actionLabel, requireName = true, details, danger = false, onConfirm, onCancel }: Props) {
   const { t } = useLang();
   const [typed, setTyped] = useState("");
-  // A name copied with the mouse often brings a space along: ignore those.
-  const matches = !requireName || typed.trim() === connectionName.trim();
+  const matches = !requireName || prodNameMatches(typed, connectionName);
 
   function handleConfirm() {
     if (matches) onConfirm();
@@ -69,30 +69,7 @@ export function ProdGuardDialog({ connectionName, actionLabel, requireName = tru
         <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: 13.5, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{actionLabel}</div>
           {details}
-          {requireName && (
-            <>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 12.5, color: "#8b877e" }}>
-                <span>{t("prodGuard.typeBefore")}</span>
-                <CopyableName name={connectionName} />
-                <span>{t("prodGuard.typeAfter")}</span>
-              </div>
-              <input
-                autoFocus
-                value={typed}
-                onChange={(e) => setTyped(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleConfirm()}
-                placeholder={connectionName}
-                style={{
-                  border: "1px solid #e8e5df",
-                  borderRadius: 8,
-                  padding: "8px 10px",
-                  outline: "none",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 13.5,
-                }}
-              />
-            </>
-          )}
+          {requireName && <ProdNameConfirm name={connectionName} value={typed} onChange={setTyped} onSubmit={handleConfirm} autoFocus />}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", paddingTop: 6 }}>
             <button
               onClick={onCancel}
@@ -119,41 +96,5 @@ export function ProdGuardDialog({ connectionName, actionLabel, requireName = tru
         </div>
       </div>
     </div>
-  );
-}
-
-/** The name to type, framed as a button that copies it, so it can be pasted instead. */
-function CopyableName({ name }: { name: string }) {
-  const { t } = useLang();
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      title={t("prodGuard.copyName")}
-      onClick={async () => {
-        await navigator.clipboard.writeText(name);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1400);
-      }}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 7,
-        padding: "3px 8px",
-        background: copied ? "var(--env-prod-bg)" : "#faf9f6",
-        border: "1px solid var(--env-prod-border)",
-        borderRadius: 6,
-        cursor: "pointer",
-        fontFamily: "var(--font-mono)",
-        fontSize: 12.5,
-        fontWeight: 600,
-        color: "#26241f",
-      }}
-    >
-      {name}
-      <span style={{ fontFamily: "var(--font-sans)", fontWeight: 400, fontSize: 11.5, color: copied ? "var(--env-prod-fg)" : "#8b877e" }}>
-        {copied ? t("equivalentSql.copied") : "⧉"}
-      </span>
-    </button>
   );
 }

@@ -6,6 +6,7 @@ import { ENGINE_DEFAULT_PORT, ENGINE_LABELS, ENV_LABELS, SSL_MODES, type Connect
 import { SecretFileField } from "./SecretFileField";
 import { ProdGuardDialog } from "./ProdGuardDialog";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { Select } from "./Select";
 
 interface Props {
   initial?: Connection;
@@ -24,6 +25,9 @@ const inputStyle: React.CSSProperties = {
   fontSize: 13.5,
   background: "#fff",
 };
+
+// Same height and text size as the text fields next to them.
+const selectStyle: React.CSSProperties = { width: "100%", height: 36, fontSize: 13.5 };
 
 const labelStyle: React.CSSProperties = {
   fontSize: 12,
@@ -176,33 +180,21 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped, do
           <div style={{ display: "flex", gap: 10 }}>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>{t("connectionForm.environment")}</label>
-              <select style={inputStyle} value={envType} onChange={(e) => setEnvType(e.target.value as EnvType)}>
-                {(Object.keys(ENV_LABELS) as EnvType[]).map((v) => (
-                  <option key={v} value={v}>
-                    {ENV_LABELS[v]}
-                  </option>
-                ))}
-              </select>
+              <Select style={selectStyle} value={envType} onChange={setEnvType} options={(Object.keys(ENV_LABELS) as EnvType[]).map((v) => ({ value: v, label: ENV_LABELS[v] }))} />
             </div>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>{t("connectionForm.engine")}</label>
-              <select
-                style={inputStyle}
+              <Select
+                style={selectStyle}
                 value={engine}
-                onChange={(e) => {
-                  const eng = e.target.value as Engine;
+                onChange={(eng) => {
                   setEngine(eng);
                   const port = ENGINE_DEFAULT_PORT[eng];
                   if (port) setPort(String(port));
                 }}
                 disabled={!!initial}
-              >
-                {(Object.keys(ENGINE_LABELS) as Engine[]).map((v) => (
-                  <option key={v} value={v}>
-                    {ENGINE_LABELS[v]}
-                  </option>
-                ))}
-              </select>
+                options={(Object.keys(ENGINE_LABELS) as Engine[]).map((v) => ({ value: v, label: ENGINE_LABELS[v] }))}
+              />
             </div>
           </div>
 
@@ -291,13 +283,7 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped, do
               <div style={{ padding: 12, borderRadius: 9, border: "1px solid #f0eee9", background: "#fcfbf9", display: "flex", flexDirection: "column", gap: 10 }}>
                 <div>
                   <label style={labelStyle}>{t("connectionForm.sslMode")}</label>
-                  <select style={inputStyle} value={sslMode} onChange={(e) => setSslMode(e.target.value as SslMode)}>
-                    {SSL_MODES.map((m) => (
-                      <option key={m} value={m}>
-                        {t(`connectionForm.sslMode.${m}`)}
-                      </option>
-                    ))}
-                  </select>
+                  <Select style={selectStyle} value={sslMode} onChange={setSslMode} options={SSL_MODES.map((m) => ({ value: m, label: t(`connectionForm.sslMode.${m}`) }))} />
                 </div>
                 {sslMode !== "disable" && (
                   <>
@@ -334,10 +320,15 @@ export function ConnectionForm({ initial, onSave, onClose, onDatabaseDropped, do
                       </div>
                       <div style={{ flex: 1 }}>
                         <label style={labelStyle}>{t("connectionForm.sshAuth")}</label>
-                        <select style={inputStyle} value={sshAuth} onChange={(e) => setSshAuth(e.target.value as "password" | "key")}>
-                          <option value="key">{t("connectionForm.sshAuthKey")}</option>
-                          <option value="password">{t("connectionForm.password")}</option>
-                        </select>
+                        <Select<"password" | "key">
+                          style={selectStyle}
+                          value={sshAuth}
+                          onChange={setSshAuth}
+                          options={[
+                            { value: "key", label: t("connectionForm.sshAuthKey") },
+                            { value: "password", label: t("connectionForm.password") },
+                          ]}
+                        />
                       </div>
                     </div>
                     {sshAuth === "password" ? (

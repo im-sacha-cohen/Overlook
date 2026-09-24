@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Connection, Row } from "@/lib/types";
+import { ENGINE_LABELS, type Connection, type Row } from "@/lib/types";
 import type { ColumnDiff, DataDiff, SchemaDiff } from "@/lib/compare";
 import { api } from "@/lib/client/api";
 import { toText } from "@/lib/client/format";
 import { EnvPill } from "./EnvPill";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { Select } from "./Select";
 
 interface Props {
   connections: Connection[];
@@ -14,7 +15,7 @@ interface Props {
   onClose: () => void;
 }
 
-const select: React.CSSProperties = { height: 30, padding: "0 8px", border: "1px solid #e8e5df", borderRadius: 7, background: "#fff", fontSize: 13, minWidth: 0, maxWidth: 260 };
+const select: React.CSSProperties = { height: 30, minWidth: 160, maxWidth: 320 };
 const section: React.CSSProperties = { fontSize: 11.5, letterSpacing: "0.06em", textTransform: "uppercase", color: "#a8a39a", fontWeight: 600, margin: "18px 0 8px" };
 const badge = (bg: string, fg: string): React.CSSProperties => ({ fontSize: 11, padding: "1px 6px", borderRadius: 5, background: bg, color: fg, whiteSpace: "nowrap" });
 const LEFT = { bg: "var(--env-prod-bg)", fg: "var(--env-prod-fg)" };
@@ -164,14 +165,13 @@ function ConnectionSelect({ connections, value, onChange }: { connections: Conne
   const conn = connections.find((c) => c.id === value);
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-      <select value={value} onChange={(e) => onChange(e.target.value)} style={select}>
-        {connections.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name}
-          </option>
-        ))}
-      </select>
-      {conn && <EnvPill env={conn.envType} small />}
+      <Select
+        value={value}
+        onChange={onChange}
+        options={connections.map((c) => ({ value: c.id, label: c.name, hint: ENGINE_LABELS[c.engine], group: c.folder }))}
+        suffix={conn && <EnvPill env={conn.envType} small />}
+        style={select}
+      />
     </span>
   );
 }

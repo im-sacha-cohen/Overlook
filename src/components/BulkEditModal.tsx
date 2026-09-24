@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { ColumnMeta } from "@/lib/types";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { Select } from "./Select";
 
 interface Props {
   count: number;
@@ -51,17 +52,7 @@ export function BulkEditModal({ count, columns, onApply, onClose }: Props) {
         <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
           <div>
             <label style={{ fontSize: 12, color: "#8b877e", marginBottom: 4, display: "block" }}>{t("bulkEdit.column")}</label>
-            <select
-              value={colName}
-              onChange={(e) => setColName(e.target.value)}
-              style={{ width: "100%", border: "1px solid #e8e5df", borderRadius: 8, padding: "8px 10px", background: "#fff" }}
-            >
-              {editable.map((c) => (
-                <option key={c.name} value={c.name}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <Select value={colName} onChange={setColName} options={editable.map((c) => ({ value: c.name, label: c.name }))} style={{ width: "100%", height: 36 }} />
           </div>
           <div>
             <label style={{ fontSize: 12, color: "#8b877e", marginBottom: 4, display: "block" }}>{t("bulkEdit.newValue")}</label>
@@ -71,14 +62,7 @@ export function BulkEditModal({ count, columns, onApply, onClose }: Props) {
                 {checked ? t("common.yes") : t("common.no")}
               </label>
             ) : col?.logicalType === "select" && col.options ? (
-              <select value={value} onChange={(e) => setValue(e.target.value)} style={{ width: "100%", border: "1px solid #e8e5df", borderRadius: 8, padding: "8px 10px", background: "#fff" }}>
-                <option value="" />
-                {col.options.map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
-              </select>
+              <Select value={value} onChange={setValue} options={[{ value: "", label: "" }, ...col.options.map((o) => ({ value: o, label: o }))]} style={{ width: "100%", height: 36 }} />
             ) : (
               <input
                 value={value}

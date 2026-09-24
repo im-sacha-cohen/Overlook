@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { LogicalType } from "@/lib/types";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { Select } from "./Select";
 
 interface Props {
   connectionName: string;
@@ -94,17 +95,13 @@ export function CreateTableModal({ connectionName, onCreate, onClose }: Props) {
                   placeholder={t("createTable.columnNamePlaceholder")}
                   style={{ flex: 1, minWidth: 0, border: "1px solid #e8e5df", borderRadius: 8, padding: "6px 9px", outline: "none", fontSize: 13 }}
                 />
-                <select
+                <Select
+                  size="sm"
                   value={c.type}
-                  onChange={(e) => updateColumn(i, { type: e.target.value as LogicalType })}
-                  style={{ border: "1px solid #e8e5df", borderRadius: 8, padding: "6px 8px", background: "#fff", fontSize: 12.5, cursor: "pointer" }}
-                >
-                  {TYPE_OPTIONS.map(([v, l]) => (
-                    <option key={v} value={v}>
-                      {l}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(type) => updateColumn(i, { type })}
+                  options={TYPE_OPTIONS.map(([v, l]) => ({ value: v, label: l }))}
+                  style={{ width: 120, height: "auto", borderRadius: 8 }}
+                />
                 <button
                   onClick={() => removeColumn(i)}
                   style={{ flex: "none", width: 28, background: "#fff", border: "1px solid #eceae4", borderRadius: 6, color: "#8b877e", cursor: "pointer" }}

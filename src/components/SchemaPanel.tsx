@@ -5,6 +5,7 @@ import { ddlPreview } from "@/lib/client/format";
 import type { LogicalType, TableMeta } from "@/lib/types";
 import { useLang } from "@/lib/i18n/LanguageProvider";
 import { TypeIcon } from "./TypeIcon";
+import { Select } from "./Select";
 
 interface Props {
   table: TableMeta;
@@ -70,19 +71,17 @@ export function SchemaPanel({ table, locked, onUnlock, onRenameColumn, onChangeC
                 disabled={c.isPrimaryKey}
                 style={{ flex: 1, minWidth: 0, border: "1px solid transparent", borderRadius: 6, padding: "4px 6px", background: "transparent", outline: "none" }}
               />
-              <select
+              <Select<LogicalType>
+                size="sm"
                 value={c.logicalType === "relation" ? "relation" : TYPE_OPTIONS.some(([v]) => v === c.logicalType) ? c.logicalType : "text"}
-                onChange={(e) => onChangeColumnType(c.name, e.target.value as LogicalType)}
+                onChange={(type) => onChangeColumnType(c.name, type)}
                 disabled={c.isPrimaryKey || c.logicalType === "relation"}
-                style={{ border: "1px solid #eceae4", borderRadius: 6, padding: "4px 6px", background: "#fff", fontSize: 12.5, cursor: "pointer" }}
-              >
-                {c.logicalType === "relation" && <option value="relation">{t("schemaPanel.relation")}</option>}
-                {TYPE_OPTIONS.map(([v, l]) => (
-                  <option key={v} value={v}>
-                    {l}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  ...(c.logicalType === "relation" ? [{ value: "relation" as const, label: t("schemaPanel.relation") }] : []),
+                  ...TYPE_OPTIONS.map(([v, l]) => ({ value: v, label: l })),
+                ]}
+                style={{ width: 120 }}
+              />
               <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "#bdb8ae", width: 90, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {c.nativeType}
               </span>
@@ -112,13 +111,7 @@ export function SchemaPanel({ table, locked, onUnlock, onRenameColumn, onChangeC
               placeholder={t("schemaPanel.namePlaceholder")}
               style={{ flex: 1, border: "1px solid #e8e5df", borderRadius: 8, padding: "7px 9px", outline: "none" }}
             />
-            <select value={newColType} onChange={(e) => setNewColType(e.target.value as LogicalType)} style={{ border: "1px solid #e8e5df", borderRadius: 8, padding: "0 8px", background: "#fff", cursor: "pointer" }}>
-              {TYPE_OPTIONS.map(([v, l]) => (
-                <option key={v} value={v}>
-                  {l}
-                </option>
-              ))}
-            </select>
+            <Select value={newColType} onChange={setNewColType} options={TYPE_OPTIONS.map(([v, l]) => ({ value: v, label: l }))} style={{ width: 130, height: "auto" }} />
             <button
               onClick={() => {
                 if (!newColName.trim()) return;

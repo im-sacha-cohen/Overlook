@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { Select } from "./Select";
 
 interface Props {
   page: number;
@@ -42,18 +43,16 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
       </span>
       <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
         {custom === null ? (
-          <select
+          <Select
+            size="sm"
             value={String(pageSize)}
-            onChange={(e) => (e.target.value === "custom" ? setCustom(String(pageSize)) : onPageSizeChange(Number(e.target.value)))}
-            style={{ border: "1px solid #e8e5df", borderRadius: 6, padding: "3px 6px", background: "#fff", fontSize: 12.5, color: "#4b473f", cursor: "pointer" }}
-          >
-            {[...new Set([...PAGE_SIZES, pageSize])].sort((a, b) => a - b).map((n) => (
-              <option key={n} value={n}>
-                {n.toLocaleString(lang === "fr" ? "fr-FR" : "en-US")}
-              </option>
-            ))}
-            <option value="custom">{t("pagination.customSize")}</option>
-          </select>
+            onChange={(v) => (v === "custom" ? setCustom(String(pageSize)) : onPageSizeChange(Number(v)))}
+            options={[
+              ...[...new Set([...PAGE_SIZES, pageSize])].sort((a, b) => a - b).map((n) => ({ value: String(n), label: n.toLocaleString(lang === "fr" ? "fr-FR" : "en-US") })),
+              { value: "custom", label: t("pagination.customSize") },
+            ]}
+            style={{ color: "#4b473f" }}
+          />
         ) : (
           <input
             autoFocus
