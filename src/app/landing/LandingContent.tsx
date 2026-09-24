@@ -89,8 +89,8 @@ export function LandingContent({ lang }: { lang: LandingLang }) {
               <span className={styles.shotDot} />
             </div>
             <Image
-              src="/landing/table-view.png"
-              alt="Overlook table view"
+              src={c.hero.img}
+              alt={c.hero.imgAlt}
               width={1440}
               height={900}
               priority

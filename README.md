@@ -41,12 +41,14 @@ a local database for a production one.**
 
 | | |
 |---|---|
-| **Table view** — editable grid, resizable/reorderable columns | ![Table view](docs/screenshots/table-view.png) |
-| **Detail panel** — edit a row, resizable | ![Detail panel](docs/screenshots/detail-panel.png) |
+| **Table view** — editable grid on a connection tagged prod | ![Table view](docs/screenshots/table-view.png) |
+| **Production guardrail** — the exact SQL, confirmed by typing the connection name | ![Production guardrail](docs/screenshots/prod-guard.png) |
+| **Filters** — through foreign keys, with suggested values and their row counts | ![Filters](docs/screenshots/filters.png) |
+| **Compare** — schema differences between two connections | ![Compare](docs/screenshots/compare.png) |
+| **Relations diagram** | ![Relations diagram](docs/screenshots/diagram.png) |
+| **Detail panel** — edit, duplicate, or delete a row | ![Detail panel](docs/screenshots/detail-panel.png) |
 | **Command palette** (⌘K) — keyboard navigation | ![Command palette](docs/screenshots/command-palette.png) |
-| **Export** — SQL/NDJSON, structure/data, table selection | ![Export](docs/screenshots/export-modal.png) |
-| **Gallery view** | ![Gallery view](docs/screenshots/gallery-view.png) |
-| **Production guardrail** — confirmation by typing the connection name | ![Production guardrail](docs/screenshots/prod-guard.png) |
+| **Export** — CSV/SQL/NDJSON, structure/data, table selection | ![Export](docs/screenshots/export-modal.png) |
 
 ## Prerequisites
 

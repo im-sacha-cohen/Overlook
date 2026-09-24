@@ -16,7 +16,7 @@
       <div class="navLinks">
         <a href="#features">Fonctionnalités</a>
         <a href="#showcase">Captures d'écran</a>
-        <a href="https://github.com/im-sacha-cohen/Overlook">Ouvrir l'app</a>
+        <a href="https://github.com/im-sacha-cohen/Overlook#installation" target="_blank" rel="noreferrer">Ouvrir l'app</a>
         <a href="../" class="langLink">EN</a>
       </div>
       <a class="navGh" href="https://github.com/im-sacha-cohen/Overlook" target="_blank" rel="noreferrer">
@@ -59,7 +59,7 @@
     <div class="shot">
       <div class="shotFrame">
         <div class="shotBar"><span class="shotDot"></span><span class="shotDot"></span><span class="shotDot"></span></div>
-        <img src="../images/table-view.png" alt="Vue table d'Overlook" width="1440" height="900" loading="eager">
+        <img src="../images/fr/table-view.png" alt="Vue table d'Overlook sur une connexion de production" width="1440" height="900" loading="eager">
       </div>
     </div>
   </header>
@@ -75,12 +75,15 @@
         <h2>Tout ce qu'un éditeur de base de données doit avoir —<br>et les garde-fous qu'il n'a généralement pas</h2>
       </div>
       <div class="grid">
-        <div class="card"><div class="cardIcon" style="color: var(--dev); background: color-mix(in oklab, var(--dev) 12%, transparent)">◈</div><h3>Connexions multiples</h3><p>PostgreSQL, MySQL et SQLite côte à côte — chacune taguée Local, Dev, Staging, Prod ou Custom.</p></div>
-        <div class="card"><div class="cardIcon" style="color: var(--prod); background: color-mix(in oklab, var(--prod) 12%, transparent)">▲</div><h3>Garde-fous production</h3><p>Supprimer une colonne, une ligne, ou lancer une requête d'écriture sur une connexion prod exige de taper le nom de la connexion pour confirmer.</p></div>
-        <div class="card"><div class="cardIcon" style="color: var(--local); background: color-mix(in oklab, var(--local) 12%, transparent)">▦</div><h3>4 vues par table</h3><p>Table, Board, Calendrier et Galerie — avec filtres, tri et regroupement intégrés.</p></div>
-        <div class="card"><div class="cardIcon" style="color: var(--staging); background: color-mix(in oklab, var(--staging) 12%, transparent)">⌘</div><h3>Palette de commandes</h3><p>⌘K pour naviguer partout — tables, connexions, actions — sans lâcher le clavier.</p></div>
-        <div class="card"><div class="cardIcon" style="color: var(--dev); background: color-mix(in oklab, var(--dev) 12%, transparent)">↺</div><h3>Historique avec annulation</h3><p>Chaque modification est tracée. Une erreur sur une table non-prod ? Annulez-la en un clic.</p></div>
-        <div class="card"><div class="cardIcon" style="color: var(--local); background: color-mix(in oklab, var(--local) 12%, transparent)">⇄</div><h3>Import & export</h3><p>Import CSV, export SQL/NDJSON, et une console SQL en lecture seule par défaut pour vos requêtes ponctuelles.</p></div>
+        <div class="card"><div class="cardIcon" style="color: var(--dev); background: color-mix(in oklab, var(--dev) 12%, transparent)">◈</div><h3>Chaque connexion bien identifiée</h3><p>PostgreSQL, MySQL et SQLite côte à côte, chacune taguée Local, Dev, Staging, Prod ou Custom et rangée dans des dossiers. Connexion via tunnel SSH, avec vérification des certificats TLS.</p></div>
+        <div class="card"><div class="cardIcon" style="color: var(--prod); background: color-mix(in oklab, var(--prod) 12%, transparent)">▲</div><h3>Garde-fous production</h3><p>En prod, supprimer des lignes, modifier le schéma ou lancer une requête d'écriture exige de taper le nom de la connexion. Les modifications en masse et de schéma montrent d'abord le SQL exact et les lignes touchées.</p></div>
+        <div class="card"><div class="cardIcon" style="color: var(--staging); background: color-mix(in oklab, var(--staging) 12%, transparent)">⧩</div><h3>Des filtres qui suivent les clés étrangères</h3><p>Filtrez sur plusieurs valeurs, toutes ou au moins une condition, par groupes, et sur les colonnes des tables liées. Les valeurs suggérées indiquent combien de lignes chacune garde.</p></div>
+        <div class="card"><div class="cardIcon" style="color: var(--dev); background: color-mix(in oklab, var(--dev) 12%, transparent)">⇆</div><h3>Comparer et cartographier</h3><p>Comparez le schéma et les lignes de deux connexions, par exemple staging et prod, et affichez le diagramme des relations entre toutes les tables.</p></div>
+        <div class="card"><div class="cardIcon" style="color: var(--local); background: color-mix(in oklab, var(--local) 12%, transparent)">➜</div><h3>Envoyer des données d'une base à l'autre</h3><p>Copiez des lignes sélectionnées ou des tables entières vers une autre connexion, par exemple un extrait de la prod vers votre base locale.</p></div>
+        <div class="card"><div class="cardIcon" style="color: var(--dev); background: color-mix(in oklab, var(--dev) 12%, transparent)">↺</div><h3>Journal avec annulation</h3><p>Chaque écriture est consignée dans un journal persistant, consultable et filtrable. Une erreur sur une table hors prod ? Annulez-la en un clic.</p></div>
+        <div class="card"><div class="cardIcon" style="color: var(--staging); background: color-mix(in oklab, var(--staging) 12%, transparent)">›_</div><h3>Console SQL</h3><p>Requêtes enregistrées et historique. Le mode lecture seule est imposé par la base elle-même, pas seulement par l'interface.</p></div>
+        <div class="card"><div class="cardIcon" style="color: var(--local); background: color-mix(in oklab, var(--local) 12%, transparent)">⇄</div><h3>Import &amp; export</h3><p>Import CSV, et gros scripts SQL exécutés par lots dans des transactions, avec la progression en direct. Export en SQL, CSV ou NDJSON.</p></div>
+        <div class="card"><div class="cardIcon" style="color: var(--prod); background: color-mix(in oklab, var(--prod) 12%, transparent)">⌘</div><h3>Rapide, pensé pour le clavier</h3><p>Vues Table, Board, Calendrier et Galerie, vues enregistrées et liens partageables, ⌘K et raccourcis, copier-coller de plages de cellules.</p></div>
       </div>
     </div>
   </section>
@@ -91,27 +94,45 @@
         <div class="showText">
           <span class="eyebrow" style="color: var(--prod)"><span style="width:6px;height:6px;border-radius:50%;background:var(--prod);display:inline-block"></span> Garde-fou production</span>
           <h3>Confirmation en tapant le nom de la connexion</h3>
-          <p>Sur toute connexion taguée « prod », les actions destructrices — suppression d'une ligne, modification ou suppression d'une colonne, requête d'écriture brute — sont bloquées tant que vous n'avez pas tapé le nom de la connexion. Le panneau de schéma est en lecture seule par défaut.</p>
+          <p>Sur une connexion taguée « prod », supprimer des lignes, modifier le schéma ou lancer une requête d'écriture brute reste bloqué tant que vous n'avez pas tapé le nom de la connexion, avec le SQL exact sous les yeux.</p>
         </div>
-        <div class="showImg"><img src="../images/prod-guard.png" alt="Boîte de dialogue de confirmation du garde-fou production" width="1440" height="900" loading="lazy"></div>
+        <div class="showImg"><img src="../images/fr/prod-guard.png" alt="Boîte de dialogue de confirmation du garde-fou production" width="1440" height="900" loading="lazy"></div>
       </div>
 
       <div class="showRow rev">
         <div class="showText">
-          <span class="eyebrow" style="color: var(--dev)"><span style="width:6px;height:6px;border-radius:50%;background:var(--dev);display:inline-block"></span> Palette de commandes</span>
-          <h3>⌘K pour aller n'importe où</h3>
-          <p>Naviguez entre connexions et tables, changez de vue ou déclenchez une action sans toucher la souris. Pensé pour ceux qui vivent dans leur éditeur.</p>
+          <span class="eyebrow" style="color: var(--staging)"><span style="width:6px;height:6px;border-radius:50%;background:var(--staging);display:inline-block"></span> Filtres</span>
+          <h3>Filtrer à travers les relations</h3>
+          <p>Gardez les commandes dont le client est sur l'offre Enterprise, sans écrire de jointure. Chaque valeur suggérée indique combien de lignes elle garderait, et la vue entière se partage par lien.</p>
         </div>
-        <div class="showImg"><img src="../images/command-palette.png" alt="Palette de commandes" width="1440" height="900" loading="lazy"></div>
+        <div class="showImg"><img src="../images/fr/filters.png" alt="Filtres sur une table liée avec suggestions de valeurs" width="1440" height="900" loading="lazy"></div>
       </div>
 
       <div class="showRow">
         <div class="showText">
-          <span class="eyebrow" style="color: var(--local)"><span style="width:6px;height:6px;border-radius:50%;background:var(--local);display:inline-block"></span> Vue galerie</span>
-          <h3>Quatre vues, une seule table</h3>
-          <p>Les vues Table, Board, Calendrier et Galerie partagent les mêmes filtres, tris et regroupements — changez de perspective sans perdre votre position.</p>
+          <span class="eyebrow" style="color: var(--dev)"><span style="width:6px;height:6px;border-radius:50%;background:var(--dev);display:inline-block"></span> Comparaison</span>
+          <h3>Voir ce qui diffère entre deux bases</h3>
+          <p>Choisissez deux connexions pour lister les tables et colonnes présentes d'un seul côté ou définies différemment, puis comparez les lignes d'une table.</p>
         </div>
-        <div class="showImg"><img src="../images/gallery-view.png" alt="Vue galerie" width="1440" height="900" loading="lazy"></div>
+        <div class="showImg"><img src="../images/fr/compare.png" alt="Comparaison des schémas entre staging et production" width="1440" height="900" loading="lazy"></div>
+      </div>
+
+      <div class="showRow rev">
+        <div class="showText">
+          <span class="eyebrow" style="color: var(--local)"><span style="width:6px;height:6px;border-radius:50%;background:var(--local);display:inline-block"></span> Diagramme des relations</span>
+          <h3>Votre schéma d'un coup d'œil</h3>
+          <p>Toutes les tables avec leurs colonnes et leurs clés étrangères, disposées automatiquement. Déplacez, zoomez, double-cliquez sur une table pour l'ouvrir.</p>
+        </div>
+        <div class="showImg"><img src="../images/fr/diagram.png" alt="Diagramme des relations de la base" width="1440" height="900" loading="lazy"></div>
+      </div>
+
+      <div class="showRow">
+        <div class="showText">
+          <span class="eyebrow" style="color: var(--dev)"><span style="width:6px;height:6px;border-radius:50%;background:var(--dev);display:inline-block"></span> Palette de commandes</span>
+          <h3>⌘K pour aller n'importe où</h3>
+          <p>Ouvrez une table, changez de vue ou lancez une commande sans toucher la souris. Pensé pour ceux qui vivent dans leur éditeur.</p>
+        </div>
+        <div class="showImg"><img src="../images/fr/command-palette.png" alt="Palette de commandes" width="1440" height="900" loading="lazy"></div>
       </div>
     </div>
   </section>
@@ -119,7 +140,7 @@
   <section class="finalCta">
     <div class="heroBg"></div>
     <h2>Gratuit. Open-source. Auto-hébergé.</h2>
-    <p>Clonez-le, connectez-le à votre base, et ne confondez plus jamais d'environnement.</p>
+    <p>Lancez-le sur votre machine, connectez-le à vos bases, et ne confondez plus jamais d'environnement. Il n'écoute qu'en local par défaut et se protège contre le DNS rebinding et le CSRF.</p>
     <div class="ctaRow">
       <a class="ctaPrimary" href="https://github.com/im-sacha-cohen/Overlook" target="_blank" rel="noreferrer">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
@@ -134,7 +155,7 @@
       <span>© 2026 Overlook contributors · Licence MIT</span>
       <div class="footerLinks">
         <a href="https://github.com/im-sacha-cohen/Overlook" target="_blank" rel="noreferrer">GitHub</a>
-        <a href="https://buymeacoffee.com/ImSachaCOHEN/e/571161" target="_blank" rel="noreferrer">M'offrir un café</a>
+        <a href="https://github.com/im-sacha-cohen/Overlook#installation" target="_blank" rel="noreferrer">Ouvrir l'app</a>
         <a href="../">EN</a>
       </div>
     </div>
