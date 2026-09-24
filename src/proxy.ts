@@ -8,7 +8,9 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except Next's static assets, and the pieces of a SQL import: the
-  // proxy would copy each one in memory once more. That route runs the same checks itself.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|api/connections/[^/]+/import-sql/[^/]+$).*)"],
+  // Everything except Next's static assets, the landing page's public screenshots
+  // (next/image fetches them internally without a Host header, which the checks would
+  // refuse), and the pieces of a SQL import: the proxy would copy each one in memory
+  // once more. That route runs the same checks itself.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|landing/.+\\.png$|api/connections/[^/]+/import-sql/[^/]+$).*)"],
 };
