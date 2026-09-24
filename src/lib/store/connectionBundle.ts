@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { BUNDLE_FORMAT, BUNDLE_VERSION, MIN_PASSPHRASE_LENGTH, type BundleEncryption, type ConnectionBundle } from "../connectionBundle";
 import type { Connection, ConnectionSecrets } from "../types";
 import { decryptWithKey, encryptWithKey } from "./crypto";
-import { createConnection, getConnectionSecret, listConnections } from "./metadata";
+import { createConnection, createConnectionFolder, deleteAllConnections, getConnectionSecret, getDb, listConnections } from "./metadata";
 import { resolveSqlitePath } from "../db/sqlitePath";
 import { getConnectionPrefs, listTablePrefs, replaceTablePrefs, saveConnectionPrefs } from "./prefs";
 
@@ -79,7 +79,9 @@ function uniqueName(name: string, taken: Set<string>): string {
   }
 }
 
-export function importBundle(bundle: ConnectionBundle, indices: number[], passphrase: unknown): Connection[] {
+// replaceAll: every connection and folder configured here is deleted first, so the
+// file's selection becomes the whole list. All or nothing: a failure keeps the old list.
+export function importBundle(bundle: ConnectionBundle, indices: number[], passphrase: unknown, replaceAll = false): Connection[] {
   const picked = [...new Set(indices)].filter((i) => Number.isInteger(i) && i >= 0 && i < bundle.connections.length).map((i) => bundle.connections[i]);
   if (picked.length === 0) throw new Error("Aucune connexion sélectionnée");
 
@@ -106,27 +108,34 @@ export function importBundle(bundle: ConnectionBundle, indices: number[], passph
     }
   });
 
-  const taken = new Set(listConnections().map((c) => c.name));
-  return picked.map((c, i) => {
-    const name = uniqueName(c.name, taken);
-    taken.add(name);
-    const created = createConnection({
-      name,
-      envType: c.envType,
-      engine: c.engine,
-      host: c.host,
-      port: c.port,
-      database: c.database,
-      user: c.user,
-      ssl: c.ssl,
-      sslMode: c.sslMode,
-      ssh: c.ssh ?? null,
-      folder: c.folder,
-      password: passwords[i],
-      ...secrets[i],
+  return getDb().transaction(() => {
+    if (replaceAll) {
+      deleteAllConnections();
+      // Keep the folders in the file's order rather than alphabetical.
+      for (const folder of new Set(picked.map((c) => c.folder).filter((f): f is string => !!f))) createConnectionFolder(folder);
+    }
+    const taken = new Set(listConnections().map((c) => c.name));
+    return picked.map((c, i) => {
+      const name = uniqueName(c.name, taken);
+      taken.add(name);
+      const created = createConnection({
+        name,
+        envType: c.envType,
+        engine: c.engine,
+        host: c.host,
+        port: c.port,
+        database: c.database,
+        user: c.user,
+        ssl: c.ssl,
+        sslMode: c.sslMode,
+        ssh: c.ssh ?? null,
+        folder: c.folder,
+        password: passwords[i],
+        ...secrets[i],
+      });
+      if (c.prefs) replaceTablePrefs(created.id, c.prefs);
+      if (c.connectionPrefs) saveConnectionPrefs(created.id, c.connectionPrefs);
+      return created;
     });
-    if (c.prefs) replaceTablePrefs(created.id, c.prefs);
-    if (c.connectionPrefs) saveConnectionPrefs(created.id, c.connectionPrefs);
-    return created;
-  });
+  })();
 }

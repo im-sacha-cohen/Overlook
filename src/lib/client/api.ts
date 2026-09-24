@@ -146,7 +146,7 @@ export const api = {
     const match = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "");
     return { blob: await res.blob(), filename: match ? match[1] : "overlook-connections.json" };
   },
-  importConnections: (input: { bundle: ConnectionBundle; indices: number[]; passphrase?: string }) =>
+  importConnections: (input: { bundle: ConnectionBundle; indices: number[]; passphrase?: string; replaceAll?: boolean }) =>
     request<{ connections: Connection[] }>("/api/connections/bundle/import", {
       method: "POST",
       body: JSON.stringify(input),

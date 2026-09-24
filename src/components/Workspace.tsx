@@ -972,6 +972,20 @@ export function Workspace({ initialConnections, initialFolders, initialPageSize,
     }
   }
 
+  // After a "replace everything" import, the open tabs point at connections that are gone.
+  async function afterConnectionsImported(created: Connection[], replacedAll: boolean) {
+    await refreshConnections();
+    if (!replacedAll) return;
+    setTabs([]);
+    if (created[0]) {
+      switchToConnection(created[0].id);
+    } else {
+      setActiveTabId(null);
+      setActiveConnectionId(null);
+      setActiveTable(null);
+    }
+  }
+
   async function handleDeleteConnection(id: string) {
     await api.deleteConnection(id);
     await forgetConnectionLocally(id);
@@ -1925,9 +1939,9 @@ export function Workspace({ initialConnections, initialFolders, initialPageSize,
           <ConnectionImportModal
             existing={connections}
             onClose={() => setImportConnectionsOpen(false)}
-            onDone={async (created) => {
+            onDone={async (created, replacedAll) => {
               setImportConnectionsOpen(false);
-              await refreshConnections();
+              await afterConnectionsImported(created, replacedAll);
               // Land straight in the first imported connection rather than an empty workspace.
               if (created[0]) switchToConnection(created[0].id);
             }}
@@ -2254,10 +2268,10 @@ export function Workspace({ initialConnections, initialFolders, initialPageSize,
             setPanel(null);
             flash(t("toast.connectionsExported", { count }));
           }}
-          onConnectionsImported={async (created) => {
+          onConnectionsImported={async (created, replacedAll) => {
             setPanel(null);
             flash(t("toast.connectionsImported", { count: created.length }));
-            await refreshConnections();
+            await afterConnectionsImported(created, replacedAll);
           }}
         />
       )}

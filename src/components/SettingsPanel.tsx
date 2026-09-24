@@ -11,7 +11,7 @@ interface Props {
   connections: Connection[];
   onClose: () => void;
   onConnectionsExported: (count: number) => void;
-  onConnectionsImported: (created: Connection[]) => void;
+  onConnectionsImported: (created: Connection[], replacedAll: boolean) => void;
 }
 
 const sectionBtn: React.CSSProperties = {

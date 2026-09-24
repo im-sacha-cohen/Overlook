@@ -205,21 +205,29 @@ export function ExportConnections({ connections, onBack, onDone }: { connections
 
 // ---------- import ----------
 
-export function ImportConnections({ existing, onBack, onDone }: { existing: Connection[]; onBack: () => void; onDone: (created: Connection[]) => void }) {
+export function ImportConnections({ existing, onBack, onDone }: { existing: Connection[]; onBack: () => void; onDone: (created: Connection[], replacedAll: boolean) => void }) {
   const { t, lang } = useLang();
   const [file, setFile] = useState<{ name: string; bundle: ConnectionBundle } | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [passphrase, setPassphrase] = useState("");
+  const [replaceAll, setReplaceAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const existingFingerprints = useMemo(() => new Set(existing.map(connectionFingerprint)), [existing]);
   const bundle = file?.bundle ?? null;
+
+  // Nothing is left to duplicate once the list is wiped: take the whole file by default.
+  function toggleReplaceAll(on: boolean) {
+    setReplaceAll(on);
+    if (on && bundle) setSelected(new Set(bundle.connections.map((_, i) => i)));
+  }
   const needsPassphrase = !!bundle?.encryption && [...selected].some((i) => bundle.connections[i]?.password);
 
   async function handleFile(f: File | undefined) {
     setError(null);
     setFile(null);
+    setReplaceAll(false);
     if (!f) return;
     try {
       const parsed = parseBundle(JSON.parse(await f.text()));
@@ -236,14 +244,16 @@ export function ImportConnections({ existing, onBack, onDone }: { existing: Conn
     setError(null);
     if (selected.size === 0) return setError(t("connTransfer.needSelection"));
     if (needsPassphrase && passphrase.length < MIN_PASSPHRASE_LENGTH) return setError(t("connTransfer.passphraseTooShort", { min: MIN_PASSPHRASE_LENGTH }));
+    if (replaceAll && !window.confirm(t("connTransfer.replaceAllConfirm", { count: existing.length, imported: selected.size }))) return;
     setBusy(true);
     try {
       const { connections } = await api.importConnections({
         bundle,
         indices: [...selected].sort((a, b) => a - b),
         passphrase: needsPassphrase ? passphrase : undefined,
+        replaceAll,
       });
-      onDone(connections);
+      onDone(connections, replaceAll);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -275,7 +285,7 @@ export function ImportConnections({ existing, onBack, onDone }: { existing: Conn
           />
           <div className="om-sb" style={listBox}>
             {bundle.connections.map((c, i) => {
-              const duplicate = existingFingerprints.has(connectionFingerprint(c));
+              const duplicate = !replaceAll && existingFingerprints.has(connectionFingerprint(c));
               return (
                 <label key={i} style={{ ...rowStyle, opacity: duplicate && !selected.has(i) ? 0.6 : 1 }}>
                   <input type="checkbox" checked={selected.has(i)} onChange={() => setSelected((prev) => toggleIn(prev, i))} style={{ marginTop: 2 }} />
@@ -283,6 +293,7 @@ export function ImportConnections({ existing, onBack, onDone }: { existing: Conn
                     <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
                       <span style={{ fontWeight: 500 }}>{c.name}</span>
                       <EnvPill env={c.envType} small />
+                      {c.folder && <Tag>{t("connTransfer.inFolder", { folder: c.folder })}</Tag>}
                       {c.password && <Tag>{t("connTransfer.hasPassword")}</Tag>}
                       {duplicate && <Tag tone="warn">{t("connTransfer.duplicate")}</Tag>}
                     </div>
@@ -293,6 +304,22 @@ export function ImportConnections({ existing, onBack, onDone }: { existing: Conn
               );
             })}
           </div>
+        </div>
+      )}
+
+      {bundle && existing.length > 0 && (
+        <div>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, cursor: "pointer" }}>
+            <input type="checkbox" checked={replaceAll} onChange={(e) => toggleReplaceAll(e.target.checked)} />
+            {t("connTransfer.replaceAll")}
+          </label>
+          {replaceAll ? (
+            <div style={{ marginTop: 8 }}>
+              <ErrorBox message={t("connTransfer.replaceAllWarning", { count: existing.length })} />
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: "#a8a39a", marginTop: 6 }}>{t("connTransfer.replaceAllOffHint")}</div>
+          )}
         </div>
       )}
 
@@ -311,8 +338,12 @@ export function ImportConnections({ existing, onBack, onDone }: { existing: Conn
           {t("connTransfer.back")}
         </button>
         {bundle && (
-          <button onClick={handleImport} disabled={busy} style={{ ...primaryBtn, opacity: busy ? 0.6 : 1 }}>
-            {busy ? t("common.confirmRunning") : t("connTransfer.importSubmit", { count: selected.size })}
+          <button
+            onClick={handleImport}
+            disabled={busy}
+            style={{ ...primaryBtn, ...(replaceAll ? { background: "var(--env-prod-fg)", borderColor: "var(--env-prod-fg)" } : {}), opacity: busy ? 0.6 : 1 }}
+          >
+            {busy ? t("common.confirmRunning") : t(replaceAll ? "connTransfer.replaceAllSubmit" : "connTransfer.importSubmit", { count: selected.size })}
           </button>
         )}
       </div>
@@ -321,7 +352,7 @@ export function ImportConnections({ existing, onBack, onDone }: { existing: Conn
 }
 
 // Standalone dialog for the welcome screen, where Settings isn't reachable yet.
-export function ConnectionImportModal({ existing, onClose, onDone }: { existing: Connection[]; onClose: () => void; onDone: (created: Connection[]) => void }) {
+export function ConnectionImportModal({ existing, onClose, onDone }: { existing: Connection[]; onClose: () => void; onDone: (created: Connection[], replacedAll: boolean) => void }) {
   const { t } = useLang();
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(35,31,24,0.14)", display: "grid", placeItems: "center", zIndex: 60, animation: "om-fade 0.12s ease" }}>

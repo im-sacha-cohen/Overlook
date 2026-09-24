@@ -349,6 +349,15 @@ export function deleteConnection(id: string): void {
   })();
 }
 
+/** Deletes every connection, with all that belongs to them, and every folder. */
+export function deleteAllConnections(): void {
+  const db = getDb();
+  db.transaction(() => {
+    for (const { id } of db.prepare("SELECT id FROM connections").all() as { id: string }[]) deleteConnection(id);
+    writeFolders([]);
+  })();
+}
+
 /**
  * Connection settings from a form that may be editing a saved connection: fields
  * left out (undefined) fall back to the saved ones, secrets included.
