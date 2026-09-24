@@ -22,20 +22,43 @@ a local database for a production one.**
 ## Features
 
 - **Multiple connections** — PostgreSQL, MySQL, and SQLite, each tagged by
-  environment (Local / Dev / Staging / Prod / Custom).
+  environment (Local / Dev / Staging / Prod / Custom), filed into folders
+  that can share table preferences, and opened side by side in tabs.
+  Connect through SSH tunnels, with verified TLS certificates. Saved
+  connections export and import as a file whose passwords are encrypted
+  with a passphrase.
 - **Always-visible connection indicator** — a colored badge permanently
   shown in the top bar, plus a colored strip across the whole viewport (red
-  for prod), with a switcher listing every saved connection.
-- **Production guardrails** — deleting a row, dropping/changing a column
-  type, or running a write query against a connection tagged "prod" all
-  require typing the connection's name to confirm. The Schema panel is
-  read-only by default on these connections.
+  for prod), with a switcher listing every saved connection and whether it
+  is reachable.
+- **Production guardrails** — deleting rows, dropping/changing a column,
+  emptying or dropping tables, or running a write query against a
+  connection tagged "prod" all require typing the connection's name to
+  confirm. Bulk and schema changes show the exact SQL and the rows
+  concerned first, and the Schema panel is locked by default on these
+  connections.
+- **Filters** — several values per condition, match all or any, groups of
+  conditions that can be switched off, and conditions on columns of related
+  tables through foreign keys. Suggested values show how many rows each one
+  would keep. Plus sorting, grouping, a search across every column, named
+  saved views, and links that share the current view.
 - **4 views** per table: Table (editable grid), Board (kanban), Calendar,
-  Gallery — plus filters, sorting, and grouping.
+  Gallery. The grid has frozen columns, column summaries, copy and paste of
+  cell ranges, row duplication, and keyboard shortcuts.
 - **Real schema editing**: add/rename/drop columns, change column types
   (actual `ALTER TABLE` statements).
-- **CSV import**, a **SQL console** (Query mode, read-only by default), a
-  **command palette** (⌘K), and a **modification history with undo**.
+- **Compare and diagram** — diff the schemas and the rows of two
+  connections, and draw a relations diagram of every table.
+- **Send data to another connection** — copy selected rows or whole tables
+  to another saved connection.
+- **Change log with undo** — every write is recorded in a persistent log
+  you can search, filter, and export to CSV, with undo.
+- **SQL console** — saved queries and a query history; Query mode is
+  read-only by default, enforced by the database itself.
+- **Import and export** — CSV import, big SQL scripts run in batched
+  transactions with live progress, and CSV / SQL / NDJSON export.
+- **Command palette** (⌘K) to jump to a table, switch view, or run a
+  command.
 
 ## Screenshots
 
