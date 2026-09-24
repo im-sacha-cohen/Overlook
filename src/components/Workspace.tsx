@@ -186,6 +186,8 @@ export function Workspace({ initialConnections, initialFolders, initialPageSize,
   const prefsRef = useRef<{ connectionId: string | null; tables: Record<string, TablePrefs> }>({ connectionId: null, tables: {} });
   const [prefsEpoch, setPrefsEpoch] = useState(0);
   const hydratedKey = useRef<string | null>(null);
+  // A save still waiting on its debounce, sent right away when leaving the table.
+  const pendingPrefsSave = useRef<(() => void) | null>(null);
 
   const [editing, setEditing] = useState<{ rowId: string; column: string } | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -549,13 +551,20 @@ export function Workspace({ initialConnections, initialFolders, initialPageSize,
       columnSummaries,
     };
     prefsRef.current.tables[activeTable] = prefs;
-    const id = setTimeout(() => {
+    const send = () => {
+      pendingPrefsSave.current = null;
       api.saveTablePrefs(activeConnectionId, activeTable, prefs).catch(() => {
         // Best effort: preferences still apply to this session.
       });
-    }, 400);
+    };
+    pendingPrefsSave.current = send;
+    const id = setTimeout(send, 400);
     return () => clearTimeout(id);
   }, [activeConnectionId, activeTable, savedViews, activeViewId, filters, filterMatch, filterGroups, sorts, groupBy, view, columnOrder, columnWidths, hiddenCols, frozenColumns, columnSummaries]);
+
+  // Tables of a folder share their preferences with the other connections in it:
+  // a change made just before switching must reach the server before they are read again.
+  useEffect(() => () => pendingPrefsSave.current?.(), [activeConnectionId, activeTable]);
 
   // ---------- saved views ----------
   const currentViewState = useMemo(
