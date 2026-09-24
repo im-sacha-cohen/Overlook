@@ -33,6 +33,8 @@ import { ConnectionImportModal } from "./ConnectionTransfer";
 import { ProdGuardDialog } from "./ProdGuardDialog";
 import { DropTablesDialog } from "./DropTablesDialog";
 import { CopyToDialog, type CopySelection } from "./CopyToDialog";
+import { CopyProgress, type CopyTask } from "./CopyProgress";
+import { copyToConnection, type CopyRequest } from "@/lib/client/copy";
 import { CommandPalette, type CmdItem } from "./CommandPalette";
 import { QueryConsole } from "./QueryConsole";
 import { EquivalentSqlBar } from "./EquivalentSqlBar";
@@ -209,6 +211,8 @@ export function Workspace({ initialConnections, initialFolders, initialPageSize,
   const writeTaskSeq = useRef(0);
   const [dropTablesRequest, setDropTablesRequest] = useState<{ names: string[]; mode: "drop" | "empty" } | null>(null);
   const [copyRequest, setCopyRequest] = useState<CopySelection | null>(null);
+  const [copyTasks, setCopyTasks] = useState<CopyTask[]>([]);
+  const copyAborts = useRef(new Map<number, AbortController>());
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [toast, setToast] = useState("");
@@ -1234,6 +1238,37 @@ export function Workspace({ initialConnections, initialFolders, initialPageSize,
   function requestCopyRows() {
     if (!activeTable || !pkColumn) return flash(t("toast.noPrimaryKey"));
     if (selectedIds.size > 0) setCopyRequest({ kind: "rows", table: activeTable, ids: [...selectedIds] });
+  }
+
+  // Runs in the background like an import: the dialog is closed, a card in the corner follows it.
+  async function startCopy(sourceId: string, request: CopyRequest, info: { label: string; sourceName: string; targetName: string }) {
+    const id = ++writeTaskSeq.current;
+    const controller = new AbortController();
+    copyAborts.current.set(id, controller);
+    const update = (patch: (task: CopyTask) => Partial<CopyTask>) => setCopyTasks((list) => list.map((task) => (task.id === id ? { ...task, ...patch(task) } : task)));
+    setCopyTasks((list) => [...list, { id, ...info, onConflict: request.onConflict, plan: null, progress: {}, result: null, status: "running" }]);
+    try {
+      await copyToConnection(
+        sourceId,
+        request,
+        (e) => {
+          if (e.type === "plan") update(() => ({ plan: e }));
+          else if (e.type === "progress") update((task) => ({ progress: { ...task.progress, [e.table]: e.read } }));
+          else if (e.type === "done") update(() => ({ result: { read: e.read, written: e.written, added: e.added, skipped: e.skipped } }));
+        },
+        controller.signal,
+      );
+      update(() => ({ status: "done" }));
+    } catch (err) {
+      if (controller.signal.aborted) {
+        setCopyTasks((list) => list.filter((task) => task.id !== id));
+        flash(t("copyTo.cancelled"));
+      } else {
+        update(() => ({ status: "error", error: err instanceof Error ? err.message : String(err) }));
+      }
+    } finally {
+      copyAborts.current.delete(id);
+    }
   }
 
   function requestBulkDelete() {
@@ -2347,7 +2382,15 @@ export function Workspace({ initialConnections, initialFolders, initialPageSize,
       )}
 
       <SelectionBar count={selectedIds.size} onClear={deselectAll} onDelete={requestBulkDelete} onDuplicate={requestBulkDuplicate} onCopyTo={requestCopyRows} onEdit={() => setPanel("bulk-edit")} />
-      {copyRequest && activeConnection && <CopyToDialog source={activeConnection} connections={connections} selection={copyRequest} onClose={() => setCopyRequest(null)} />}
+      {copyRequest && activeConnection && (
+        <CopyToDialog
+          source={activeConnection}
+          connections={connections}
+          selection={copyRequest}
+          onStart={(request, info) => void startCopy(activeConnection.id, request, info)}
+          onClose={() => setCopyRequest(null)}
+        />
+      )}
 
       {panel === "bulk-edit" && (
         <BulkEditModal
@@ -2370,10 +2413,18 @@ export function Workspace({ initialConnections, initialFolders, initialPageSize,
       )}
 
       {exportProgress && <ExportProgress state={exportProgress} onCancel={cancelExport} onDismiss={() => setExportProgress(null)} />}
-      {(writeTasks.length > 0 || importProgress) && (
+      {(writeTasks.length > 0 || importProgress || copyTasks.length > 0) && (
         <div style={{ position: "fixed", right: 22, bottom: 22, zIndex: 65, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, pointerEvents: "none" }}>
           {writeTasks.map((task) => (
             <WriteTaskCard key={task.id} task={task} onDismiss={() => dismissWriteTask(task.id)} />
+          ))}
+          {copyTasks.map((task) => (
+            <CopyProgress
+              key={task.id}
+              task={task}
+              onCancel={() => copyAborts.current.get(task.id)?.abort()}
+              onDismiss={() => setCopyTasks((list) => list.filter((x) => x.id !== task.id))}
+            />
           ))}
           {importProgress && <ImportProgress state={importProgress} onCancel={cancelImport} onDismiss={() => setImportProgress(null)} />}
         </div>
