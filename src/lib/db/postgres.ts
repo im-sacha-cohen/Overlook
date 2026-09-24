@@ -17,6 +17,9 @@ import {
   previewWithAdapter,
   type DatabaseAdapter,
   onConflictClause,
+  insertGroups,
+  readPageSql,
+  type ReadPageOptions,
   type BulkInsertOptions,
   type DropTablesOptions,
   type ScriptSession,
@@ -272,6 +275,17 @@ export class PostgresAdapter implements DatabaseAdapter {
     }
   }
 
+  async readPage(table: string, opts: ReadPageOptions): Promise<Row[]> {
+    assertValidIdentifier(table);
+    if (opts.orderBy) assertValidIdentifier(opts.orderBy);
+    const params: unknown[] = [];
+    const sql = readPageSql(table, opts, q, (v) => {
+      params.push(v);
+      return `$${params.length}`;
+    });
+    return (await this.pool.query(sql, params)).rows;
+  }
+
   async insertRow(table: string, values: Row): Promise<Row> {
     const meta = await this.getTable(table);
     values = coerceRowValues(meta, values);
@@ -507,20 +521,23 @@ export class PostgresAdapter implements DatabaseAdapter {
     ];
   }
 
-  async bulkInsert(table: string, rows: Row[], { onConflict = "error" }: BulkInsertOptions = {}): Promise<number> {
+  async bulkInsert(table: string, rows: Row[], { onConflict = "error", meta: known }: BulkInsertOptions = {}): Promise<number> {
     if (rows.length === 0) return 0;
     const client = await this.pool.connect();
     let written = 0;
     try {
       // Columns only: counting the rows would scan the table at every batch of a big copy.
-      const meta = await this.loadTable(client, table, false);
+      const meta = known?.name === table ? known : await this.loadTable(client, table, false);
       rows = rows.map((r) => coerceRowValues(meta, r));
       const cols = Object.keys(rows[0]).filter((k) => meta.columns.some((c) => c.name === k));
       cols.forEach((c) => assertKnownColumn(meta, c));
-      const placeholders = cols.map((_, i) => `$${i + 1}`);
-      const sql = `INSERT INTO ${q(table)} (${cols.map(q).join(", ")}) VALUES (${placeholders.join(", ")})${onConflictClause(meta, cols, onConflict, q)}`;
+      const conflict = onConflictClause(meta, cols, onConflict, q);
       await client.query("BEGIN");
-      for (const row of rows) written += (await client.query(sql, cols.map((c) => row[c]))).rowCount ?? 0;
+      for (const group of insertGroups(rows, cols)) {
+        const tuples = group.map((_, r) => `(${cols.map((_, i) => `$${r * cols.length + i + 1}`).join(", ")})`);
+        const sql = `INSERT INTO ${q(table)} (${cols.map(q).join(", ")}) VALUES ${tuples.join(", ")}${conflict}`;
+        written += (await client.query(sql, group.flatMap((row) => cols.map((c) => row[c])))).rowCount ?? 0;
+      }
       await client.query("COMMIT");
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});

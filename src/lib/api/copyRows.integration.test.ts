@@ -52,8 +52,8 @@ beforeAll(async () => {
   for (let i = 1; i <= 3; i++) author.run(i, `Author ${i}`, `note ${i}`, i === 3 ? 2 : 1);
   db.prepare(`INSERT INTO ${REVIEWS} (id, author_id, stars) VALUES (1, 1, 5), (2, 3, 4)`).run();
   const book = db.prepare(`INSERT INTO ${BOOKS} (id, author_id, title, meta) VALUES (?, ?, ?, ?)`);
-  // More than one page, to go through the paging.
-  for (let i = 1; i <= 1200; i++) book.run(i, (i % 3) + 1, `Book ${i}`, `{"n":${i}}`);
+  // More than two pages of a whole-table read, to go through the paging.
+  for (let i = 1; i <= 4500; i++) book.run(i, (i % 3) + 1, `Book ${i}`, `{"n":${i}}`);
   db.close();
   const { SqliteAdapter } = await import("../db/sqlite");
   source = new SqliteAdapter({ ...connection("sqlite"), id: "copy-source", database: file });
@@ -118,8 +118,8 @@ for (const t of targets) {
       const plan = events[0];
       expect(plan.type === "plan" && plan.tables.map((x) => x.name)).toEqual([COUNTRIES, AUTHORS, BOOKS]);
       expect(plan.type === "plan" && plan.droppedColumns).toEqual({ [AUTHORS]: ["notes"] });
-      expect(events.at(-1)).toEqual({ type: "done", read: 1205, written: 1204, added: 0, skipped: 0 });
-      expect((await target.getTable(BOOKS)).rowCount).toBe(1200);
+      expect(events.at(-1)).toEqual({ type: "done", read: 4505, written: 4504, added: 0, skipped: 0 });
+      expect((await target.getTable(BOOKS)).rowCount).toBe(4500);
       const [book] = await target.selectRowsByPk(BOOKS, "id", [7]);
       expect(book.title).toBe("Book 7");
     });
@@ -137,6 +137,25 @@ for (const t of targets) {
       const replaced = await run(target, t.engine, { tables: [AUTHORS], onConflict: "replace", emptyFirst: false, relations: "include" });
       expect(replaced.at(-1)).toMatchObject({ type: "done", read: 3 });
       expect(await names(target)).toEqual(["Author 1", "Author 2", "Author 3"]);
+    });
+
+    it("reads a big table page after page, each row once, and counts the rows already there", async () => {
+      await run(target, t.engine, { tables: [AUTHORS], onConflict: "error", emptyFirst: false, relations: "include" });
+      // "Cancel if already there" fails on a row read twice.
+      const events = await run(target, t.engine, { tables: [BOOKS], onConflict: "error", emptyFirst: false });
+      expect(events.at(-1)).toEqual({ type: "done", read: 4500, written: 4500, added: 0, skipped: 0 });
+      const progress = events.filter((e) => e.type === "progress");
+      expect(progress.length).toBe(3);
+
+      await target.deleteRows(BOOKS, "id", ["10", "2500", "4500"]);
+      await target.updateRow(BOOKS, "id", 7, { title: "Changed" });
+      const skipped = await run(target, t.engine, { tables: [BOOKS], onConflict: "skip", emptyFirst: false });
+      expect(skipped.at(-1)).toEqual({ type: "done", read: 4500, written: 3, added: 0, skipped: 0 });
+      expect((await target.selectRowsByPk(BOOKS, "id", [7]))[0].title).toBe("Changed");
+
+      const replaced = await run(target, t.engine, { tables: [BOOKS], onConflict: "replace", emptyFirst: false });
+      expect(replaced.at(-1)).toMatchObject({ type: "done", read: 4500, written: 4500 });
+      expect((await target.selectRowsByPk(BOOKS, "id", [7]))[0].title).toBe("Book 7");
     });
 
     it("copies only the chosen rows", async () => {

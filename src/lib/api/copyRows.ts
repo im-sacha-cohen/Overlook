@@ -63,7 +63,10 @@ export type CopyEvent =
   | { type: "done"; read: number; written: number; added: number; skipped: number }
   | { type: "error"; message: string };
 
+/** Keys looked up per IN (…) query. */
 const PAGE = 500;
+/** Rows read per page of a whole table: fewer round trips, and written in multi-row INSERTs. */
+const READ_PAGE = 2000;
 /** Parent rows brought along at most, beyond which copying their tables is the better way. */
 export const MAX_EXTRA_ROWS = 20_000;
 const SAMPLE = 5;
@@ -181,18 +184,36 @@ function relationsOf(ctx: Context, table: string): Relation[] {
   return out;
 }
 
-/** Reads a plan table's rows in pages: the selected ones, or all of them in key order. */
+/**
+ * Reads a plan table's rows in pages: the selected ones, or all of them in key order.
+ * The next page is already being read while the caller writes this one: source and
+ * target are two databases, their waits overlap.
+ */
 async function* pages(ctx: Context, name: string): AsyncGenerator<Row[]> {
-  const pk = primaryKeyOf(ctx.sourceByName.get(name)!);
+  const meta = ctx.sourceByName.get(name)!;
+  const pk = primaryKeyOf(meta);
   if (ctx.rowMode) {
     if (!pk) throw new Error(`La table ${name} n'a pas de clé primaire`);
     for (const ids of chunks(ctx.plan.ids!)) yield await ctx.source.selectRowsByPk(name, pk.name, ids);
     return;
   }
-  for (let offset = 0; ; offset += PAGE) {
-    const { rows } = await ctx.source.selectRows(name, { limit: PAGE, offset, sorts: pk ? [{ column: pk.name, dir: "asc" }] : [] });
+  // Past the last key read (see ReadPageOptions) when the key is a single number or
+  // text column; a date may come back rounded and read the same row twice.
+  const keyset = !!pk && meta.columns.filter((c) => c.isPrimaryKey).length === 1 && (pk.logicalType === "number" || pk.logicalType === "text");
+  const read = (last: Row | undefined, offset: number) =>
+    ctx.source.readPage(name, { limit: READ_PAGE, orderBy: pk?.name, ...(keyset && last ? { after: last[pk!.name] } : { offset }) });
+  let next = read(undefined, 0);
+  for (let offset = 0; ; ) {
+    const rows = await next;
+    offset += rows.length;
+    const more = rows.length === READ_PAGE;
+    if (more) {
+      next = read(rows[rows.length - 1], offset);
+      // Awaited on the next turn; not left unhandled if the copy stops before.
+      next.catch(() => {});
+    }
     if (rows.length > 0) yield rows;
-    if (rows.length < PAGE) return;
+    if (!more) return;
   }
 }
 
@@ -406,7 +427,8 @@ export async function* copyRows(source: DatabaseAdapter, target: DatabaseAdapter
 
   for (const name of all) {
     const cols = ctx.columnsOf.get(name)!;
-    const nativeTypes = new Map(ctx.targetByName.get(name)!.columns.map((c) => [c.name, c.nativeType]));
+    const targetMeta = ctx.targetByName.get(name)!;
+    const nativeTypes = new Map(targetMeta.columns.map((c) => [c.name, c.nativeType]));
     let tableRead = 0;
     let tableWritten = 0;
     const write = async (rows: Row[], onConflict: ConflictMode) => {
@@ -414,7 +436,7 @@ export async function* copyRows(source: DatabaseAdapter, target: DatabaseAdapter
       const kept = await keepLinked(name, rows);
       skipped += rows.length - kept.length;
       const values = kept.map((r) => Object.fromEntries(cols.map((c) => [c, valueForTarget(r[c], targetEngine, nativeTypes.get(c) ?? "")])));
-      const n = values.length > 0 ? await target.bulkInsert(name, values, { onConflict }) : 0;
+      const n = values.length > 0 ? await target.bulkInsert(name, values, { onConflict, meta: targetMeta }) : 0;
       tableRead += rows.length;
       tableWritten += n;
       read += rows.length;

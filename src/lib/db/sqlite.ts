@@ -9,6 +9,8 @@ import {
   ReadOnlyViolation,
   type DatabaseAdapter,
   onConflictClause,
+  readPageSql,
+  type ReadPageOptions,
   type BulkInsertOptions,
   type DropTablesOptions,
   type ScriptSession,
@@ -149,6 +151,17 @@ export class SqliteAdapter implements DatabaseAdapter {
       count: number;
     };
     return { rows, total: countRow.count };
+  }
+
+  async readPage(table: string, opts: ReadPageOptions): Promise<Row[]> {
+    assertValidIdentifier(table);
+    if (opts.orderBy) assertValidIdentifier(opts.orderBy);
+    const params: unknown[] = [];
+    const sql = readPageSql(table, opts, q, (v) => {
+      params.push(coerceParam(v));
+      return "?";
+    });
+    return this.db.prepare(sql).all(...params) as Row[];
   }
 
   async insertRow(table: string, values: Row): Promise<Row> {
@@ -387,9 +400,9 @@ export class SqliteAdapter implements DatabaseAdapter {
     }
   }
 
-  async bulkInsert(table: string, rows: Row[], { onConflict = "error" }: BulkInsertOptions = {}): Promise<number> {
+  async bulkInsert(table: string, rows: Row[], { onConflict = "error", meta: known }: BulkInsertOptions = {}): Promise<number> {
     if (rows.length === 0) return 0;
-    const meta = this.describeTable(table);
+    const meta = known?.name === table ? known : this.describeTable(table);
     const cols = Object.keys(rows[0]).filter((k) => meta.columns.some((c) => c.name === k));
     cols.forEach((c) => assertKnownColumn(meta, c));
     const stmt = this.db.prepare(

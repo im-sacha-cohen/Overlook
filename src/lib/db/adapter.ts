@@ -136,6 +136,8 @@ export interface DatabaseAdapter {
   getTable(table: string): Promise<TableMeta>;
   createTable(table: string, columns: { name: string; type: LogicalType }[]): Promise<void>;
   selectRows(table: string, opts: SelectOptions): Promise<{ rows: Row[]; total: number }>;
+  /** Whole rows for a copy, without counting the table: see ReadPageOptions. */
+  readPage(table: string, opts: ReadPageOptions): Promise<Row[]>;
   /** Values of a column for filter suggestions; see buildDistinctValues for via/within. */
   distinctValues(table: string, column: string, query?: string, options?: { via?: string[]; within?: RowQuery }): Promise<DistinctValue[]>;
   /** Summaries of columns over the rows a query keeps, keyed "column:fn". */
@@ -180,6 +182,57 @@ export const CONFLICT_MODES: ConflictMode[] = ["error", "skip", "replace"];
 
 export interface BulkInsertOptions {
   onConflict?: ConflictMode;
+  /** The table as already described, so a copy doesn't describe it again at every batch. */
+  meta?: TableMeta;
+}
+
+/**
+ * A page of a big read. With `orderBy` and `after`, the rows past that key: the
+ * database goes straight there through the key's index, where an OFFSET would read
+ * and throw away all the rows before it, page after page.
+ */
+export interface ReadPageOptions {
+  limit: number;
+  orderBy?: string;
+  after?: unknown;
+  offset?: number;
+}
+
+/** SELECT of a page for readPage; `p` writes a placeholder for a value. */
+export function readPageSql(table: string, opts: ReadPageOptions, quote: (ident: string) => string, p: (value: unknown) => string): string {
+  const where = opts.orderBy && opts.after !== undefined ? ` WHERE ${quote(opts.orderBy)} > ${p(opts.after)}` : "";
+  const order = opts.orderBy ? ` ORDER BY ${quote(opts.orderBy)}` : "";
+  const offset = opts.after === undefined && opts.offset ? ` OFFSET ${Math.max(0, Math.floor(opts.offset))}` : "";
+  return `SELECT * FROM ${quote(table)}${where}${order} LIMIT ${Math.max(1, Math.floor(opts.limit))}${offset}`;
+}
+
+/**
+ * Rows grouped for multi-row INSERTs: one statement per group rather than per row,
+ * which is what counts on a remote database. Kept under the drivers' limits on
+ * placeholders (PostgreSQL's 65,535) and on a statement's size (MySQL's
+ * max_allowed_packet, 4 MB by default on older servers).
+ */
+export function insertGroups(rows: Row[], cols: string[], { maxRows = 1000, maxParams = 30_000, maxBytes = 2_000_000 } = {}): Row[][] {
+  const groups: Row[][] = [];
+  let group: Row[] = [];
+  let bytes = 0;
+  const perRow = Math.max(1, cols.length);
+  for (const row of rows) {
+    let size = 0;
+    for (const c of cols) {
+      const v = row[c];
+      size += typeof v === "string" ? v.length * 3 : Buffer.isBuffer(v) ? v.length * 2 : 16;
+    }
+    if (group.length > 0 && (group.length >= maxRows || (group.length + 1) * perRow > maxParams || bytes + size > maxBytes)) {
+      groups.push(group);
+      group = [];
+      bytes = 0;
+    }
+    group.push(row);
+    bytes += size;
+  }
+  if (group.length > 0) groups.push(group);
+  return groups;
 }
 
 /**

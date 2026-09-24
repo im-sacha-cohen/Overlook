@@ -13,7 +13,10 @@ import {
   referencingFirst,
   runOneByOne,
   coerceRowValues,
+  insertGroups,
   previewWithAdapter,
+  readPageSql,
+  type ReadPageOptions,
   type DatabaseAdapter,
   type BulkInsertOptions,
   type DropTablesOptions,
@@ -213,6 +216,18 @@ export class MySqlAdapter implements DatabaseAdapter {
       params
     );
     return { rows: rows as Row[], total: Number(countRows[0]?.count ?? 0) };
+  }
+
+  async readPage(table: string, opts: ReadPageOptions): Promise<Row[]> {
+    assertValidIdentifier(table);
+    if (opts.orderBy) assertValidIdentifier(opts.orderBy);
+    const params: unknown[] = [];
+    const sql = readPageSql(table, opts, q, (v) => {
+      params.push(v);
+      return "?";
+    });
+    const [rows] = await this.pool.query<mysql.RowDataPacket[]>(sql, params);
+    return rows as Row[];
   }
 
   async insertRow(table: string, values: Row): Promise<Row> {
@@ -444,10 +459,10 @@ export class MySqlAdapter implements DatabaseAdapter {
     }
   }
 
-  async bulkInsert(table: string, rows: Row[], { onConflict = "error" }: BulkInsertOptions = {}): Promise<number> {
+  async bulkInsert(table: string, rows: Row[], { onConflict = "error", meta: known }: BulkInsertOptions = {}): Promise<number> {
     if (rows.length === 0) return 0;
     // Columns only: counting the rows would scan the table at every batch of a big copy.
-    const meta = await this.describeTable(table);
+    const meta = known?.name === table ? known : await this.describeTable(table);
     rows = rows.map((r) => coerceRowValues(meta, r));
     const cols = Object.keys(rows[0]).filter((k) => meta.columns.some((c) => c.name === k));
     cols.forEach((c) => assertKnownColumn(meta, c));
@@ -461,7 +476,7 @@ export class MySqlAdapter implements DatabaseAdapter {
         : onConflict !== "error"
           ? ` ON DUPLICATE KEY UPDATE ${q(cols[0])} = ${q(cols[0])}`
           : "";
-    const sql = `INSERT INTO ${q(table)} (${cols.map(q).join(", ")}) VALUES (${cols.map(() => "?").join(", ")})${suffix}`;
+    const tuple = `(${cols.map(() => "?").join(", ")})`;
     const conn = await this.pool.getConnection();
     let written = 0;
     try {
@@ -476,10 +491,14 @@ export class MySqlAdapter implements DatabaseAdapter {
         const taken = new Set(existing.map((r) => String(r.k)));
         rows = rows.filter((r) => !taken.has(String(r[pk[0]])));
       }
-      for (const row of rows) {
-        const [result] = await conn.query<mysql.ResultSetHeader>(sql, cols.map((c) => row[c]));
-        // 1 for an insert, 2 for an update; a row left as it was counts as found.
-        if (result.affectedRows > 0) written += 1;
+      for (const group of insertGroups(rows, cols)) {
+        const sql = `INSERT INTO ${q(table)} (${cols.map(q).join(", ")}) VALUES ${group.map(() => tuple).join(", ")}${suffix}`;
+        const [result] = await conn.query<mysql.ResultSetHeader>(sql, group.flatMap((row) => cols.map((c) => row[c])));
+        // affectedRows mixes inserts (1), updates (2) and rows found as they were: the
+        // server's "Records: n  Duplicates: d" says how many hit an existing key.
+        // Replaced, those count as written (as on the other engines); skipped, they don't.
+        const duplicates = Number(/Duplicates:\s*(\d+)/.exec(result.info ?? "")?.[1] ?? 0);
+        written += onConflict === "skip" ? group.length - duplicates : group.length;
       }
       await conn.commit();
     } catch (err) {
