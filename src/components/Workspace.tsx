@@ -32,6 +32,7 @@ import { ConnectionForm } from "./ConnectionForm";
 import { ConnectionImportModal } from "./ConnectionTransfer";
 import { ProdGuardDialog } from "./ProdGuardDialog";
 import { DropTablesDialog } from "./DropTablesDialog";
+import { CopyToDialog, type CopySelection } from "./CopyToDialog";
 import { CommandPalette, type CmdItem } from "./CommandPalette";
 import { QueryConsole } from "./QueryConsole";
 import { EquivalentSqlBar } from "./EquivalentSqlBar";
@@ -207,6 +208,7 @@ export function Workspace({ initialConnections, initialFolders, initialPageSize,
   const [pageSize, setPageSize] = useState(initialPageSize);
   const writeTaskSeq = useRef(0);
   const [dropTablesRequest, setDropTablesRequest] = useState<{ names: string[]; mode: "drop" | "empty" } | null>(null);
+  const [copyRequest, setCopyRequest] = useState<CopySelection | null>(null);
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [toast, setToast] = useState("");
@@ -1229,6 +1231,11 @@ export function Workspace({ initialConnections, initialFolders, initialPageSize,
     setSelectedIds(new Set());
   }
 
+  function requestCopyRows() {
+    if (!activeTable || !pkColumn) return flash(t("toast.noPrimaryKey"));
+    if (selectedIds.size > 0) setCopyRequest({ kind: "rows", table: activeTable, ids: [...selectedIds] });
+  }
+
   function requestBulkDelete() {
     if (!activeConnectionId || !activeTable || !pkColumn) return flash(t("toast.noPrimaryKey"));
     const ids = [...selectedIds];
@@ -2017,6 +2024,7 @@ export function Workspace({ initialConnections, initialFolders, initialPageSize,
           onBulkDropTables={requestBulkDropTables}
           onBulkEmptyTables={requestBulkEmptyTables}
           onExportSelectedTables={openExportModal}
+          onCopySelectedTables={() => selectedTables.size > 0 && setCopyRequest({ kind: "tables", names: [...selectedTables] })}
           onOpenCreateTable={() => setPanel("create-table")}
           onOpenSettings={() => setPanel("settings")}
           onOpenTableInNewTab={openTableInNewTab}
@@ -2124,7 +2132,7 @@ export function Workspace({ initialConnections, initialFolders, initialPageSize,
                   tables={tables}
                   tableName={activeTable}
                   onCountRows={countRowsWith}
-                  shortcutsEnabled={!panel && !cmdOpen && !connectionFormOpen && !dropTablesRequest && !pendingGuard && !exportModalOpen}
+                  shortcutsEnabled={!panel && !cmdOpen && !connectionFormOpen && !dropTablesRequest && !copyRequest && !pendingGuard && !exportModalOpen}
                 />
               </div>
 
@@ -2338,7 +2346,8 @@ export function Workspace({ initialConnections, initialFolders, initialPageSize,
         />
       )}
 
-      <SelectionBar count={selectedIds.size} onClear={deselectAll} onDelete={requestBulkDelete} onDuplicate={requestBulkDuplicate} onEdit={() => setPanel("bulk-edit")} />
+      <SelectionBar count={selectedIds.size} onClear={deselectAll} onDelete={requestBulkDelete} onDuplicate={requestBulkDuplicate} onCopyTo={requestCopyRows} onEdit={() => setPanel("bulk-edit")} />
+      {copyRequest && activeConnection && <CopyToDialog source={activeConnection} connections={connections} selection={copyRequest} onClose={() => setCopyRequest(null)} />}
 
       {panel === "bulk-edit" && (
         <BulkEditModal

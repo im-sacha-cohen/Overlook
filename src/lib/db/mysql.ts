@@ -15,6 +15,7 @@ import {
   coerceRowValues,
   previewWithAdapter,
   type DatabaseAdapter,
+  type BulkInsertOptions,
   type DropTablesOptions,
   type ScriptSession,
   type SelectOptions,
@@ -320,7 +321,7 @@ export class MySqlAdapter implements DatabaseAdapter {
 
   async selectRowsByPk(table: string, pkColumn: string, pkValues: unknown[]): Promise<Row[]> {
     if (pkValues.length === 0) return [];
-    assertKnownColumn(await this.getTable(table), pkColumn);
+    assertKnownColumn(await this.describeTable(table), pkColumn);
     const [rows] = await this.pool.query<mysql.RowDataPacket[]>(
       `SELECT * FROM ${q(table)} WHERE ${q(pkColumn)} IN (${pkValues.map(() => "?").join(", ")})`,
       pkValues,
@@ -443,22 +444,42 @@ export class MySqlAdapter implements DatabaseAdapter {
     }
   }
 
-  async bulkInsert(table: string, rows: Row[]): Promise<number> {
+  async bulkInsert(table: string, rows: Row[], { onConflict = "error" }: BulkInsertOptions = {}): Promise<number> {
     if (rows.length === 0) return 0;
-    const meta = await this.getTable(table);
+    // Columns only: counting the rows would scan the table at every batch of a big copy.
+    const meta = await this.describeTable(table);
     rows = rows.map((r) => coerceRowValues(meta, r));
     const cols = Object.keys(rows[0]).filter((k) => meta.columns.some((c) => c.name === k));
     cols.forEach((c) => assertKnownColumn(meta, c));
+    const pk = meta.columns.filter((c) => c.isPrimaryKey).map((c) => c.name);
+    const updated = cols.filter((c) => !pk.includes(c));
+    // A no-op update rather than INSERT IGNORE, which would also swallow other errors
+    // (a NULL in a NOT NULL column, a value too long…).
+    const suffix =
+      onConflict === "replace" && updated.length > 0
+        ? ` ON DUPLICATE KEY UPDATE ${updated.map((c) => `${q(c)} = VALUES(${q(c)})`).join(", ")}`
+        : onConflict !== "error"
+          ? ` ON DUPLICATE KEY UPDATE ${q(cols[0])} = ${q(cols[0])}`
+          : "";
+    const sql = `INSERT INTO ${q(table)} (${cols.map(q).join(", ")}) VALUES (${cols.map(() => "?").join(", ")})${suffix}`;
     const conn = await this.pool.getConnection();
-    let inserted = 0;
+    let written = 0;
     try {
       await conn.beginTransaction();
-      for (const row of rows) {
-        await conn.query(
-          `INSERT INTO ${q(table)} (${cols.map(q).join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`,
-          cols.map((c) => row[c])
+      // mysql2 reports found rather than changed rows: a skipped row would count as
+      // written. With a one-column key, the rows already there are left out beforehand.
+      if (onConflict === "skip" && pk.length === 1 && cols.includes(pk[0])) {
+        const [existing] = await conn.query<mysql.RowDataPacket[]>(
+          `SELECT ${q(pk[0])} AS k FROM ${q(table)} WHERE ${q(pk[0])} IN (${rows.map(() => "?").join(", ")})`,
+          rows.map((r) => r[pk[0]])
         );
-        inserted += 1;
+        const taken = new Set(existing.map((r) => String(r.k)));
+        rows = rows.filter((r) => !taken.has(String(r[pk[0]])));
+      }
+      for (const row of rows) {
+        const [result] = await conn.query<mysql.ResultSetHeader>(sql, cols.map((c) => row[c]));
+        // 1 for an insert, 2 for an update; a row left as it was counts as found.
+        if (result.affectedRows > 0) written += 1;
       }
       await conn.commit();
     } catch (err) {
@@ -467,7 +488,7 @@ export class MySqlAdapter implements DatabaseAdapter {
     } finally {
       conn.release();
     }
-    return inserted;
+    return written;
   }
 
   async runRawQuery(sql: string, { readOnly = false } = {}): Promise<QueryResult> {

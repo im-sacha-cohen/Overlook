@@ -8,6 +8,8 @@ import {
   previewWithAdapter,
   ReadOnlyViolation,
   type DatabaseAdapter,
+  onConflictClause,
+  type BulkInsertOptions,
   type DropTablesOptions,
   type ScriptSession,
   runOneByOne,
@@ -106,6 +108,13 @@ export class SqliteAdapter implements DatabaseAdapter {
   }
 
   async getTable(table: string): Promise<TableMeta> {
+    const meta = this.describeTable(table);
+    const countRow = this.db.prepare(`SELECT COUNT(*) AS count FROM ${q(table)}`).get() as { count: number };
+    return { ...meta, rowCount: countRow.count };
+  }
+
+  /** The table's columns, without counting its rows (a full scan on a big table). */
+  private describeTable(table: string): TableMeta {
     assertValidIdentifier(table);
     const infoRows = this.db.prepare(`PRAGMA table_info(${q(table)})`).all() as TableInfoRow[];
     const fkRows = this.db.prepare(`PRAGMA foreign_key_list(${q(table)})`).all() as ForeignKeyRow[];
@@ -123,8 +132,7 @@ export class SqliteAdapter implements DatabaseAdapter {
       };
     });
 
-    const countRow = this.db.prepare(`SELECT COUNT(*) AS count FROM ${q(table)}`).get() as { count: number };
-    return { name: table, columns, rowCount: countRow.count };
+    return { name: table, columns, rowCount: 0 };
   }
 
   async selectRows(table: string, opts: SelectOptions) {
@@ -268,7 +276,7 @@ export class SqliteAdapter implements DatabaseAdapter {
 
   async selectRowsByPk(table: string, pkColumn: string, pkValues: unknown[]): Promise<Row[]> {
     if (pkValues.length === 0) return [];
-    assertKnownColumn(await this.getTable(table), pkColumn);
+    assertKnownColumn(this.describeTable(table), pkColumn);
     return this.db
       .prepare(`SELECT * FROM ${q(table)} WHERE ${q(pkColumn)} IN (${pkValues.map(() => "?").join(", ")})`)
       .all(...pkValues.map(coerceParam)) as Row[];
@@ -379,19 +387,20 @@ export class SqliteAdapter implements DatabaseAdapter {
     }
   }
 
-  async bulkInsert(table: string, rows: Row[]): Promise<number> {
+  async bulkInsert(table: string, rows: Row[], { onConflict = "error" }: BulkInsertOptions = {}): Promise<number> {
     if (rows.length === 0) return 0;
-    const meta = await this.getTable(table);
+    const meta = this.describeTable(table);
     const cols = Object.keys(rows[0]).filter((k) => meta.columns.some((c) => c.name === k));
     cols.forEach((c) => assertKnownColumn(meta, c));
     const stmt = this.db.prepare(
-      `INSERT INTO ${q(table)} (${cols.map(q).join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`
+      `INSERT INTO ${q(table)} (${cols.map(q).join(", ")}) VALUES (${cols.map(() => "?").join(", ")})${onConflictClause(meta, cols, onConflict, q)}`
     );
     const txn = this.db.transaction((allRows: Row[]) => {
-      for (const row of allRows) stmt.run(...cols.map((c) => coerceParam(row[c])));
+      let written = 0;
+      for (const row of allRows) written += stmt.run(...cols.map((c) => coerceParam(row[c]))).changes;
+      return written;
     });
-    txn(rows);
-    return rows.length;
+    return txn(rows);
   }
 
   async runRawQuery(sql: string, { readOnly = false } = {}): Promise<QueryResult> {

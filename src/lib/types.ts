@@ -241,6 +241,7 @@ export type JournalAction =
   | "updateRows"
   | "deleteRows"
   | "importRows"
+  | "copyRows"
   | "createTable"
   | "dropTables"
   | "emptyTables"

@@ -27,6 +27,7 @@ interface Props {
   onBulkDropTables: () => void;
   onBulkEmptyTables: () => void;
   onExportSelectedTables: () => void;
+  onCopySelectedTables: () => void;
   onOpenCreateTable: () => void;
   onOpenSettings: () => void;
   onOpenTableInNewTab: (name: string) => void;
@@ -55,6 +56,7 @@ export function Sidebar({
   onBulkDropTables,
   onBulkEmptyTables,
   onExportSelectedTables,
+  onCopySelectedTables,
   onOpenSettings,
   onOpenTableInNewTab,
   tableHref,
@@ -364,6 +366,13 @@ export function Sidebar({
             label={t("sidebar.export")}
             onClick={() => {
               onExportSelectedTables();
+              setMenu(null);
+            }}
+          />
+          <MenuItem
+            label={t("sidebar.copyTo")}
+            onClick={() => {
+              onCopySelectedTables();
               setMenu(null);
             }}
           />

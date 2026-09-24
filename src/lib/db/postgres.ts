@@ -16,6 +16,8 @@ import {
   assertCreatableType,
   previewWithAdapter,
   type DatabaseAdapter,
+  onConflictClause,
+  type BulkInsertOptions,
   type DropTablesOptions,
   type ScriptSession,
   type SelectOptions,
@@ -396,9 +398,10 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   async selectRowsByPk(table: string, pkColumn: string, pkValues: unknown[]): Promise<Row[]> {
     if (pkValues.length === 0) return [];
-    assertKnownColumn(await this.getTable(table), pkColumn);
     const client = await this.pool.connect();
     try {
+      // Columns only: counting the rows would scan the table at each lookup.
+      assertKnownColumn(await this.loadTable(client, table, false), pkColumn);
       const placeholders = pkValues.map((_, i) => `$${i + 1}`).join(", ");
       return (await client.query(`SELECT * FROM ${q(table)} WHERE ${q(pkColumn)} IN (${placeholders})`, pkValues)).rows;
     } finally {
@@ -504,32 +507,28 @@ export class PostgresAdapter implements DatabaseAdapter {
     ];
   }
 
-  async bulkInsert(table: string, rows: Row[]): Promise<number> {
+  async bulkInsert(table: string, rows: Row[], { onConflict = "error" }: BulkInsertOptions = {}): Promise<number> {
     if (rows.length === 0) return 0;
-    const meta = await this.getTable(table);
-    rows = rows.map((r) => coerceRowValues(meta, r));
-    const cols = Object.keys(rows[0]).filter((k) => meta.columns.some((c) => c.name === k));
-    cols.forEach((c) => assertKnownColumn(meta, c));
     const client = await this.pool.connect();
-    let inserted = 0;
+    let written = 0;
     try {
+      // Columns only: counting the rows would scan the table at every batch of a big copy.
+      const meta = await this.loadTable(client, table, false);
+      rows = rows.map((r) => coerceRowValues(meta, r));
+      const cols = Object.keys(rows[0]).filter((k) => meta.columns.some((c) => c.name === k));
+      cols.forEach((c) => assertKnownColumn(meta, c));
+      const placeholders = cols.map((_, i) => `$${i + 1}`);
+      const sql = `INSERT INTO ${q(table)} (${cols.map(q).join(", ")}) VALUES (${placeholders.join(", ")})${onConflictClause(meta, cols, onConflict, q)}`;
       await client.query("BEGIN");
-      for (const row of rows) {
-        const placeholders = cols.map((_, i) => `$${i + 1}`);
-        await client.query(
-          `INSERT INTO ${q(table)} (${cols.map(q).join(", ")}) VALUES (${placeholders.join(", ")})`,
-          cols.map((c) => row[c])
-        );
-        inserted += 1;
-      }
+      for (const row of rows) written += (await client.query(sql, cols.map((c) => row[c]))).rowCount ?? 0;
       await client.query("COMMIT");
     } catch (err) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => {});
       throw err;
     } finally {
       client.release();
     }
-    return inserted;
+    return written;
   }
 
   async runRawQuery(sql: string, { readOnly = false } = {}): Promise<QueryResult> {

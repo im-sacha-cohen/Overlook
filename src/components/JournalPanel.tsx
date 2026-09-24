@@ -5,6 +5,7 @@ import type { JournalAction, JournalEntry } from "@/lib/types";
 import { api, type JournalFilters } from "@/lib/client/api";
 import { toText } from "@/lib/client/format";
 import { useLang } from "@/lib/i18n/LanguageProvider";
+import { Select } from "./Select";
 
 const PAGE = 100;
 
@@ -14,6 +15,7 @@ const ACTIONS: JournalAction[] = [
   "updateRows",
   "deleteRows",
   "importRows",
+  "copyRows",
   "createTable",
   "dropTables",
   "emptyTables",
@@ -40,6 +42,8 @@ interface Props {
   onClose: () => void;
   onUndo: (entry: JournalEntry) => Promise<boolean>;
 }
+
+const selectField: React.CSSProperties = { height: 28, width: "100%" };
 
 const field: React.CSSProperties = {
   height: 28,
@@ -128,26 +132,31 @@ export function JournalPanel({ connectionId, tables, onClose, onUndo }: Props) {
 
         <div style={{ padding: "12px 20px", borderBottom: "1px solid #f2f0ea", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("journal.searchPlaceholder")} style={{ ...field, gridColumn: "1 / -1" }} />
-          <select value={allConnections ? "all" : "this"} onChange={(e) => setAllConnections(e.target.value === "all")} style={field}>
-            <option value="this">{t("journal.thisConnection")}</option>
-            <option value="all">{t("journal.allConnections")}</option>
-          </select>
-          <select value={table} onChange={(e) => setTable(e.target.value)} disabled={allConnections} style={field}>
-            <option value="">{t("journal.allTables")}</option>
-            {tables.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-          <select value={action} onChange={(e) => setAction(e.target.value)} style={{ ...field, gridColumn: "1 / -1" }}>
-            <option value="">{t("journal.allActions")}</option>
-            {ACTIONS.map((a) => (
-              <option key={a} value={a}>
-                {t(`journal.action.${a}`)}
-              </option>
-            ))}
-          </select>
+          <Select
+            size="sm"
+            value={allConnections ? "all" : "this"}
+            onChange={(v) => setAllConnections(v === "all")}
+            options={[
+              { value: "this", label: t("journal.thisConnection") },
+              { value: "all", label: t("journal.allConnections") },
+            ]}
+            style={selectField}
+          />
+          <Select
+            size="sm"
+            value={table}
+            onChange={setTable}
+            disabled={allConnections}
+            options={[{ value: "", label: t("journal.allTables") }, ...tables.map((name) => ({ value: name, label: name }))]}
+            style={selectField}
+          />
+          <Select
+            size="sm"
+            value={action}
+            onChange={setAction}
+            options={[{ value: "", label: t("journal.allActions") }, ...ACTIONS.map((a) => ({ value: a, label: t(`journal.action.${a}`) }))]}
+            style={{ ...selectField, gridColumn: "1 / -1" }}
+          />
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#8b877e" }}>
             {t("journal.from")}
             <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...field, flex: 1 }} />

@@ -158,7 +158,8 @@ export interface DatabaseAdapter {
   dropTables(tables: string[], options?: DropTablesOptions): Promise<void>;
   /** Deletes every row of the tables and restarts their counters; `ignoreForeignKeys` as for dropTables (PostgreSQL's CASCADE empties the referencing tables too). */
   emptyTables(tables: string[], options?: DropTablesOptions): Promise<void>;
-  bulkInsert(table: string, rows: Row[]): Promise<number>;
+  /** Inserts the rows in one transaction; returns how many were written (inserted or, with "replace", updated). */
+  bulkInsert(table: string, rows: Row[], options?: BulkInsertOptions): Promise<number>;
   /**
    * Runs one query from the SQL console. With `readOnly`, the database itself
    * refuses any write (read-only transaction or session) and more than one
@@ -168,6 +169,29 @@ export interface DatabaseAdapter {
   runStatement(sql: string): Promise<void>;
   openScriptSession(): Promise<ScriptSession>;
   close(): Promise<void>;
+}
+
+/**
+ * What an insert does with a row whose key is already there: fail (the default),
+ * leave the existing row as it is, or overwrite it with the inserted values.
+ */
+export type ConflictMode = "error" | "skip" | "replace";
+export const CONFLICT_MODES: ConflictMode[] = ["error", "skip", "replace"];
+
+export interface BulkInsertOptions {
+  onConflict?: ConflictMode;
+}
+
+/**
+ * The ON CONFLICT clause of PostgreSQL and SQLite (same syntax). Replacing needs the
+ * primary key to aim at: a table without one only gets its conflicting rows skipped.
+ */
+export function onConflictClause(meta: TableMeta, cols: string[], mode: ConflictMode, quote: (ident: string) => string): string {
+  if (mode === "error") return "";
+  const pk = meta.columns.filter((c) => c.isPrimaryKey).map((c) => c.name);
+  const updated = cols.filter((c) => !pk.includes(c));
+  if (mode === "skip" || pk.length === 0 || updated.length === 0) return " ON CONFLICT DO NOTHING";
+  return ` ON CONFLICT (${pk.map(quote).join(", ")}) DO UPDATE SET ${updated.map((c) => `${quote(c)} = excluded.${quote(c)}`).join(", ")}`;
 }
 
 export interface DropTablesOptions {
